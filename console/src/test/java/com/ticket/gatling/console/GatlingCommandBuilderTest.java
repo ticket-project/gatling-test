@@ -1,0 +1,90 @@
+package com.ticket.gatling.console;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class GatlingCommandBuilderTest {
+
+    @Test
+    void buildsTicketServerCapacityCommandWithSyntheticAdmissionTokenDefaults() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("ticket-server-capacity"),
+                "seatIds", List.of("1,2,3"),
+                "admissionTokenMode", List.of("synthetic"),
+                "admissionTokenIssuer", List.of("ticket-queue"),
+                "admissionTokenAudience", List.of("ticket-api"),
+                "admissionTokenSecret", List.of("0123456789abcdef0123456789abcdef"),
+                "admissionTokenTtlSeconds", List.of("300")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("com.ticket.loadtest.simulation.TicketServerCapacitySimulation"));
+        assertTrue(command.contains("-DseatIds=1,2,3"));
+        assertTrue(command.contains("-DadmissionTokenMode=synthetic"));
+        assertTrue(command.contains("-DadmissionTokenIssuer=ticket-queue"));
+        assertTrue(command.contains("-DadmissionTokenAudience=ticket-api"));
+        assertTrue(command.contains("-DadmissionTokenSecret=0123456789abcdef0123456789abcdef"));
+        assertTrue(command.contains("-DadmissionTokenTtlSeconds=300"));
+    }
+
+    @Test
+    void passesManualAdmissionTokensWhenConfigured() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("hold-race"),
+                "admissionTokenMode", List.of("tokens"),
+                "admissionTokens", List.of("adm-1,adm-2")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("-DadmissionTokenMode=tokens"));
+        assertTrue(command.contains("-DadmissionTokens=adm-1,adm-2"));
+    }
+
+    @Test
+    void buildsLegacyQueueStatusCommandWithPollingOptions() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("legacy-queue-status"),
+                "baseUrl", List.of("http://localhost:8090"),
+                "performanceId", List.of("13669679"),
+                "statusPolls", List.of("20"),
+                "statusPollPauseSeconds", List.of("0")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("com.ticket.loadtest.simulation.LegacyQueueStatusSimulation"));
+        assertTrue(command.contains("-DbaseUrl=http://localhost:8090"));
+        assertTrue(command.contains("-DperformanceId=13669679"));
+        assertTrue(command.contains("-DstatusPolls=20"));
+        assertTrue(command.contains("-DstatusPollPauseSeconds=0"));
+    }
+
+    @Test
+    void buildsCdnPublicStateCommandWithPollingOptions() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("cdn-public-state"),
+                "baseUrl", List.of("https://queue.example.com"),
+                "performanceId", List.of("13669679"),
+                "statusPolls", List.of("20"),
+                "statusPollPauseSeconds", List.of("0")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("com.ticket.loadtest.simulation.CdnPublicStateSimulation"));
+        assertTrue(command.contains("-DbaseUrl=https://queue.example.com"));
+        assertTrue(command.contains("-DperformanceId=13669679"));
+        assertTrue(command.contains("-DstatusPolls=20"));
+        assertTrue(command.contains("-DstatusPollPauseSeconds=0"));
+    }
+}

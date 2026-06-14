@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ticket Gatling Console</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef2f7;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --line: #d7dee8;
+      --line-strong: #b8c3d1;
+      --text: #17202c;
+      --muted: #66758a;
+      --blue: #1d4ed8;
+      --blue-soft: #e8f0ff;
+      --green: #067647;
+      --green-soft: #e7f6ee;
+      --red: #b42318;
+      --red-soft: #fdebea;
+      --amber: #b54708;
+      --amber-soft: #fff4e5;
+      --code: #111827;
+      --code-text: #d8dee9;
+      --shadow: 0 14px 32px rgba(15, 23, 42, .08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 64px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 720;
+      letter-spacing: 0;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface-soft);
+      font-weight: 650;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(400px, 520px) minmax(560px, 1fr);
+      gap: 18px;
+      padding: 18px 24px 24px;
+    }
+
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 52px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 720;
+      letter-spacing: 0;
+    }
+
+    form {
+      padding: 14px 16px 16px;
+    }
+
+    fieldset {
+      margin: 0;
+      padding: 16px 0;
+      border: 0;
+      border-top: 1px solid var(--line);
+    }
+
+    fieldset:first-of-type {
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    legend {
+      padding: 0 0 2px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 720;
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 10px 0 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .help-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 800;
+      cursor: help;
+      flex: 0 0 auto;
+    }
+
+    .tooltip {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 1000;
+      width: min(340px, calc(100vw - 24px));
+      padding: 10px 11px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #111827;
+      color: #f8fafc;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.5;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(4px);
+      transition: opacity .12s ease, transform .12s ease;
+      white-space: normal;
+    }
+
+    .tooltip.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    input, select, textarea {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      padding: 7px 9px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      outline: none;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .14);
+    }
+
+    textarea {
+      min-height: 72px;
+      resize: vertical;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .preset-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 4px 0 12px;
+    }
+
+    button {
+      min-height: 36px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 0 12px;
+      background: var(--blue);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .58;
+      cursor: wait;
+    }
+
+    .secondary-button {
+      border-color: var(--line-strong);
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .run-button {
+      width: 100%;
+      min-height: 42px;
+      margin-top: 4px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-soft);
+    }
+
+    .metric {
+      min-width: 0;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .metric-value {
+      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 16px;
+      font-weight: 760;
+    }
+
+    .content-area {
+      padding: 14px 16px 16px;
+    }
+
+    .url-strip {
+      display: grid;
+      grid-template-columns: 86px minmax(0, 1fr) 72px;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .url-strip span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .url-strip input {
+      min-height: 32px;
+      font-size: 12px;
+    }
+
+    .url-strip button {
+      min-height: 32px;
+      padding: 0 8px;
+    }
+
+    .api-preview {
+      margin-bottom: 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .api-preview-title {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .api-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .api-item {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      min-height: 30px;
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface-soft);
+    }
+
+    .method {
+      display: inline-flex;
+      justify-content: center;
+      min-height: 22px;
+      padding: 3px 6px;
+      border-radius: 5px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .api-url {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-family: Consolas, "Segoe UI Mono", monospace;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    tr[data-id] {
+      cursor: pointer;
+    }
+
+    tr[data-id]:hover {
+      background: var(--surface-soft);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .badge-RUNNING {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .badge-SUCCEEDED {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .badge-FAILED {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .report-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 6px;
+      background: var(--green-soft);
+      color: var(--green);
+      font-weight: 750;
+      text-decoration: none;
+    }
+
+    .report-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .log-toolbar span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .empty-link {
+      color: var(--muted);
+    }
+
+    pre {
+      min-height: 360px;
+      max-height: 56vh;
+      overflow: auto;
+      margin: 14px 0 0;
+      padding: 14px;
+      border: 1px solid #263244;
+      border-radius: 8px;
+      background: var(--code);
+      color: var(--code-text);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 1040px) {
+      main {
+        grid-template-columns: 1fr;
+        padding: 14px;
+      }
+      .summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 14px;
+      }
+      .grid-2, .grid-3, .preset-row {
+        grid-template-columns: 1fr;
+      }
+      .summary {
+        grid-template-columns: 1fr;
+      }
+      .url-strip {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+<div id="tooltip" class="tooltip" role="tooltip"></div>
+<header>
+  <h1>Ticket Gatling Console</h1>
+  <div class="header-actions">
+    <span id="serverState" class="status-pill">대기 중</span>
+    <span>localhost:9090</span>
+  </div>
+</header>
+
+<main>
+  <section class="panel">
+    <div class="panel-header">
+      <h2>테스트 설정</h2>
+      <button id="resetButton" class="secondary-button" type="button">초기화</button>
+    </div>
+
+    <form id="runForm">
+      <fieldset>
+        <legend>빠른 설정</legend>
+        <div class="preset-row">
+          <button class="secondary-button" type="button" data-preset="smoke">Smoke</button>
+          <button class="secondary-button" type="button" data-preset="spike">Spike</button>
+          <button class="secondary-button" type="button" data-preset="ramp">Ramp</button>
+        </div>
+
+        <label for="simulation">테스트 종류 <span class="help-chip" tabindex="0" data-help="실행할 Gatling 시나리오입니다. 대기열 진입, 예매 오픈 흐름, 홀드 경합, 티켓 서버 용량 테스트를 선택합니다.">?</span></label>
+        <select id="simulation" name="simulation"></select>
+      </fieldset>
+
+      <fieldset>
+        <legend>대상</legend>
+        <label for="ticketProjectPath">Ticket 프로젝트 경로 <span class="help-chip" tabindex="0" data-help="Gatling 프로젝트가 들어 있는 ticket 저장소 경로입니다. 콘솔은 이 경로의 gradlew.bat을 실행해서 load-tests/gatling을 돌립니다.">?</span></label>
+        <input id="ticketProjectPath" name="ticketProjectPath" value="C:\Users\mn040\IdeaProjects\ticket-workspace\ticket">
+
+        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 Spring Boot API 서버 주소입니다. 로컬 IntelliJ로 서버를 띄웠다면 보통 http://localhost:8080 입니다.">?</span></label>
+        <input id="baseUrl" name="baseUrl" value="http://localhost:8080">
+
+        <div class="grid-2">
+          <div>
+            <label for="performanceId">회차 ID <span class="help-chip" tabindex="0" data-help="테스트할 공연 회차의 ID입니다. 대기열, 좌석 상태, 홀드 API 경로에 들어갑니다. 로컬 seed 데이터에 실제 존재해야 합니다.">?</span></label>
+            <input id="performanceId" name="performanceId" value="1">
+          </div>
+          <div data-option="seat">
+            <label for="seatIds">좌석 ID <span class="help-chip" tabindex="0" data-help="홀드를 시도할 좌석 ID 목록입니다. 여러 개면 쉼표로 입력합니다. 예: 1,2,3. 같은 좌석 하나만 넣으면 동시성 경합 테스트가 됩니다.">?</span></label>
+            <input id="seatIds" name="seatIds" value="1">
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>부하 모델</legend>
+        <label for="injectionMode">주입 방식 <span class="help-chip" tabindex="0" data-help="가상 사용자를 어떤 패턴으로 투입할지 정합니다. 점진 투입은 users명을 duration 동안 나눠 넣고, 즉시 투입은 users명을 한 번에 시작합니다. 초당 고정/증가는 users per second 기준입니다.">?</span></label>
+        <select id="injectionMode" name="injectionMode">
+          <option value="ramp-users">점진 사용자 투입</option>
+          <option value="at-once-users">즉시 동시 투입</option>
+          <option value="constant-users-per-sec">초당 고정 투입</option>
+          <option value="ramp-users-per-sec">초당 증가 투입</option>
+        </select>
+
+        <div class="grid-2">
+          <div>
+            <label for="users">사용자 수 <span class="help-chip" tabindex="0" data-help="Gatling 가상 사용자 수입니다. 자동 로그인 모드에서는 이 수만큼 loadtest 계정으로 accessToken을 미리 발급합니다. seed 회원 수보다 크면 안 됩니다.">?</span></label>
+            <input id="users" name="users" type="number" min="1" value="10">
+          </div>
+          <div data-injection="duration">
+            <label for="durationSeconds">투입 시간(초) <span class="help-chip" tabindex="0" data-help="가상 사용자를 투입하는 시간입니다. 예를 들어 users=50, duration=10이면 10초 동안 50명을 나눠 투입합니다. 즉시 동시 투입에서는 의미가 작습니다.">?</span></label>
+            <input id="durationSeconds" name="durationSeconds" type="number" min="1" value="10">
+          </div>
+        </div>
+
+        <div class="grid-2" data-injection="rate">
+          <div>
+            <label for="usersPerSecond">시작 초당 사용자 수 <span class="help-chip" tabindex="0" data-help="1초에 새로 시작시키는 사용자 수입니다. 3이면 매초 3명의 새 가상 사용자가 들어옵니다. constant 모드에서는 이 값으로 계속 유지합니다.">?</span></label>
+            <input id="usersPerSecond" name="usersPerSecond" type="number" min="0.1" step="0.1" value="1">
+          </div>
+          <div data-injection="target-rate">
+            <label for="targetUsersPerSecond">목표 초당 사용자 수 <span class="help-chip" tabindex="0" data-help="ramp users/sec 모드에서 마지막에 도달할 초당 사용자 수입니다. 시작 1, 목표 10, 시간 30초라면 30초 동안 초당 1명에서 10명까지 점진 증가합니다.">?</span></label>
+            <input id="targetUsersPerSecond" name="targetUsersPerSecond" type="number" min="0.1" step="0.1" value="10">
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset data-option="access-token">
+        <legend>로그인 토큰</legend>
+        <label for="accessTokenMode">토큰 모드 <span class="help-chip" tabindex="0" data-help="자동 로그인은 seed 회원으로 로그인해서 토큰을 받고, 직접 입력은 textarea의 토큰을 그대로 씁니다. 테스트 JWT 생성은 로그인과 회원 seed 없이 memberId가 다른 JWT를 Gatling이 직접 만듭니다.">?</span></label>
+        <select id="accessTokenMode" name="accessTokenMode">
+          <option value="login">자동 로그인</option>
+          <option value="tokens">직접 입력</option>
+          <option value="synthetic-jwt">테스트 JWT 생성</option>
+        </select>
+
+        <div class="grid-3" data-token-mode="login">
+          <div>
+            <label for="loginEmailPrefix">이메일 Prefix <span class="help-chip" tabindex="0" data-help="테스트 회원 이메일의 앞부분입니다. prefix=loadtest, 시작 번호=1이면 loadtest1@test.com부터 사용합니다.">?</span></label>
+            <input id="loginEmailPrefix" name="loginEmailPrefix" value="loadtest">
+          </div>
+          <div>
+            <label for="loginEmailDomain">이메일 Domain <span class="help-chip" tabindex="0" data-help="테스트 회원 이메일의 도메인입니다. 기본값 test.com이면 loadtest1@test.com 형태가 됩니다.">?</span></label>
+            <input id="loginEmailDomain" name="loginEmailDomain" value="test.com">
+          </div>
+          <div>
+            <label for="loginStartIndex">시작 번호 <span class="help-chip" tabindex="0" data-help="자동 로그인에 사용할 첫 회원 번호입니다. 시작 번호=11, users=10이면 loadtest11부터 loadtest20까지 로그인합니다.">?</span></label>
+            <input id="loginStartIndex" name="loginStartIndex" type="number" min="1" value="1">
+          </div>
+        </div>
+
+        <div class="grid-3" data-token-mode="login">
+          <div>
+            <label for="loginPassword">비밀번호 <span class="help-chip" tabindex="0" data-help="seed 테스트 회원들의 비밀번호입니다. 기본 seed 설정에서는 password1234입니다. 실행 로그에는 마스킹됩니다.">?</span></label>
+            <input id="loginPassword" name="loginPassword" type="password" value="password1234">
+          </div>
+          <div>
+            <label for="loginTimeoutSeconds">로그인 Timeout(초) <span class="help-chip" tabindex="0" data-help="토큰 준비 단계에서 로그인 요청 하나가 이 시간 안에 끝나지 않으면 실패로 봅니다. 서버가 느리면 조금 늘릴 수 있습니다.">?</span></label>
+            <input id="loginTimeoutSeconds" name="loginTimeoutSeconds" type="number" min="1" value="5">
+          </div>
+          <div>
+            <label for="seedMemberCount">Seed 회원 수 <span class="help-chip" tabindex="0" data-help="현재 로컬 서버에 생성된 loadtest 회원 수입니다. 기본값은 100명입니다. 자동 로그인 모드에서 사용자 수가 이 값을 넘으면 시작 전에 막습니다.">?</span></label>
+            <input id="seedMemberCount" name="seedMemberCount" type="number" min="1" value="100">
+          </div>
+        </div>
+
+        <div data-token-mode="synthetic-jwt" class="hidden">
+          <div class="grid-2">
+            <div>
+              <label for="jwtSecret">JWT Secret <span class="help-chip" tabindex="0" data-help="테스트 JWT 생성 모드에서는 고정된 JWT_SECRET 값을 사용합니다. HS256 기준 32바이트 이상이며 실행 로그에는 마스킹됩니다.">?</span></label>
+              <input id="jwtSecret" name="jwtSecret" type="password" value="0123456789abcdef0123456789abcdef" readonly autocomplete="off">
+            </div>
+            <div>
+              <label for="jwtIssuer">JWT Issuer <span class="help-chip" tabindex="0" data-help="서버 설정 security.jwt.issuer와 같아야 합니다. 현재 기본값은 ticket입니다.">?</span></label>
+              <input id="jwtIssuer" name="jwtIssuer" value="ticket">
+            </div>
+          </div>
+          <div class="grid-3">
+            <div>
+              <label for="syntheticMemberStartId">Member 시작 ID <span class="help-chip" tabindex="0" data-help="생성할 JWT의 첫 sub 값입니다. 시작 ID=1001, 사용자 수=100이면 sub 1001부터 1100까지 생성합니다.">?</span></label>
+              <input id="syntheticMemberStartId" name="syntheticMemberStartId" type="number" min="1" value="1">
+            </div>
+            <div>
+              <label for="syntheticJwtRole">Role <span class="help-chip" tabindex="0" data-help="JWT role claim입니다. 일반 회원 트래픽이면 MEMBER를 사용합니다.">?</span></label>
+              <input id="syntheticJwtRole" name="syntheticJwtRole" value="MEMBER">
+            </div>
+            <div>
+              <label for="syntheticTokenTtlSeconds">토큰 TTL(초) <span class="help-chip" tabindex="0" data-help="테스트 JWT 만료 시간입니다. 긴 부하 테스트라면 테스트 시간보다 충분히 크게 잡습니다.">?</span></label>
+              <input id="syntheticTokenTtlSeconds" name="syntheticTokenTtlSeconds" type="number" min="1" value="3600">
+            </div>
+          </div>
+        </div>
+
+        <div data-token-mode="tokens" class="hidden">
+          <label for="accessTokens">Access Token 목록 <span class="help-chip" tabindex="0" data-help="직접 발급한 JWT를 쉼표로 넣으면 자동 로그인을 하지 않고 이 토큰들을 사용합니다.">?</span></label>
+          <textarea id="accessTokens" name="accessTokens" placeholder="jwt-1,jwt-2,jwt-3"></textarea>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>시나리오</legend>
+        <div class="grid-2" data-option="poll">
+          <div>
+            <label for="statusPolls">상태 조회 횟수 <span class="help-chip" tabindex="0" data-help="예매 오픈 흐름에서 대기열 진입 후 아직 입장 토큰이 없을 때 status API를 몇 번 조회할지 정합니다.">?</span></label>
+            <input id="statusPolls" name="statusPolls" type="number" min="0" value="3">
+          </div>
+          <div>
+            <label for="statusPollPauseSeconds">조회 간격(초) <span class="help-chip" tabindex="0" data-help="status API를 반복 조회할 때 각 조회 사이에 쉬는 시간입니다. 너무 짧으면 polling 부하가 커집니다.">?</span></label>
+            <input id="statusPollPauseSeconds" name="statusPollPauseSeconds" type="number" min="0" value="1">
+          </div>
+        </div>
+
+        <div data-option="admission-token">
+          <label for="admissionTokenMode">Admission Token 모드 <span class="help-chip" tabindex="0" data-help="X-Admission-Token 준비 방식입니다. 합성 모드는 accessToken의 memberId와 performanceId로 테스트용 admission token을 생성하고, 직접 입력은 Queue Server에서 받은 admission token 목록을 그대로 사용합니다.">?</span></label>
+          <select id="admissionTokenMode" name="admissionTokenMode">
+            <option value="synthetic">합성 생성</option>
+            <option value="tokens">직접 입력</option>
+          </select>
+
+          <div class="grid-2" data-admission-token-mode="synthetic">
+            <div>
+              <label for="admissionTokenIssuer">Admission Issuer <span class="help-chip" tabindex="0" data-help="Ticket Server의 security.admission.issuer와 같아야 합니다. 기본값은 ticket-queue입니다.">?</span></label>
+              <input id="admissionTokenIssuer" name="admissionTokenIssuer" value="ticket-queue">
+            </div>
+            <div>
+              <label for="admissionTokenAudience">Admission Audience <span class="help-chip" tabindex="0" data-help="Ticket Server의 security.admission.audience와 같아야 합니다. 기본값은 ticket-api입니다.">?</span></label>
+              <input id="admissionTokenAudience" name="admissionTokenAudience" value="ticket-api">
+            </div>
+          </div>
+
+          <div class="grid-2" data-admission-token-mode="synthetic">
+            <div>
+              <label for="admissionTokenSecret">Admission Secret <span class="help-chip" tabindex="0" data-help="Ticket Server의 ADMISSION_TOKEN_SECRET_KEY와 같은 HS256 secret입니다. 실행 로그에는 마스킹됩니다.">?</span></label>
+              <input id="admissionTokenSecret" name="admissionTokenSecret" type="password" value="0123456789abcdef0123456789abcdef" autocomplete="off">
+            </div>
+            <div>
+              <label for="admissionTokenTtlSeconds">Admission TTL(초) <span class="help-chip" tabindex="0" data-help="합성 admission token 만료 시간입니다. 부하 테스트 시간보다 충분히 크게 잡습니다.">?</span></label>
+              <input id="admissionTokenTtlSeconds" name="admissionTokenTtlSeconds" type="number" min="1" value="300">
+            </div>
+          </div>
+
+          <div data-admission-token-mode="tokens" class="hidden">
+            <label for="admissionTokens">Admission Token 목록 <span class="help-chip" tabindex="0" data-help="Queue Server가 발급한 admission token을 쉼표로 입력합니다. 같은 순서의 access token과 memberId/performanceId가 일치해야 합니다.">?</span></label>
+            <textarea id="admissionTokens" name="admissionTokens" placeholder="admission-token-1,admission-token-2"></textarea>
+          </div>
+        </div>
+      </fieldset>
+
+      <button id="runButton" class="run-button" type="submit">실행</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>실행 결과</h2>
+      <button id="refreshButton" class="secondary-button" type="button">새로고침</button>
+    </div>
+
+    <div class="summary">
+      <div class="metric">
+        <div class="metric-label">선택 테스트</div>
+        <div id="summarySimulation" class="metric-value">-</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">사용자</div>
+        <div id="summaryUsers" class="metric-value">10</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">주입</div>
+        <div id="summaryInjection" class="metric-value">점진</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">상태</div>
+        <div id="summaryStatus" class="metric-value">대기</div>
+      </div>
+    </div>
+
+    <div class="content-area">
+      <div class="api-preview">
+        <div class="api-preview-title">호출 API</div>
+        <ul id="apiPreview" class="api-list"></ul>
+      </div>
+
+      <div class="url-strip">
+        <span>리포트 URL</span>
+        <input id="reportUrl" readonly value="-">
+        <button id="copyReportUrl" class="secondary-button" type="button">복사</button>
+      </div>
+      <div class="url-strip">
+        <span>로컬 리포트 경로</span>
+        <input id="reportPath" readonly value="-">
+        <div class="report-actions">
+          <button id="copyReportPath" class="secondary-button" type="button">경로 복사</button>
+          <button id="openReport" class="secondary-button" type="button">열기</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+        <tr>
+          <th style="width: 34%">테스트</th>
+          <th style="width: 20%">상태</th>
+          <th style="width: 16%">시작 시간</th>
+          <th style="width: 14%">종료 코드</th>
+          <th style="width: 16%">리포트</th>
+        </tr>
+        </thead>
+        <tbody id="runs"></tbody>
+      </table>
+      <div class="log-toolbar">
+        <span>Gatling 콘솔 출력</span>
+        <button id="copyLog" class="secondary-button" type="button">전체 복사</button>
+      </div>
+      <pre id="log">아직 실행된 테스트가 없습니다.</pre>
+    </div>
+  </section>
+</main>
+
+<script>
+const form = document.querySelector('#runForm');
+const runButton = document.querySelector('#runButton');
+const resetButton = document.querySelector('#resetButton');
+const refreshButton = document.querySelector('#refreshButton');
+const simulationSelect = document.querySelector('#simulation');
+const injectionMode = document.querySelector('#injectionMode');
+const accessTokenMode = document.querySelector('#accessTokenMode');
+const runsBody = document.querySelector('#runs');
+const logView = document.querySelector('#log');
+const serverState = document.querySelector('#serverState');
+const reportUrlInput = document.querySelector('#reportUrl');
+const reportPathInput = document.querySelector('#reportPath');
+const copyReportUrlButton = document.querySelector('#copyReportUrl');
+const copyReportPathButton = document.querySelector('#copyReportPath');
+const openReportButton = document.querySelector('#openReport');
+const apiPreview = document.querySelector('#apiPreview');
+const tooltip = document.querySelector('#tooltip');
+const copyLogButton = document.querySelector('#copyLog');
+const admissionTokenMode = document.querySelector('#admissionTokenMode');
+let selectedRunId = null;
+let polling = null;
+let simulationMeta = [];
+
+const presets = {
+  smoke: { users: 5, durationSeconds: 10, injectionMode: 'ramp-users', usersPerSecond: 1, targetUsersPerSecond: 5 },
+  spike: { users: 30, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 10 },
+  ramp: { users: 50, durationSeconds: 30, injectionMode: 'ramp-users-per-sec', usersPerSecond: 1, targetUsersPerSecond: 10 }
+};
+
+async function loadSimulations() {
+  const response = await fetch('/api/simulations');
+  simulationMeta = await response.json();
+  simulationSelect.innerHTML = simulationMeta
+    .map(item => `<option value="${item.key}">${item.label}</option>`)
+    .join('');
+  updateVisibility();
+  updateSummary();
+}
+
+async function startRun(event) {
+  event.preventDefault();
+  runButton.disabled = true;
+  serverState.textContent = '실행 중';
+  const body = new URLSearchParams(new FormData(form));
+  const validationError = validateBeforeRun(body);
+  if (validationError) {
+    runButton.disabled = false;
+    logView.textContent = validationError;
+    return;
+  }
+  const response = await fetch('/api/runs', { method: 'POST', body });
+  const data = await response.json();
+  if (!response.ok) {
+    runButton.disabled = false;
+    serverState.textContent = '대기 중';
+    logView.textContent = data.error || '실행 시작 실패';
+    return;
+  }
+  selectedRunId = data.id;
+  await refreshRuns();
+  watchRun(data.id);
+}
+
+async function refreshRuns() {
+  const response = await fetch('/api/runs');
+  const runs = await response.json();
+  runsBody.innerHTML = runs.map(run => {
+    const report = run.reportUrl ? `<a class="report-link" href="${run.reportUrl}" target="_blank" rel="noreferrer">열기</a>` : '<span class="empty-link">-</span>';
+    return `<tr data-id="${run.id}">
+      <td>${escapeHtml(run.simulation)}</td>
+      <td><span class="badge badge-${run.status}">${run.status}</span></td>
+      <td>${formatStartedAt(run.startedAt)}</td>
+      <td>${run.exitCode}</td>
+      <td>${report}</td>
+    </tr>`;
+  }).join('');
+  document.querySelectorAll('tr[data-id]').forEach(row => {
+    row.addEventListener('click', () => watchRun(row.dataset.id));
+  });
+}
+
+async function watchRun(id) {
+  selectedRunId = id;
+  if (polling) {
+    clearInterval(polling);
+  }
+  await refreshRunDetail();
+  polling = setInterval(refreshRunDetail, 1000);
+}
+
+async function refreshRunDetail() {
+  if (!selectedRunId) return;
+  const response = await fetch(`/api/runs/${selectedRunId}`);
+  const run = await response.json();
+  logView.textContent = run.log || '';
+  logView.scrollTop = logView.scrollHeight;
+  document.querySelector('#summaryStatus').textContent = run.status;
+  reportUrlInput.value = run.reportUrl ? `${location.origin}${run.reportUrl}` : '-';
+  reportPathInput.value = run.reportPath || '-';
+  await refreshRuns();
+  if (run.status !== 'RUNNING') {
+    clearInterval(polling);
+    polling = null;
+    runButton.disabled = false;
+    serverState.textContent = '대기 중';
+  }
+}
+
+function updateVisibility() {
+  const selected = simulationMeta.find(item => item.key === simulationSelect.value);
+  const mode = injectionMode.value;
+  const tokenMode = accessTokenMode.value;
+
+  setVisible('[data-option="seat"]', selected?.usesSeatIds);
+  setVisible('[data-option="poll"]', selected?.usesStatusPolling);
+  setVisible('[data-option="access-token"]', selected?.usesAccessTokens);
+  setVisible('[data-option="admission-token"]', selected?.usesAdmissionTokens);
+  setVisible('[data-injection="duration"]', mode !== 'at-once-users');
+  setVisible('[data-injection="rate"]', mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec');
+  setVisible('[data-injection="target-rate"]', mode === 'ramp-users-per-sec');
+  setVisible('[data-token-mode="login"]', tokenMode === 'login');
+  setVisible('[data-token-mode="tokens"]', tokenMode === 'tokens');
+  setVisible('[data-token-mode="synthetic-jwt"]', tokenMode === 'synthetic-jwt');
+  setVisible('[data-admission-token-mode="synthetic"]', selected?.usesAdmissionTokens && admissionTokenMode.value === 'synthetic');
+  setVisible('[data-admission-token-mode="tokens"]', selected?.usesAdmissionTokens && admissionTokenMode.value === 'tokens');
+}
+
+function setVisible(selector, visible) {
+  document.querySelectorAll(selector).forEach(element => {
+    element.classList.toggle('hidden', !visible);
+  });
+}
+
+function updateSummary() {
+  const selected = simulationMeta.find(item => item.key === simulationSelect.value);
+  document.querySelector('#summarySimulation').textContent = selected?.label || '-';
+  document.querySelector('#summaryUsers').textContent = String(estimateVirtualUsers(new URLSearchParams(new FormData(form))));
+  document.querySelector('#summaryInjection').textContent = injectionMode.options[injectionMode.selectedIndex]?.text || '-';
+  updateApiPreview();
+}
+
+function validateBeforeRun(body) {
+  const selected = simulationMeta.find(item => item.key === simulationSelect.value);
+  const mode = String(body.get('accessTokenMode') || 'login');
+  const accessTokens = String(body.get('accessTokens') || '').trim();
+  const admissionMode = String(body.get('admissionTokenMode') || 'synthetic');
+  const admissionTokens = String(body.get('admissionTokens') || '').trim();
+
+  if (selected?.usesAdmissionTokens) {
+    if (admissionMode === 'tokens' && !admissionTokens) {
+      return '직접 입력 모드에서는 Admission Token 목록을 하나 이상 입력해야 합니다.';
+    }
+    if (admissionMode === 'synthetic') {
+      const admissionSecret = String(body.get('admissionTokenSecret') || '').trim();
+      if (new TextEncoder().encode(admissionSecret).length < 32) {
+        return 'Admission Token 합성 생성 모드에서는 Ticket Server와 같은 Admission Secret을 32바이트 이상으로 입력해야 합니다.';
+      }
+    }
+  }
+
+  if (!selected?.usesAccessTokens) return '';
+  if (accessTokens) return '';
+  if (mode === 'tokens') {
+    return '직접 입력 모드에서는 Access Token 목록을 하나 이상 입력해야 합니다.';
+  }
+  if (mode === 'synthetic-jwt') {
+    const secret = String(body.get('jwtSecret') || '').trim();
+    if (new TextEncoder().encode(secret).length < 32) {
+      return '테스트 JWT 생성 모드에서는 ticket 서버와 같은 JWT Secret을 32바이트 이상으로 입력해야 합니다.';
+    }
+    return '';
+  }
+
+  const users = estimateVirtualUsers(body);
+  const startIndex = Number(body.get('loginStartIndex') || 1);
+  const seedMemberCount = Number(body.get('seedMemberCount') || 100);
+  const lastMemberNo = startIndex + users - 1;
+  if (lastMemberNo > seedMemberCount) {
+    return [
+      `자동 로그인에 필요한 테스트 회원이 부족합니다.`,
+      `요청 범위: loadtest${startIndex} ~ loadtest${lastMemberNo}`,
+      `현재 Seed 회원 수: ${seedMemberCount}`,
+      ``,
+      `해결 방법:`,
+      `1. 사용자 수를 ${Math.max(1, seedMemberCount - startIndex + 1)} 이하로 낮추기`,
+      `2. 또는 ticket 서버 설정 app.seed.load-test-members.count를 ${lastMemberNo} 이상으로 늘린 뒤 서버 재시작`,
+      `3. 또는 Access Token 목록에 직접 토큰을 넣기`
+    ].join('\n');
+  }
+  return '';
+}
+
+function estimateVirtualUsers(body) {
+  const mode = String(body.get('injectionMode') || 'ramp-users');
+  const users = Number(body.get('users') || 0);
+  const duration = Number(body.get('durationSeconds') || 0);
+  const usersPerSecond = Number(body.get('usersPerSecond') || 0);
+  const targetUsersPerSecond = Number(body.get('targetUsersPerSecond') || 0);
+
+  if (mode === 'constant-users-per-sec') {
+    return Math.ceil(usersPerSecond * duration);
+  }
+  if (mode === 'ramp-users-per-sec') {
+    return Math.ceil(((usersPerSecond + targetUsersPerSecond) / 2) * duration);
+  }
+  return users;
+}
+
+function updateApiPreview() {
+  const baseUrl = trimTrailingSlash(document.querySelector('#baseUrl').value || 'http://localhost:8080');
+  const performanceId = document.querySelector('#performanceId').value || '1';
+  const simulation = simulationSelect.value;
+  const queueBase = `${baseUrl}/api/v1/queue/performances/${performanceId}`;
+  const performanceBase = `${baseUrl}/api/v1/performances/${performanceId}`;
+  const apis = {
+    'queue-enter': [
+      ['POST', `${queueBase}/enter`]
+    ],
+    'legacy-queue-status': [
+      ['GET', `${queueBase}/status`]
+    ],
+    'cdn-public-state': [
+      ['GET', `${baseUrl}/queue-state/performances/${performanceId}.json`]
+    ],
+    'ticket-open-flow': [
+      ['POST', `${queueBase}/enter`],
+      ['GET', `${queueBase}/status`],
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${baseUrl}/api/v1/orders`]
+    ],
+    'hold-race': [
+      ['POST', `${baseUrl}/api/v1/orders`]
+    ],
+    'ticket-server-capacity': [
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${baseUrl}/api/v1/orders`]
+    ]
+  }[simulation] || [];
+
+  apiPreview.innerHTML = apis.map(([method, url]) => `
+    <li class="api-item">
+      <span class="method">${method}</span>
+      <span class="api-url" title="${escapeHtml(url)}">${escapeHtml(url)}</span>
+    </li>
+  `).join('');
+}
+
+function applyPreset(name) {
+  const preset = presets[name];
+  Object.entries(preset).forEach(([key, value]) => {
+    const input = document.querySelector(`[name="${key}"]`);
+    if (input) input.value = value;
+  });
+  updateVisibility();
+  updateSummary();
+}
+
+function resetForm() {
+  form.reset();
+  updateVisibility();
+  updateSummary();
+}
+
+function trimTrailingSlash(value) {
+  return value.replace(/\/+$/, '');
+}
+
+function formatStartedAt(startedAt) {
+  if (!startedAt) return '-';
+  const date = new Date(startedAt);
+  if (Number.isNaN(date.getTime())) return '-';
+  const pad = value => String(value).padStart(2, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function showTooltip(target) {
+  const text = target.dataset.help;
+  if (!text) return;
+  tooltip.textContent = text;
+  tooltip.classList.add('visible');
+
+  const rect = target.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const margin = 12;
+  const preferredLeft = rect.left + rect.width / 2 - tooltipRect.width / 2;
+  const left = Math.max(margin, Math.min(preferredLeft, window.innerWidth - tooltipRect.width - margin));
+  const above = rect.top - tooltipRect.height - 10;
+  const top = above >= margin ? above : rect.bottom + 10;
+
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${Math.min(top, window.innerHeight - tooltipRect.height - margin)}px`;
+}
+
+function hideTooltip() {
+  tooltip.classList.remove('visible');
+}
+
+form.addEventListener('submit', startRun);
+form.addEventListener('input', updateSummary);
+simulationSelect.addEventListener('change', () => { updateVisibility(); updateSummary(); });
+injectionMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
+accessTokenMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
+admissionTokenMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
+resetButton.addEventListener('click', resetForm);
+refreshButton.addEventListener('click', refreshRuns);
+copyReportUrlButton.addEventListener('click', async () => {
+  if (!reportUrlInput.value || reportUrlInput.value === '-') return;
+  await navigator.clipboard.writeText(reportUrlInput.value);
+});
+copyReportPathButton.addEventListener('click', async () => {
+  if (!reportPathInput.value || reportPathInput.value === '-') return;
+  await navigator.clipboard.writeText(reportPathInput.value);
+});
+openReportButton.addEventListener('click', async () => {
+  if (!selectedRunId || !reportPathInput.value || reportPathInput.value === '-') return;
+  const response = await fetch(`/api/runs/${selectedRunId}/open-report-folder`, { method: 'POST' });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    logView.textContent = data.error || '로컬 리포트 폴더 열기에 실패했습니다.';
+  }
+});
+copyLogButton.addEventListener('click', async () => {
+  await navigator.clipboard.writeText(logView.textContent || '');
+});
+document.querySelectorAll('[data-preset]').forEach(button => {
+  button.addEventListener('click', () => applyPreset(button.dataset.preset));
+});
+document.querySelectorAll('.help-chip').forEach(chip => {
+  chip.addEventListener('mouseenter', () => showTooltip(chip));
+  chip.addEventListener('focus', () => showTooltip(chip));
+  chip.addEventListener('mouseleave', hideTooltip);
+  chip.addEventListener('blur', hideTooltip);
+});
+window.addEventListener('scroll', hideTooltip, true);
+window.addEventListener('resize', hideTooltip);
+
+loadSimulations().then(refreshRuns);
+</script>
+</body>
+</html>
