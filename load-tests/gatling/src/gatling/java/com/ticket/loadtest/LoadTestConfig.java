@@ -305,7 +305,7 @@ public final class LoadTestConfig {
 
         private String defaultValue() {
             return switch (this) {
-                case BASE_URL -> "http://localhost:8080";
+                case BASE_URL -> "http://52.237.82.8:18090/legacy-queue";
                 case PERFORMANCE_ID -> "1";
                 case STATUS_POLLS -> "3";
                 case STATUS_POLL_PAUSE_SECONDS -> "1";

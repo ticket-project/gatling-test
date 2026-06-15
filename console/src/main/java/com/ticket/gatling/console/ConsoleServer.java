@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Executors;
 
 public class ConsoleServer {
     private final HttpServer server;
@@ -31,6 +32,7 @@ public class ConsoleServer {
         this.reportRegistry = reportRegistry;
         this.localFolderOpener = new LocalFolderOpener();
         server.createContext("/", this::handle);
+        server.setExecutor(Executors.newCachedThreadPool());
     }
 
     public void start() {
@@ -70,6 +72,7 @@ public class ConsoleServer {
                 .map(type -> "{"
                         + "\"key\":\"" + type.key() + "\","
                         + "\"label\":\"" + Json.escape(type.label()) + "\","
+                        + "\"defaultBaseUrl\":\"" + Json.escape(type.defaultBaseUrl()) + "\","
                         + "\"usesSeatIds\":" + type.usesSeatIds() + ","
                         + "\"usesAdmissionTokens\":" + type.usesAdmissionTokens() + ","
                         + "\"usesStatusPolling\":" + type.usesStatusPolling() + ","

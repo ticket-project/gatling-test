@@ -37,7 +37,7 @@ public record LoadTestRequest(
         String accessTokens,
         String admissionTokens
 ) {
-    private static final String DEFAULT_TICKET_PATH = "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\ticket";
+    private static final String DEFAULT_TICKET_PATH = "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test";
     private static final String SYNTHETIC_JWT_SECRET = "0123456789abcdef0123456789abcdef";
     private static final String SYNTHETIC_ADMISSION_SECRET = "0123456789abcdef0123456789abcdef";
 
@@ -64,7 +64,7 @@ public record LoadTestRequest(
             throw new IllegalArgumentException("admissionTokenTtlSeconds must be positive");
         }
         ticketProjectPath = ticketProjectPath.toAbsolutePath().normalize();
-        baseUrl = defaultIfBlank(baseUrl, "http://localhost:8080");
+        baseUrl = defaultIfBlank(baseUrl, simulationType.defaultBaseUrl());
         performanceId = defaultIfBlank(performanceId, "1");
         seatIds = defaultIfBlank(seatIds, "1");
         injectionMode = defaultIfBlank(injectionMode, "ramp-users");
@@ -89,7 +89,7 @@ public record LoadTestRequest(
         return new LoadTestRequest(
                 Path.of(value(form, "ticketProjectPath", DEFAULT_TICKET_PATH)),
                 SimulationType.fromKey(value(form, "simulation", SimulationType.QUEUE_ENTER.key())),
-                value(form, "baseUrl", "http://localhost:8080"),
+                value(form, "baseUrl", ""),
                 value(form, "performanceId", "1"),
                 value(form, "seatIds", "1"),
                 intValue(form, "users", 10),

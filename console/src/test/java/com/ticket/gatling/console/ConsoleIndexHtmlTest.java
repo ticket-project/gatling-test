@@ -15,6 +15,10 @@ class ConsoleIndexHtmlTest {
         final String html = Files.readString(Path.of("src/main/resources/static/index.html"));
 
         assertTrue(html.contains("티켓 서버 용량"));
+        assertTrue(html.contains("value=\"C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test\""));
+        assertTrue(html.contains("value=\"http://52.237.82.8:18090/legacy-queue\""));
+        assertTrue(html.contains("defaultBaseUrl"));
+        assertTrue(html.contains("applySimulationDefaultBaseUrl(); updateVisibility(); updateSummary();"));
         assertTrue(html.contains("legacy-queue-status"));
         assertTrue(html.contains("${queueBase}/status"));
         assertTrue(html.contains("cdn-public-state"));

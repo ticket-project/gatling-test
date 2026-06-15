@@ -539,10 +539,10 @@
       <fieldset>
         <legend>대상</legend>
         <label for="ticketProjectPath">Ticket 프로젝트 경로 <span class="help-chip" tabindex="0" data-help="Gatling 프로젝트가 들어 있는 ticket 저장소 경로입니다. 콘솔은 이 경로의 gradlew.bat을 실행해서 load-tests/gatling을 돌립니다.">?</span></label>
-        <input id="ticketProjectPath" name="ticketProjectPath" value="C:\Users\mn040\IdeaProjects\ticket-workspace\ticket">
+        <input id="ticketProjectPath" name="ticketProjectPath" value="C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test">
 
-        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 Spring Boot API 서버 주소입니다. 로컬 IntelliJ로 서버를 띄웠다면 보통 http://localhost:8080 입니다.">?</span></label>
-        <input id="baseUrl" name="baseUrl" value="http://localhost:8080">
+        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 Queue API 서버 주소입니다. legacy 서버는 context path까지 포함한 http://52.237.82.8:18090/legacy-queue 입니다.">?</span></label>
+        <input id="baseUrl" name="baseUrl" value="http://52.237.82.8:18090/legacy-queue">
 
         <div class="grid-2">
           <div>
@@ -796,6 +796,7 @@ const copyReportUrlButton = document.querySelector('#copyReportUrl');
 const copyReportPathButton = document.querySelector('#copyReportPath');
 const openReportButton = document.querySelector('#openReport');
 const apiPreview = document.querySelector('#apiPreview');
+const baseUrlInput = document.querySelector('#baseUrl');
 const tooltip = document.querySelector('#tooltip');
 const copyLogButton = document.querySelector('#copyLog');
 const admissionTokenMode = document.querySelector('#admissionTokenMode');
@@ -815,6 +816,7 @@ async function loadSimulations() {
   simulationSelect.innerHTML = simulationMeta
     .map(item => `<option value="${item.key}">${item.label}</option>`)
     .join('');
+  applySimulationDefaultBaseUrl();
   updateVisibility();
   updateSummary();
 }
@@ -889,7 +891,7 @@ async function refreshRunDetail() {
 }
 
 function updateVisibility() {
-  const selected = simulationMeta.find(item => item.key === simulationSelect.value);
+  const selected = selectedSimulation();
   const mode = injectionMode.value;
   const tokenMode = accessTokenMode.value;
 
@@ -914,7 +916,7 @@ function setVisible(selector, visible) {
 }
 
 function updateSummary() {
-  const selected = simulationMeta.find(item => item.key === simulationSelect.value);
+  const selected = selectedSimulation();
   document.querySelector('#summarySimulation').textContent = selected?.label || '-';
   document.querySelector('#summaryUsers').textContent = String(estimateVirtualUsers(new URLSearchParams(new FormData(form))));
   document.querySelector('#summaryInjection').textContent = injectionMode.options[injectionMode.selectedIndex]?.text || '-';
@@ -922,7 +924,7 @@ function updateSummary() {
 }
 
 function validateBeforeRun(body) {
-  const selected = simulationMeta.find(item => item.key === simulationSelect.value);
+  const selected = selectedSimulation();
   const mode = String(body.get('accessTokenMode') || 'login');
   const accessTokens = String(body.get('accessTokens') || '').trim();
   const admissionMode = String(body.get('admissionTokenMode') || 'synthetic');
@@ -989,7 +991,7 @@ function estimateVirtualUsers(body) {
 }
 
 function updateApiPreview() {
-  const baseUrl = trimTrailingSlash(document.querySelector('#baseUrl').value || 'http://localhost:8080');
+  const baseUrl = trimTrailingSlash(baseUrlInput.value || selectedSimulation()?.defaultBaseUrl || 'http://52.237.82.8:18090/legacy-queue');
   const performanceId = document.querySelector('#performanceId').value || '1';
   const simulation = simulationSelect.value;
   const queueBase = `${baseUrl}/api/v1/queue/performances/${performanceId}`;
@@ -1040,8 +1042,20 @@ function applyPreset(name) {
 
 function resetForm() {
   form.reset();
+  applySimulationDefaultBaseUrl();
   updateVisibility();
   updateSummary();
+}
+
+function selectedSimulation() {
+  return simulationMeta.find(item => item.key === simulationSelect.value);
+}
+
+function applySimulationDefaultBaseUrl() {
+  const selected = selectedSimulation();
+  if (selected?.defaultBaseUrl) {
+    baseUrlInput.value = selected.defaultBaseUrl;
+  }
 }
 
 function trimTrailingSlash(value) {
@@ -1089,7 +1103,7 @@ function hideTooltip() {
 
 form.addEventListener('submit', startRun);
 form.addEventListener('input', updateSummary);
-simulationSelect.addEventListener('change', () => { updateVisibility(); updateSummary(); });
+simulationSelect.addEventListener('change', () => { applySimulationDefaultBaseUrl(); updateVisibility(); updateSummary(); });
 injectionMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
 accessTokenMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
 admissionTokenMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });

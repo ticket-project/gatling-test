@@ -16,8 +16,8 @@
 - 실행 방식: Gradle `application` plugin
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
-- 대상 API 기본값: `http://localhost:8080`
-- 기본 ticket 프로젝트 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\ticket`
+- 대상 API 기본값: `http://52.237.82.8:18090/legacy-queue`
+- 기본 ticket 프로젝트 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`
 - 실제 Gatling 프로젝트 위치: 대상 ticket 저장소의 `load-tests/gatling`
 
 ## 역할
@@ -37,7 +37,7 @@ Browser
 전제:
 
 - JDK 25
-- `ticket` API 서버가 `http://localhost:8080`에서 실행 중
+- 대상 API 서버가 `http://52.237.82.8:18090/legacy-queue`에서 실행 중
 - 대상 `ticket` 프로젝트에 `gradlew.bat`과 `load-tests/gatling`이 존재
 - 자동 로그인 모드를 쓰는 경우 seed 테스트 회원이 존재
 
@@ -65,6 +65,19 @@ http://localhost:9090
 | 테스트 JWT | issuer, member 시작 ID, role, TTL, secret |
 | Admission Token | 합성 생성 또는 직접 입력, issuer, audience, secret, TTL |
 | polling | 대기열 상태 조회 횟수와 간격 |
+
+## 시뮬레이션별 대상 API 자동 설정
+
+콘솔에서 테스트 종류를 바꾸면 대상 API 입력값이 아래 기본값으로 자동 변경된다.
+
+| 테스트 종류 | 대상 API 기본값 |
+| --- | --- |
+| `queue-enter` | `http://52.237.82.8:18090/legacy-queue` |
+| `legacy-queue-status` | `http://52.237.82.8:18090/legacy-queue` |
+| `cdn-public-state` | `http://52.237.82.8` |
+| `ticket-open-flow` | `http://localhost:8080` |
+| `hold-race` | `http://localhost:8080` |
+| `ticket-server-capacity` | `http://localhost:8080` |
 
 ## Token mode
 
