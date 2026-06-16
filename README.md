@@ -7,7 +7,7 @@ Queue CDN public state 전환과 legacy queue status 비교를 위한 Gatling �
 - `load-tests/gatling`: 실제 Gatling simulation 프로젝트
 - `console`: 로컬 브라우저에서 Gatling 실행을 도와주는 개발용 콘솔
 
-## 정적 비교 대상
+## 비교 대상 API
 
 Legacy queue status:
 
@@ -19,7 +19,8 @@ Header: X-Queue-Session
 CDN public state:
 
 ```text
-GET /queue-state/performances/{performanceId}.json
+Base URL: https://queue.oneticket.site
+GET /api/v1/queue/performances/{performanceId}/state
 Header/cookie/auth 없음
 ```
 

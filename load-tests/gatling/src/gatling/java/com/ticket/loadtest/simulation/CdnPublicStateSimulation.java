@@ -18,6 +18,7 @@ public class CdnPublicStateSimulation extends Simulation {
 
     private final HttpProtocolBuilder httpProtocol = http
             .baseUrl(LoadTestConfig.baseUrl())
+            .shareConnections()
             .acceptHeader("application/json");
 
     public CdnPublicStateSimulation() {
@@ -25,7 +26,7 @@ public class CdnPublicStateSimulation extends Simulation {
                 .exec(LoadTestConfig.initializeSession())
                 .repeat(LoadTestConfig.statusPolls()).on(
                         exec(http("cdn public state")
-                                .get("/queue-state/performances/#{performanceId}.json")
+                                .get("/api/v1/queue/performances/#{performanceId}/state")
                                 .check(status().is(200))
                                 .check(jsonPath("$.performanceId").exists())
                                 .check(jsonPath("$.admittedUntilSeq").exists()))

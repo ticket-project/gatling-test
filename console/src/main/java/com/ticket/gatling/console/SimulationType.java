@@ -27,7 +27,7 @@ public enum SimulationType {
             "cdn-public-state",
             "CDN Public State",
             "com.ticket.loadtest.simulation.CdnPublicStateSimulation",
-            "http://52.237.82.8",
+            "https://queue.oneticket.site",
             false,
             false,
             true,

@@ -17,11 +17,11 @@ class CdnPublicStateSimulationTest {
     );
 
     @Test
-    void pollsCdnPublicStateJsonWithoutAuthentication() throws IOException {
+    void pollsQueueServerPublicStateThroughCachedOriginWithoutAuthentication() throws IOException {
         final String source = Files.readString(SIMULATION_SOURCE, StandardCharsets.UTF_8);
 
         assertTrue(source.contains("scenario(\"cdn-public-state\")"));
-        assertTrue(source.contains(".get(\"/queue-state/performances/#{performanceId}.json\")"));
+        assertTrue(source.contains(".get(\"/api/v1/queue/performances/#{performanceId}/state\")"));
         assertTrue(source.contains(".check(status().is(200))"));
         assertTrue(source.contains(".check(jsonPath(\"$.performanceId\").exists())"));
         assertTrue(source.contains(".check(jsonPath(\"$.admittedUntilSeq\").exists())"));

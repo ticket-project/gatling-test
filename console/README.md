@@ -16,7 +16,7 @@
 - 실행 방식: Gradle `application` plugin
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
-- 대상 API 기본값: `http://52.237.82.8:18090/legacy-queue`
+- 대상 API 기본값: legacy 계열은 `http://52.237.82.8:18090/legacy-queue`, CDN public state는 `https://queue.oneticket.site`
 - 기본 ticket 프로젝트 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`
 - 실제 Gatling 프로젝트 위치: 대상 ticket 저장소의 `load-tests/gatling`
 
@@ -37,7 +37,7 @@ Browser
 전제:
 
 - JDK 25
-- 대상 API 서버가 `http://52.237.82.8:18090/legacy-queue`에서 실행 중
+- 대상 API 서버가 선택한 시뮬레이션의 기본 URL에서 실행 중
 - 대상 `ticket` 프로젝트에 `gradlew.bat`과 `load-tests/gatling`이 존재
 - 자동 로그인 모드를 쓰는 경우 seed 테스트 회원이 존재
 
@@ -74,7 +74,7 @@ http://localhost:9090
 | --- | --- |
 | `queue-enter` | `http://52.237.82.8:18090/legacy-queue` |
 | `legacy-queue-status` | `http://52.237.82.8:18090/legacy-queue` |
-| `cdn-public-state` | `http://52.237.82.8` |
+| `cdn-public-state` | `https://queue.oneticket.site` |
 | `ticket-open-flow` | `http://localhost:8080` |
 | `hold-race` | `http://localhost:8080` |
 | `ticket-server-capacity` | `http://localhost:8080` |
@@ -124,9 +124,17 @@ ticket-gatling-console
 
 ```text
 com.ticket.loadtest.simulation.QueueEnterSimulation
+com.ticket.loadtest.simulation.LegacyQueueStatusSimulation
+com.ticket.loadtest.simulation.CdnPublicStateSimulation
 com.ticket.loadtest.simulation.TicketOpenFlowSimulation
 com.ticket.loadtest.simulation.HoldRaceSimulation
 com.ticket.loadtest.simulation.TicketServerCapacitySimulation
+```
+
+`CdnPublicStateSimulation`은 `https://queue.oneticket.site`를 기본 대상 API로 사용하고, 아래 public state API만 반복 조회한다.
+
+```text
+GET /api/v1/queue/performances/{performanceId}/state
 ```
 
 ## 정적 확인

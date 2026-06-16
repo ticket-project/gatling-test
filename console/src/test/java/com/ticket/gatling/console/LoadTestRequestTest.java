@@ -35,7 +35,7 @@ class LoadTestRequestTest {
                 "simulation", List.of("cdn-public-state")
         ));
 
-        assertEquals("http://52.237.82.8", request.baseUrl());
+        assertEquals("https://queue.oneticket.site", request.baseUrl());
     }
 
     @Test

@@ -9,6 +9,6 @@ class SimulationTypeTest {
     @Test
     void hasDefaultBaseUrlsForLegacyAndCdnSimulations() {
         assertEquals("http://52.237.82.8:18090/legacy-queue", SimulationType.LEGACY_QUEUE_STATUS.defaultBaseUrl());
-        assertEquals("http://52.237.82.8", SimulationType.CDN_PUBLIC_STATE.defaultBaseUrl());
+        assertEquals("https://queue.oneticket.site", SimulationType.CDN_PUBLIC_STATE.defaultBaseUrl());
     }
 }

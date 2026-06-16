@@ -541,7 +541,7 @@
         <label for="ticketProjectPath">Ticket 프로젝트 경로 <span class="help-chip" tabindex="0" data-help="Gatling 프로젝트가 들어 있는 ticket 저장소 경로입니다. 콘솔은 이 경로의 gradlew.bat을 실행해서 load-tests/gatling을 돌립니다.">?</span></label>
         <input id="ticketProjectPath" name="ticketProjectPath" value="C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test">
 
-        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 Queue API 서버 주소입니다. legacy 서버는 context path까지 포함한 http://52.237.82.8:18090/legacy-queue 입니다.">?</span></label>
+        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 대상 base URL입니다. legacy-queue-status는 http://52.237.82.8:18090/legacy-queue, cdn-public-state는 https://queue.oneticket.site 를 사용합니다.">?</span></label>
         <input id="baseUrl" name="baseUrl" value="http://52.237.82.8:18090/legacy-queue">
 
         <div class="grid-2">
@@ -1011,7 +1011,7 @@ function updateApiPreview() {
       ['GET', `${queueBase}/status`]
     ],
     'cdn-public-state': [
-      ['GET', `${baseUrl}/queue-state/performances/${performanceId}.json`]
+      ['GET', `${queueBase}/state`]
     ],
     'ticket-open-flow': [
       ['POST', `${queueBase}/enter`],
