@@ -17,6 +17,7 @@ public record LoadTestRequest(
         double targetUsersPerSecond,
         int statusPolls,
         int statusPollPauseSeconds,
+        int statusPollPauseJitterSeconds,
         String accessTokenMode,
         String loginEmailPrefix,
         String loginEmailDomain,
@@ -63,6 +64,12 @@ public record LoadTestRequest(
         if (admissionTokenTtlSeconds <= 0) {
             throw new IllegalArgumentException("admissionTokenTtlSeconds must be positive");
         }
+        if (statusPollPauseSeconds < 0) {
+            throw new IllegalArgumentException("statusPollPauseSeconds must be non-negative");
+        }
+        if (statusPollPauseJitterSeconds < 0) {
+            throw new IllegalArgumentException("statusPollPauseJitterSeconds must be non-negative");
+        }
         ticketProjectPath = ticketProjectPath.toAbsolutePath().normalize();
         baseUrl = defaultIfBlank(baseUrl, simulationType.defaultBaseUrl());
         performanceId = defaultIfBlank(performanceId, "1");
@@ -99,6 +106,7 @@ public record LoadTestRequest(
                 doubleValue(form, "targetUsersPerSecond", 10.0),
                 intValue(form, "statusPolls", 3),
                 intValue(form, "statusPollPauseSeconds", 1),
+                intValue(form, "statusPollPauseJitterSeconds", 2),
                 value(form, "accessTokenMode", "login"),
                 value(form, "loginEmailPrefix", "loadtest"),
                 value(form, "loginEmailDomain", "test.com"),

@@ -5,7 +5,6 @@ import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
-import java.time.Duration;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -21,6 +20,7 @@ public class LegacyQueueStatusSimulation extends Simulation {
 
     private final HttpProtocolBuilder httpProtocol = http
             .baseUrl(LoadTestConfig.baseUrl())
+            .shareConnections()
             .acceptHeader("application/json")
             .contentTypeHeader("application/json");
 
@@ -33,7 +33,7 @@ public class LegacyQueueStatusSimulation extends Simulation {
                                 .get("/api/v1/queue/performances/#{performanceId}/status")
                                 .headers(LoadTestConfig.queueSessionHeaders())
                                 .check(status().is(200)))
-                                .pause(Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()))
+                                .pause(LoadTestConfig.statusPollPauseMin(), LoadTestConfig.statusPollPauseMax())
                 );
 
         setUp(scenario.injectOpen(LoadTestConfig.injection()))

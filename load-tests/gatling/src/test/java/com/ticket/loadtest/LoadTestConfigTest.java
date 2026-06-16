@@ -21,4 +21,15 @@ class LoadTestConfigTest {
 
         assertTrue(source.contains("case BASE_URL -> \"http://52.237.82.8:18090/legacy-queue\";"));
     }
+
+    @Test
+    void exposesStatusPollPauseJitterWindow() throws IOException {
+        final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("public static Duration statusPollPauseMin()"));
+        assertTrue(source.contains("public static Duration statusPollPauseMax()"));
+        assertTrue(source.contains("STATUS_POLL_PAUSE_JITTER_SECONDS"));
+        assertTrue(source.contains("case STATUS_POLL_PAUSE_JITTER_SECONDS -> \"statusPollPauseJitterSeconds\";"));
+        assertTrue(source.contains("case STATUS_POLL_PAUSE_JITTER_SECONDS -> \"2\";"));
+    }
 }

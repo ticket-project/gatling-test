@@ -673,6 +673,12 @@
             <input id="statusPollPauseSeconds" name="statusPollPauseSeconds" type="number" min="0" value="1">
           </div>
         </div>
+        <div data-option="legacy-jitter">
+          <div>
+            <label for="statusPollPauseJitterSeconds">Jitter(초) <span class="help-chip" tabindex="0" data-help="조회 간격을 중심으로 앞뒤로 흔들 범위입니다. 예를 들어 간격 5초, jitter 2초면 각 조회 사이 pause가 3~7초로 분산됩니다.">?</span></label>
+            <input id="statusPollPauseJitterSeconds" name="statusPollPauseJitterSeconds" type="number" min="0" value="2">
+          </div>
+        </div>
 
         <div data-option="admission-token">
           <label for="admissionTokenMode">Admission Token 모드 <span class="help-chip" tabindex="0" data-help="X-Admission-Token 준비 방식입니다. 합성 모드는 accessToken의 memberId와 performanceId로 테스트용 admission token을 생성하고, 직접 입력은 Queue Server에서 받은 admission token 목록을 그대로 사용합니다.">?</span></label>
@@ -897,6 +903,7 @@ function updateVisibility() {
 
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
   setVisible('[data-option="poll"]', selected?.usesStatusPolling);
+  setVisible('[data-option="legacy-jitter"]', selected?.key === 'legacy-queue-status');
   setVisible('[data-option="access-token"]', selected?.usesAccessTokens);
   setVisible('[data-option="admission-token"]', selected?.usesAdmissionTokens);
   setVisible('[data-injection="duration"]', mode !== 'at-once-users');

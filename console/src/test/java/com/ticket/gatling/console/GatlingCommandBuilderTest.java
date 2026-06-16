@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GatlingCommandBuilderTest {
@@ -56,7 +57,8 @@ class GatlingCommandBuilderTest {
                 "baseUrl", List.of("http://localhost:8090"),
                 "performanceId", List.of("13669679"),
                 "statusPolls", List.of("20"),
-                "statusPollPauseSeconds", List.of("0")
+                "statusPollPauseSeconds", List.of("5"),
+                "statusPollPauseJitterSeconds", List.of("2")
         ));
 
         final List<String> command = new GatlingCommandBuilder().build(request);
@@ -65,7 +67,8 @@ class GatlingCommandBuilderTest {
         assertTrue(command.contains("-DbaseUrl=http://localhost:8090"));
         assertTrue(command.contains("-DperformanceId=13669679"));
         assertTrue(command.contains("-DstatusPolls=20"));
-        assertTrue(command.contains("-DstatusPollPauseSeconds=0"));
+        assertTrue(command.contains("-DstatusPollPauseSeconds=5"));
+        assertTrue(command.contains("-DstatusPollPauseJitterSeconds=2"));
     }
 
     @Test
@@ -76,7 +79,8 @@ class GatlingCommandBuilderTest {
                 "baseUrl", List.of("https://queue.example.com"),
                 "performanceId", List.of("13669679"),
                 "statusPolls", List.of("20"),
-                "statusPollPauseSeconds", List.of("0")
+                "statusPollPauseSeconds", List.of("5"),
+                "statusPollPauseJitterSeconds", List.of("2")
         ));
 
         final List<String> command = new GatlingCommandBuilder().build(request);
@@ -85,6 +89,21 @@ class GatlingCommandBuilderTest {
         assertTrue(command.contains("-DbaseUrl=https://queue.example.com"));
         assertTrue(command.contains("-DperformanceId=13669679"));
         assertTrue(command.contains("-DstatusPolls=20"));
-        assertTrue(command.contains("-DstatusPollPauseSeconds=0"));
+        assertTrue(command.contains("-DstatusPollPauseSeconds=5"));
+        assertFalse(command.contains("-DstatusPollPauseJitterSeconds=2"));
+    }
+
+    @Test
+    void excludesJitterFromTicketOpenFlowCommand() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("ticket-open-flow"),
+                "statusPollPauseJitterSeconds", List.of("2")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("com.ticket.loadtest.simulation.TicketOpenFlowSimulation"));
+        assertFalse(command.contains("-DstatusPollPauseJitterSeconds=2"));
     }
 }

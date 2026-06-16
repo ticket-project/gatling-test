@@ -49,6 +49,18 @@ public final class LoadTestConfig {
         return intProperty(ConfigKey.STATUS_POLL_PAUSE_SECONDS);
     }
 
+    public static Duration statusPollPauseMin() {
+        final int pauseSeconds = nonNegativeIntProperty(ConfigKey.STATUS_POLL_PAUSE_SECONDS);
+        final int jitterSeconds = nonNegativeIntProperty(ConfigKey.STATUS_POLL_PAUSE_JITTER_SECONDS);
+        return Duration.ofSeconds(Math.max(0, pauseSeconds - jitterSeconds));
+    }
+
+    public static Duration statusPollPauseMax() {
+        final int pauseSeconds = nonNegativeIntProperty(ConfigKey.STATUS_POLL_PAUSE_SECONDS);
+        final int jitterSeconds = nonNegativeIntProperty(ConfigKey.STATUS_POLL_PAUSE_JITTER_SECONDS);
+        return Duration.ofSeconds(pauseSeconds + jitterSeconds);
+    }
+
     public static int users() {
         return intProperty(ConfigKey.USERS);
     }
@@ -167,6 +179,14 @@ public final class LoadTestConfig {
         return Integer.parseInt(property(key));
     }
 
+    private static int nonNegativeIntProperty(final ConfigKey key) {
+        final int value = intProperty(key);
+        if (value < 0) {
+            throw new IllegalArgumentException("System property must be non-negative: -D" + key.propertyName());
+        }
+        return value;
+    }
+
     private static long longProperty(final ConfigKey key) {
         return Long.parseLong(property(key));
     }
@@ -247,6 +267,7 @@ public final class LoadTestConfig {
         PERFORMANCE_ID,
         STATUS_POLLS,
         STATUS_POLL_PAUSE_SECONDS,
+        STATUS_POLL_PAUSE_JITTER_SECONDS,
         USERS,
         DURATION_SECONDS,
         INJECTION_MODE,
@@ -277,6 +298,7 @@ public final class LoadTestConfig {
                 case PERFORMANCE_ID -> "performanceId";
                 case STATUS_POLLS -> "statusPolls";
                 case STATUS_POLL_PAUSE_SECONDS -> "statusPollPauseSeconds";
+                case STATUS_POLL_PAUSE_JITTER_SECONDS -> "statusPollPauseJitterSeconds";
                 case USERS -> "users";
                 case DURATION_SECONDS -> "durationSeconds";
                 case INJECTION_MODE -> "injectionMode";
@@ -309,6 +331,7 @@ public final class LoadTestConfig {
                 case PERFORMANCE_ID -> "1";
                 case STATUS_POLLS -> "3";
                 case STATUS_POLL_PAUSE_SECONDS -> "1";
+                case STATUS_POLL_PAUSE_JITTER_SECONDS -> "2";
                 case USERS -> "10";
                 case DURATION_SECONDS -> "10";
                 case INJECTION_MODE -> "ramp-users";

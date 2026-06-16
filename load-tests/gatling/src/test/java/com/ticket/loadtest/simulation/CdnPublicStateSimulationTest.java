@@ -25,6 +25,9 @@ class CdnPublicStateSimulationTest {
         assertTrue(source.contains(".check(status().is(200))"));
         assertTrue(source.contains(".check(jsonPath(\"$.performanceId\").exists())"));
         assertTrue(source.contains(".check(jsonPath(\"$.admittedUntilSeq\").exists())"));
+        assertTrue(source.contains(".pause(Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()))"));
+        assertFalse(source.contains("statusPollPauseMin()"));
+        assertFalse(source.contains("statusPollPauseMax()"));
         assertFalse(source.contains("LoadTestConfig.authenticate()"));
         assertFalse(source.contains("LoadTestConfig.authHeaders()"));
         assertFalse(source.contains("LoadTestConfig.queueSessionHeaders()"));

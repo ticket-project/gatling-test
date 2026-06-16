@@ -47,6 +47,9 @@ public class GatlingCommandBuilder {
             command.add("-DstatusPolls=" + request.statusPolls());
             command.add("-DstatusPollPauseSeconds=" + request.statusPollPauseSeconds());
         }
+        if (request.simulationType() == SimulationType.LEGACY_QUEUE_STATUS) {
+            command.add("-DstatusPollPauseJitterSeconds=" + request.statusPollPauseJitterSeconds());
+        }
         if (request.simulationType().usesAdmissionTokens()) {
             command.add("-DadmissionTokenMode=" + request.admissionTokenMode());
             if ("synthetic".equalsIgnoreCase(request.admissionTokenMode())) {
