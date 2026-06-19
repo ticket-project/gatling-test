@@ -6,8 +6,6 @@ import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
-import java.time.Duration;
-
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.doIf;
@@ -22,6 +20,7 @@ public class TicketOpenFlowSimulation extends Simulation {
 
     private final HttpProtocolBuilder httpProtocol = http
             .baseUrl(LoadTestConfig.baseUrl())
+            .shareConnections()
             .acceptHeader("application/json")
             .contentTypeHeader("application/json");
 
@@ -70,7 +69,7 @@ public class TicketOpenFlowSimulation extends Simulation {
                                 .check(jsonPath("$.status").saveAs("queueStatus"))
                                 .check(jsonPath("$.admissionToken").optional().saveAs("admissionToken")))
                                 .exec(session -> session.set("pollAttempts", session.getInt("pollAttempts") + 1))
-                                .pause(Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()))
+                                .pause(LoadTestConfig.statusPollPauseMin(), LoadTestConfig.statusPollPauseMax())
                 );
     }
 

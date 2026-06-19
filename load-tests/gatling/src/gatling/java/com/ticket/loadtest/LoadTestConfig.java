@@ -331,7 +331,7 @@ public final class LoadTestConfig {
                 case PERFORMANCE_ID -> "1";
                 case STATUS_POLLS -> "3";
                 case STATUS_POLL_PAUSE_SECONDS -> "1";
-                case STATUS_POLL_PAUSE_JITTER_SECONDS -> "2";
+                case STATUS_POLL_PAUSE_JITTER_SECONDS -> "0";
                 case USERS -> "10";
                 case DURATION_SECONDS -> "10";
                 case INJECTION_MODE -> "ramp-users";

@@ -70,9 +70,24 @@ public class LoadTestRun {
                 + "}";
     }
 
+    private String toListJson() {
+        final String reportUrl = reportDirectory == null ? null : "/reports/" + id + "/index.html";
+        final String reportPath = reportDirectory == null ? null : reportDirectory.resolve("index.html").toString();
+        return "{"
+                + "\"id\":\"" + id + "\","
+                + "\"simulation\":\"" + Json.escape(request.simulationType().label()) + "\","
+                + "\"status\":\"" + status + "\","
+                + "\"startedAt\":\"" + startedAt + "\","
+                + "\"finishedAt\":" + Json.nullable(finishedAt == null ? null : finishedAt.toString()) + ","
+                + "\"exitCode\":" + exitCode + ","
+                + "\"reportUrl\":" + Json.nullable(reportUrl) + ","
+                + "\"reportPath\":" + Json.nullable(reportPath)
+                + "}";
+    }
+
     public static String listJson(final List<LoadTestRun> runs) {
         return runs.stream()
-                .map(LoadTestRun::toJson)
+                .map(LoadTestRun::toListJson)
                 .reduce((left, right) -> left + "," + right)
                 .map(value -> "[" + value + "]")
                 .orElse("[]");

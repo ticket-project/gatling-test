@@ -18,6 +18,13 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
+tasks.withType(io.gatling.gradle.GatlingRunTask).configureEach {
+    def configuredReportDir = System.getProperty('gatlingReportDir')
+    if (configuredReportDir != null && !configuredReportDir.isBlank()) {
+        gatlingReportDir = file(configuredReportDir)
+    }
+}
+
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'

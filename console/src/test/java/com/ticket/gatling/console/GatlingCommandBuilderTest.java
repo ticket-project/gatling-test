@@ -2,6 +2,7 @@ package com.ticket.gatling.console;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -90,11 +91,11 @@ class GatlingCommandBuilderTest {
         assertTrue(command.contains("-DperformanceId=13669679"));
         assertTrue(command.contains("-DstatusPolls=20"));
         assertTrue(command.contains("-DstatusPollPauseSeconds=5"));
-        assertFalse(command.contains("-DstatusPollPauseJitterSeconds=2"));
+        assertTrue(command.contains("-DstatusPollPauseJitterSeconds=2"));
     }
 
     @Test
-    void excludesJitterFromTicketOpenFlowCommand() {
+    void includesJitterInTicketOpenFlowCommand() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "ticketProjectPath", List.of("C:/ticket"),
                 "simulation", List.of("ticket-open-flow"),
@@ -104,6 +105,22 @@ class GatlingCommandBuilderTest {
         final List<String> command = new GatlingCommandBuilder().build(request);
 
         assertTrue(command.contains("com.ticket.loadtest.simulation.TicketOpenFlowSimulation"));
-        assertFalse(command.contains("-DstatusPollPauseJitterSeconds=2"));
+        assertTrue(command.contains("-DstatusPollPauseJitterSeconds=2"));
+    }
+
+    @Test
+    void canOverrideGatlingReportRootForConsoleManagedRuns() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("cdn-public-state")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(
+                request,
+                Path.of("C:/ticket/load-tests/gatling/build/tmp/gatling-console-runs/run-1")
+        );
+
+        assertTrue(command.contains("-DgatlingReportDir=C:\\ticket\\load-tests\\gatling\\build\\tmp\\gatling-console-runs\\run-1")
+                || command.contains("-DgatlingReportDir=C:/ticket/load-tests/gatling/build/tmp/gatling-console-runs/run-1"));
     }
 }

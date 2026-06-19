@@ -24,6 +24,9 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("${queueBase}/status"));
         assertTrue(html.contains("cdn-public-state"));
         assertTrue(html.contains("${queueBase}/state"));
+        assertTrue(html.contains("data-option=\"poll-jitter\""));
+        assertTrue(html.contains("name=\"statusPollPauseJitterSeconds\" type=\"number\" min=\"0\" value=\"0\""));
+        assertTrue(html.contains("setVisible('[data-option=\"poll-jitter\"]', selected?.usesStatusPolling);"));
         assertTrue(html.contains("admissionTokenMode"));
         assertTrue(html.contains("Admission Token 목록"));
         assertTrue(html.contains("X-Admission-Token"));

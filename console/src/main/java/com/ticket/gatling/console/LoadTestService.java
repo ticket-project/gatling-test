@@ -125,11 +125,13 @@ public class LoadTestService {
     }
 
     private void execute(final LoadTestRun run, final LoadTestRequest request) {
-        final Set<Path> beforeReports = listReportDirectories(request.reportsRoot());
+        final Path executionReportsRoot = executionReportsRoot(request, run.id());
+        final Set<Path> beforeReports = listReportDirectories(executionReportsRoot);
         int exitCode = -1;
         try {
             validateTicketProject(request.ticketProjectPath());
-            final List<String> command = commandBuilder.build(request);
+            Files.createDirectories(executionReportsRoot);
+            final List<String> command = commandBuilder.build(request, executionReportsRoot);
             run.appendLog("$ " + String.join(" ", redactSensitiveArguments(command)));
 
             final Process process = new ProcessBuilder(command)
@@ -149,11 +151,13 @@ public class LoadTestService {
         } catch (Exception exception) {
             run.appendLog("ERROR: " + exception.getMessage());
         } finally {
-            final Path reportDirectory = detectReportDirectory(request.reportsRoot(), beforeReports).orElse(null);
+            Path reportDirectory = detectReportDirectory(executionReportsRoot, beforeReports).orElse(null);
             if (reportDirectory != null) {
+                reportDirectory = renameReportDirectory(reportDirectory, request, run);
                 reportRegistry.register(run.id(), reportDirectory);
                 run.appendLog("Report: " + reportDirectory);
             }
+            deleteIfEmpty(executionReportsRoot);
             run.complete(exitCode, reportDirectory);
             runningRunId.compareAndSet(run.id(), null);
         }
@@ -166,6 +170,13 @@ public class LoadTestService {
         if (!Files.isDirectory(ticketProjectPath.resolve("load-tests").resolve("gatling"))) {
             throw new IllegalArgumentException("Gatling project not found under: " + ticketProjectPath);
         }
+    }
+
+    private Path executionReportsRoot(final LoadTestRequest request, final UUID runId) {
+        return request.ticketProjectPath().resolve("load-tests").resolve("gatling")
+                .resolve("build").resolve("tmp").resolve("gatling-console-runs")
+                .resolve(runId.toString())
+                .toAbsolutePath().normalize();
     }
 
     private Set<Path> listReportDirectories(final Path reportsRoot) {
@@ -192,6 +203,48 @@ public class LoadTestService {
                     .max(Comparator.comparingLong(this::lastModified));
         } catch (IOException exception) {
             return Optional.empty();
+        }
+    }
+
+    private Path renameReportDirectory(
+            final Path reportDirectory,
+            final LoadTestRequest request,
+            final LoadTestRun run
+    ) {
+        final Path target = uniqueReportDirectory(request.reportsRoot()
+                .resolve(ReportDirectoryNameFormatter.format(request)));
+        if (reportDirectory.equals(target)) {
+            return reportDirectory;
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            return Files.move(reportDirectory, target);
+        } catch (IOException exception) {
+            run.appendLog("Report rename skipped: " + exception.getMessage());
+            return reportDirectory;
+        }
+    }
+
+    private Path uniqueReportDirectory(final Path desiredDirectory) {
+        if (!Files.exists(desiredDirectory)) {
+            return desiredDirectory;
+        }
+        final Path parent = desiredDirectory.getParent();
+        final String baseName = desiredDirectory.getFileName().toString();
+        int suffix = 2;
+        Path candidate;
+        do {
+            candidate = parent.resolve(baseName + " - " + suffix);
+            suffix++;
+        } while (Files.exists(candidate));
+        return candidate;
+    }
+
+    private void deleteIfEmpty(final Path directory) {
+        try {
+            Files.deleteIfExists(directory);
+        } catch (IOException ignored) {
+            // Non-empty or locked directories are safe to leave under build/tmp.
         }
     }
 

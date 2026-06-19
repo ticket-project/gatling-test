@@ -1,5 +1,6 @@
 package com.ticket.gatling.console;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -7,11 +8,18 @@ import java.util.Locale;
 public class GatlingCommandBuilder {
 
     public List<String> build(final LoadTestRequest request) {
+        return build(request, null);
+    }
+
+    public List<String> build(final LoadTestRequest request, final Path gatlingReportDir) {
         final List<String> command = new ArrayList<>();
         command.add(gradleWrapper(request));
         command.add("-p");
         command.add("load-tests/gatling");
         command.add("gatlingRun");
+        if (gatlingReportDir != null) {
+            command.add("-DgatlingReportDir=" + gatlingReportDir.toAbsolutePath().normalize());
+        }
         command.add("--simulation");
         command.add(request.simulationType().className());
         command.add("-DbaseUrl=" + request.baseUrl());
@@ -46,8 +54,6 @@ public class GatlingCommandBuilder {
         if (request.simulationType().usesStatusPolling()) {
             command.add("-DstatusPolls=" + request.statusPolls());
             command.add("-DstatusPollPauseSeconds=" + request.statusPollPauseSeconds());
-        }
-        if (request.simulationType() == SimulationType.LEGACY_QUEUE_STATUS) {
             command.add("-DstatusPollPauseJitterSeconds=" + request.statusPollPauseJitterSeconds());
         }
         if (request.simulationType().usesAdmissionTokens()) {

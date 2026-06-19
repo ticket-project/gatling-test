@@ -30,6 +30,6 @@ class LoadTestConfigTest {
         assertTrue(source.contains("public static Duration statusPollPauseMax()"));
         assertTrue(source.contains("STATUS_POLL_PAUSE_JITTER_SECONDS"));
         assertTrue(source.contains("case STATUS_POLL_PAUSE_JITTER_SECONDS -> \"statusPollPauseJitterSeconds\";"));
-        assertTrue(source.contains("case STATUS_POLL_PAUSE_JITTER_SECONDS -> \"2\";"));
+        assertTrue(source.contains("case STATUS_POLL_PAUSE_JITTER_SECONDS -> \"0\";"));
     }
 }

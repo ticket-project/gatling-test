@@ -106,7 +106,7 @@ public record LoadTestRequest(
                 doubleValue(form, "targetUsersPerSecond", 10.0),
                 intValue(form, "statusPolls", 3),
                 intValue(form, "statusPollPauseSeconds", 1),
-                intValue(form, "statusPollPauseJitterSeconds", 2),
+                intValue(form, "statusPollPauseJitterSeconds", 0),
                 value(form, "accessTokenMode", "login"),
                 value(form, "loginEmailPrefix", "loadtest"),
                 value(form, "loginEmailDomain", "test.com"),

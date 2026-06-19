@@ -26,6 +26,7 @@ class LegacyQueueStatusSimulationTest {
         assertTrue(source.contains(".headers(LoadTestConfig.queueSessionHeaders())"));
         assertTrue(source.contains(".check(status().is(200))"));
         assertTrue(source.contains(".pause(LoadTestConfig.statusPollPauseMin(), LoadTestConfig.statusPollPauseMax())"));
+        assertFalse(source.contains(".pause(Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()))"));
         assertTrue(source.contains("legacyQueueSessionFeeder"));
         assertFalse(source.contains("LoadTestConfig.authenticate()"));
         assertFalse(source.contains("LoadTestConfig.authHeaders()"));

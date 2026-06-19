@@ -48,6 +48,13 @@ class LoadTestRequestTest {
     }
 
     @Test
+    void defaultsStatusPollPauseJitterToZero() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of());
+
+        assertEquals(0, request.statusPollPauseJitterSeconds());
+    }
+
+    @Test
     void readsAdmissionTokenOptionsFromForm() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "admissionTokenMode", List.of("tokens"),

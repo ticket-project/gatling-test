@@ -17,12 +17,11 @@ class TicketOpenFlowSimulationTest {
     );
 
     @Test
-    void keepsStatusPollingPauseFixed() throws IOException {
+    void jittersStatusPollingPause() throws IOException {
         final String source = Files.readString(SIMULATION_SOURCE, StandardCharsets.UTF_8);
 
         assertTrue(source.contains("scenario(\"ticket-open-flow\")"));
-        assertTrue(source.contains(".pause(Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()))"));
-        assertFalse(source.contains("statusPollPauseMin()"));
-        assertFalse(source.contains("statusPollPauseMax()"));
+        assertTrue(source.contains(".pause(LoadTestConfig.statusPollPauseMin(), LoadTestConfig.statusPollPauseMax())"));
+        assertFalse(source.contains(".pause(Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()))"));
     }
 }

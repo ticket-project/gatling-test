@@ -673,10 +673,10 @@
             <input id="statusPollPauseSeconds" name="statusPollPauseSeconds" type="number" min="0" value="1">
           </div>
         </div>
-        <div data-option="legacy-jitter">
+        <div data-option="poll-jitter">
           <div>
             <label for="statusPollPauseJitterSeconds">Jitter(초) <span class="help-chip" tabindex="0" data-help="조회 간격을 중심으로 앞뒤로 흔들 범위입니다. 예를 들어 간격 5초, jitter 2초면 각 조회 사이 pause가 3~7초로 분산됩니다.">?</span></label>
-            <input id="statusPollPauseJitterSeconds" name="statusPollPauseJitterSeconds" type="number" min="0" value="2">
+            <input id="statusPollPauseJitterSeconds" name="statusPollPauseJitterSeconds" type="number" min="0" value="0">
           </div>
         </div>
 
@@ -827,6 +827,18 @@ async function loadSimulations() {
   updateSummary();
 }
 
+function restoreIdleState(message) {
+  if (polling) {
+    clearInterval(polling);
+    polling = null;
+  }
+  runButton.disabled = false;
+  serverState.textContent = '대기 중';
+  if (message) {
+    logView.textContent = message;
+  }
+}
+
 async function startRun(event) {
   event.preventDefault();
   runButton.disabled = true;
@@ -834,21 +846,22 @@ async function startRun(event) {
   const body = new URLSearchParams(new FormData(form));
   const validationError = validateBeforeRun(body);
   if (validationError) {
-    runButton.disabled = false;
-    logView.textContent = validationError;
+    restoreIdleState(validationError);
     return;
   }
-  const response = await fetch('/api/runs', { method: 'POST', body });
-  const data = await response.json();
-  if (!response.ok) {
-    runButton.disabled = false;
-    serverState.textContent = '대기 중';
-    logView.textContent = data.error || '실행 시작 실패';
-    return;
+  try {
+    const response = await fetch('/api/runs', { method: 'POST', body });
+    const data = await response.json();
+    if (!response.ok) {
+      restoreIdleState(data.error || 'Run failed to start');
+      return;
+    }
+    selectedRunId = data.id;
+    await refreshRuns();
+    watchRun(data.id);
+  } catch (error) {
+    restoreIdleState(error.message || 'Run failed to start');
   }
-  selectedRunId = data.id;
-  await refreshRuns();
-  watchRun(data.id);
 }
 
 async function refreshRuns() {
@@ -880,19 +893,20 @@ async function watchRun(id) {
 
 async function refreshRunDetail() {
   if (!selectedRunId) return;
-  const response = await fetch(`/api/runs/${selectedRunId}`);
-  const run = await response.json();
-  logView.textContent = run.log || '';
-  logView.scrollTop = logView.scrollHeight;
-  document.querySelector('#summaryStatus').textContent = run.status;
-  reportUrlInput.value = run.reportUrl ? `${location.origin}${run.reportUrl}` : '-';
-  reportPathInput.value = run.reportPath || '-';
-  await refreshRuns();
-  if (run.status !== 'RUNNING') {
-    clearInterval(polling);
-    polling = null;
-    runButton.disabled = false;
-    serverState.textContent = '대기 중';
+  try {
+    const response = await fetch(`/api/runs/${selectedRunId}`);
+    const run = await response.json();
+    logView.textContent = run.log || '';
+    logView.scrollTop = logView.scrollHeight;
+    document.querySelector('#summaryStatus').textContent = run.status;
+    reportUrlInput.value = run.reportUrl ? `${location.origin}${run.reportUrl}` : '-';
+    reportPathInput.value = run.reportPath || '-';
+    await refreshRuns();
+    if (run.status !== 'RUNNING') {
+      restoreIdleState();
+    }
+  } catch (error) {
+    restoreIdleState(error.message || 'Failed to refresh run status');
   }
 }
 
@@ -903,7 +917,7 @@ function updateVisibility() {
 
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
   setVisible('[data-option="poll"]', selected?.usesStatusPolling);
-  setVisible('[data-option="legacy-jitter"]', selected?.key === 'legacy-queue-status');
+  setVisible('[data-option="poll-jitter"]', selected?.usesStatusPolling);
   setVisible('[data-option="access-token"]', selected?.usesAccessTokens);
   setVisible('[data-option="admission-token"]', selected?.usesAdmissionTokens);
   setVisible('[data-injection="duration"]', mode !== 'at-once-users');
