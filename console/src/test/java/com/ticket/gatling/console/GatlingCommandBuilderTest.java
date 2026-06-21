@@ -14,7 +14,7 @@ class GatlingCommandBuilderTest {
     @Test
     void buildsTicketServerCapacityCommandWithSyntheticAdmissionTokenDefaults() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "ticketProjectPath", List.of("C:/ticket"),
+                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
                 "simulation", List.of("ticket-server-capacity"),
                 "seatIds", List.of("1,2,3"),
                 "admissionTokenMode", List.of("synthetic"),
@@ -38,7 +38,7 @@ class GatlingCommandBuilderTest {
     @Test
     void passesManualAdmissionTokensWhenConfigured() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "ticketProjectPath", List.of("C:/ticket"),
+                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
                 "simulation", List.of("hold-race"),
                 "admissionTokenMode", List.of("tokens"),
                 "admissionTokens", List.of("adm-1,adm-2")
@@ -53,7 +53,7 @@ class GatlingCommandBuilderTest {
     @Test
     void buildsLegacyQueueStatusCommandWithPollingOptions() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "ticketProjectPath", List.of("C:/ticket"),
+                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
                 "simulation", List.of("legacy-queue-status"),
                 "baseUrl", List.of("http://localhost:8090"),
                 "performanceId", List.of("13669679"),
@@ -75,7 +75,7 @@ class GatlingCommandBuilderTest {
     @Test
     void buildsCdnPublicStateCommandWithPollingOptions() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "ticketProjectPath", List.of("C:/ticket"),
+                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
                 "simulation", List.of("cdn-public-state"),
                 "baseUrl", List.of("https://queue.example.com"),
                 "performanceId", List.of("13669679"),

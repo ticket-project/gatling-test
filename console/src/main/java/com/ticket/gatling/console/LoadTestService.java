@@ -129,7 +129,7 @@ public class LoadTestService {
         final Set<Path> beforeReports = listReportDirectories(executionReportsRoot);
         int exitCode = -1;
         try {
-            validateTicketProject(request.ticketProjectPath());
+            validateLoadTestsProject(request.ticketProjectPath());
             Files.createDirectories(executionReportsRoot);
             final List<String> command = commandBuilder.build(request, executionReportsRoot);
             run.appendLog("$ " + String.join(" ", redactSensitiveArguments(command)));
@@ -163,12 +163,12 @@ public class LoadTestService {
         }
     }
 
-    private void validateTicketProject(final Path ticketProjectPath) {
+    private void validateLoadTestsProject(final Path ticketProjectPath) {
         if (!Files.exists(ticketProjectPath.resolve("gradlew.bat"))) {
             throw new IllegalArgumentException("gradlew.bat not found: " + ticketProjectPath);
         }
         if (!Files.isDirectory(ticketProjectPath.resolve("load-tests").resolve("gatling"))) {
-            throw new IllegalArgumentException("Gatling project not found under: " + ticketProjectPath);
+            throw new IllegalArgumentException("Gatling load-tests project not found under: " + ticketProjectPath);
         }
     }
 

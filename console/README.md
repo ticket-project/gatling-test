@@ -2,7 +2,7 @@
 
 기준일: 2026-05-24
 
-로컬 브라우저에서 `ticket` 저장소의 Gatling 부하 테스트를 실행하고, 생성된 HTML 리포트로 이동하기 위한 개발용 콘솔이다. 운영 배포 대상이 아니며, 자동화된 테스트 러너가 아니다.
+로컬 브라우저에서 `ticket-gatling-load-tests` 저장소의 Gatling 부하 테스트를 실행하고, 생성된 HTML 리포트로 이동하기 위한 개발용 콘솔이다. 운영 배포 대상이 아니며, 자동화된 테스트 러너가 아니다.
 
 ## 안전 주의
 
@@ -17,15 +17,15 @@
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
 - 대상 API 기본값: legacy 계열은 `http://52.237.82.8:18090/legacy-queue`, CDN public state는 `https://queue.oneticket.site`
-- 기본 ticket 프로젝트 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`
-- 실제 Gatling 프로젝트 위치: 대상 ticket 저장소의 `load-tests/gatling`
+- 기본 Gatling 저장소 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\ticket-gatling-load-tests`
+- 실제 Gatling 프로젝트 위치: 이 저장소의 `load-tests/gatling`
 
 ## 역할
 
 ```text
 Browser
   -> Ticket Gatling Console localhost:9090
-  -> ticket 저장소의 Gradle wrapper 실행
+  -> ticket-gatling-load-tests 저장소의 Gradle wrapper 실행
   -> load-tests/gatling simulation 실행
   -> build/reports/gatling HTML report 노출
 ```
@@ -38,7 +38,7 @@ Browser
 
 - JDK 25
 - 대상 API 서버가 선택한 시뮬레이션의 기본 URL에서 실행 중
-- 대상 `ticket` 프로젝트에 `gradlew.bat`과 `load-tests/gatling`이 존재
+- `ticket-gatling-load-tests` 저장소에 `gradlew.bat`과 `load-tests/gatling`이 존재
 - 자동 로그인 모드를 쓰는 경우 seed 테스트 회원이 존재
 
 콘솔 실행:
@@ -58,7 +58,7 @@ http://localhost:9090
 | 영역 | 설명 |
 | --- | --- |
 | 테스트 종류 | 대기열 진입, 예매 오픈 흐름, hold 경합, 티켓 서버 용량 |
-| 대상 | Ticket 프로젝트 경로, 대상 API URL, 회차 ID, 좌석 ID |
+| 대상 | Gatling 저장소 경로, 대상 API URL, 회차 ID, 좌석 ID |
 | 부하 | 사용자 수, 투입 시간, 주입 방식 |
 | 인증 | 자동 로그인, 직접 token 입력, 테스트 JWT 생성 |
 | 자동 로그인 | 계정 prefix, domain, password, start index, timeout |
@@ -105,12 +105,12 @@ http://localhost:9090
 ## 구조
 
 ```text
-ticket-gatling-console
+ticket-gatling-load-tests/console
 ├── src/main/java/com/ticket/gatling/console
 │   ├── ConsoleApplication.java      # main, consolePort 처리
 │   ├── ConsoleServer.java           # HTTP server, UI/report endpoint
 │   ├── LoadTestRequest.java         # form 입력 파싱 후 요청 모델화
-│   ├── LoadTestService.java         # 대상 ticket 프로젝트 검증, Gatling 실행
+│   ├── LoadTestService.java         # Gatling 저장소 검증, Gatling 실행
 │   ├── GatlingCommandBuilder.java   # Gradle/Gatling command 생성
 │   ├── ReportRegistry.java          # 실행 결과 report directory 매핑
 │   └── SimulationType.java          # 지원 simulation 목록
@@ -120,7 +120,7 @@ ticket-gatling-console
 
 ## 대상 Gatling simulation
 
-대상 ticket 저장소의 `load-tests/gatling` 아래 simulation을 실행한다.
+이 저장소의 `load-tests/gatling` 아래 simulation을 실행한다.
 
 ```text
 com.ticket.loadtest.simulation.QueueEnterSimulation
@@ -150,6 +150,6 @@ rg -n "찾을_문구" .
 ## AI 작업 메모
 
 - 이 프로젝트에서 `test` 또는 `run`을 자동으로 실행하지 않는다.
-- 부하 테스트 관련 변경은 `ticket/load-tests/gatling`의 simulation과 함께 읽는다.
-- 기본 ticket 프로젝트 경로가 현재 작업 공간과 다를 수 있으므로 실행 전 UI 입력값을 확인한다.
-- 리포트는 대상 ticket 프로젝트의 `load-tests/gatling/build/reports/gatling` 아래에 생성된다.
+- 부하 테스트 관련 변경은 이 저장소의 `load-tests/gatling` simulation과 함께 읽는다.
+- 기본 Gatling 저장소 경로가 현재 작업 공간과 다를 수 있으므로 실행 전 UI 입력값을 확인한다.
+- 리포트는 이 저장소의 `load-tests/gatling/build/reports/gatling` 아래에 생성된다.

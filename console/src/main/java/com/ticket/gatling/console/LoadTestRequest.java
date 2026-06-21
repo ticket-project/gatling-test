@@ -38,7 +38,8 @@ public record LoadTestRequest(
         String accessTokens,
         String admissionTokens
 ) {
-    private static final String DEFAULT_TICKET_PATH = "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test";
+    private static final String DEFAULT_LOAD_TESTS_PATH =
+            "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\ticket-gatling-load-tests";
     private static final String SYNTHETIC_JWT_SECRET = "0123456789abcdef0123456789abcdef";
     private static final String SYNTHETIC_ADMISSION_SECRET = "0123456789abcdef0123456789abcdef";
 
@@ -94,7 +95,7 @@ public record LoadTestRequest(
 
     public static LoadTestRequest fromForm(final Map<String, List<String>> form) {
         return new LoadTestRequest(
-                Path.of(value(form, "ticketProjectPath", DEFAULT_TICKET_PATH)),
+                Path.of(value(form, "ticketProjectPath", DEFAULT_LOAD_TESTS_PATH)),
                 SimulationType.fromKey(value(form, "simulation", SimulationType.QUEUE_ENTER.key())),
                 value(form, "baseUrl", ""),
                 value(form, "performanceId", "1"),
