@@ -1,6 +1,6 @@
 # Ticket Gatling Console AI 작업 규칙
 
-이 파일은 AI 에이전트가 `ticket-gatling-console`에서 반드시 지킬 최소 규칙이다.
+이 파일은 AI 에이전트가 `ticket-gatling-load-tests/console`에서 반드시 지킬 최소 규칙이다.
 
 ## 절대 규칙
 
@@ -23,13 +23,13 @@
 2. `build.gradle`
 3. `src/main/resources/static/index.html`
 4. `src/main/java/com/ticket/gatling/console`
-5. 대상 `ticket` 저장소의 `load-tests/gatling`
+5. 이 저장소의 `load-tests/gatling`
 
 ## 구조 경계
 
 - 이 프로젝트는 로컬 콘솔 UI와 Gatling 실행 command 생성만 담당한다.
 - Ticket Server, Queue Server, Gateway 기능을 직접 구현하지 않는다.
-- 리포트는 대상 ticket 프로젝트의 `load-tests/gatling/build/reports/gatling` 아래 생성되는 것으로 본다.
+- 리포트는 이 저장소의 `load-tests/gatling/build/reports/gatling` 아래 생성되는 것으로 본다.
 
 ## 검증
 

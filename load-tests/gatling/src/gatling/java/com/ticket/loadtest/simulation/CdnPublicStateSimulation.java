@@ -21,6 +21,7 @@ public class CdnPublicStateSimulation extends Simulation {
 
     private final HttpProtocolBuilder httpProtocol = http
             .baseUrl(LoadTestConfig.baseUrl())
+            .shareConnections()
             .acceptHeader("application/json");
 
     public CdnPublicStateSimulation() {

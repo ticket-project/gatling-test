@@ -33,4 +33,52 @@ class SimulationConnectionPolicyTest {
             );
         }
     }
+
+    @Test
+    void ticketOpenFlowUsesQueueTokenContract() throws IOException {
+        final String source = readSimulation("TicketOpenFlowSimulation.java");
+
+        assertTrue(source.contains("queue join"), "full flow should join before enter");
+        assertTrue(source.contains(".post(LoadTestConfig.queueBaseUrl() + \"/api/v1/queue/performances/#{performanceId}/join\")"));
+        assertTrue(source.contains(".check(jsonPath(\"$.queueToken\").saveAs(\"queueToken\"))"));
+        assertTrue(source.contains(".headers(LoadTestConfig.queueTokenHeaders())"));
+        assertTrue(source.contains(".get(LoadTestConfig.coreBaseUrl() + \"/api/v1/performances/#{performanceId}/seats/status\")"));
+        assertTrue(source.contains(".post(LoadTestConfig.coreBaseUrl() + \"/api/v1/orders\")"));
+        assertFalse(source.contains("queueSessionId"), "queue session polling contract must not be used");
+        assertFalse(source.contains("X-Queue-Session"), "queue session header must not be used");
+        assertFalse(source.contains("/api/v1/queue/performances/#{performanceId}/status"), "queue status polling API must not be used");
+    }
+
+    @Test
+    void queueEnterSimulationUsesJoinThenQueueTokenEnter() throws IOException {
+        final String source = readSimulation("QueueEnterSimulation.java");
+
+        assertTrue(source.contains("queue join"), "queue enter simulation should obtain a queue token first");
+        assertTrue(source.contains(".post(LoadTestConfig.queueBaseUrl() + \"/api/v1/queue/performances/#{performanceId}/join\")"));
+        assertTrue(source.contains(".check(jsonPath(\"$.queueToken\").saveAs(\"queueToken\"))"));
+        assertTrue(source.contains(".headers(LoadTestConfig.queueTokenHeaders())"));
+        assertFalse(source.contains("queueSessionId"), "queue session contract must not be used");
+        assertFalse(source.contains("X-Queue-Session"), "queue session header must not be used");
+    }
+
+    @Test
+    void loadTestConfigSupportsModernAndLegacyQueueHeaders() throws IOException {
+        final Path configPath = Path.of("src/gatling/java/com/ticket/loadtest/LoadTestConfig.java");
+        final String source = Files.readString(configPath, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("coreBaseUrl"));
+        assertTrue(source.contains("queueBaseUrl"));
+        assertTrue(source.contains("queueTokenHeaders"));
+        assertTrue(source.contains("X-Queue-Token"));
+        assertTrue(source.contains("queueSessionHeaders"));
+        assertTrue(source.contains("X-Queue-Session"));
+    }
+
+    private String readSimulation(final String fileName) throws IOException {
+        final Path sourcePath = SIMULATION_DIR.resolve(fileName);
+        if (!Files.exists(sourcePath)) {
+            throw new AssertionError("simulation source should exist: " + fileName);
+        }
+        return Files.readString(sourcePath, StandardCharsets.UTF_8);
+    }
 }
