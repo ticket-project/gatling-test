@@ -2,7 +2,7 @@
 
 기준일: 2026-05-24
 
-로컬 브라우저에서 `ticket-gatling-load-tests` 저장소의 Gatling 부하 테스트를 실행하고, 생성된 HTML 리포트로 이동하기 위한 개발용 콘솔이다. 운영 배포 대상이 아니며, 자동화된 테스트 러너가 아니다.
+로컬 브라우저에서 `gatling-test` 저장소의 Gatling 부하 테스트를 실행하고, 생성된 HTML 리포트로 이동하기 위한 개발용 콘솔이다. 운영 배포 대상이 아니며, 자동화된 테스트 러너가 아니다.
 
 ## 안전 주의
 
@@ -17,7 +17,7 @@
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
 - 대상 API 기본값: legacy 계열은 `http://52.237.82.8:18090/legacy-queue`, CDN public state는 `https://queue.oneticket.site`
-- 기본 Gatling 저장소 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\ticket-gatling-load-tests`
+- 기본 Gatling 저장소 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`
 - 실제 Gatling 프로젝트 위치: 이 저장소의 `load-tests/gatling`
 
 ## 역할
@@ -25,7 +25,7 @@
 ```text
 Browser
   -> Ticket Gatling Console localhost:9090
-  -> ticket-gatling-load-tests 저장소의 Gradle wrapper 실행
+  -> gatling-test 저장소의 Gradle wrapper 실행
   -> load-tests/gatling simulation 실행
   -> build/reports/gatling HTML report 노출
 ```
@@ -38,7 +38,7 @@ Browser
 
 - JDK 25
 - 대상 API 서버가 선택한 시뮬레이션의 기본 URL에서 실행 중
-- `ticket-gatling-load-tests` 저장소에 `gradlew.bat`과 `load-tests/gatling`이 존재
+- `gatling-test` 저장소에 `gradlew.bat`과 `load-tests/gatling`이 존재
 - 자동 로그인 모드를 쓰는 경우 seed 테스트 회원이 존재
 
 콘솔 실행:
@@ -72,6 +72,7 @@ http://localhost:9090
 
 | 테스트 종류 | 대상 API 기본값 |
 | --- | --- |
+| `queue-join-only` | `https://queue.oneticket.site` |
 | `queue-enter` | `http://52.237.82.8:18090/legacy-queue` |
 | `legacy-queue-status` | `http://52.237.82.8:18090/legacy-queue` |
 | `cdn-public-state` | `https://queue.oneticket.site` |
@@ -79,13 +80,38 @@ http://localhost:9090
 | `hold-race` | `http://localhost:8080` |
 | `ticket-server-capacity` | `http://localhost:8080` |
 
+## EC2 분산 실행
+
+EC2 분산 실행은 `queue-join-only`, `legacy-queue-status`, `cdn-public-state`에서 지원한다.
+
+`queue-join-only` 분산 실행은 인증이 필요하므로 `Token mode=토큰 파일/목록`, `Access Token 준비 방식=파일 자동 생성`을 권장한다. 이 경우 각 EC2 노드가 실행 전에 자기 노드용 access token 파일을 만들고, 노드별 memberId 범위가 겹치지 않도록 시작 ID를 자동으로 밀어 쓴다. `테스트 JWT 생성` 모드도 사용할 수 있지만 JWT 생성 비용이 Gatling 부하 발생기 CPU에 들어간다.
+
+join 분산 스크립트는 기본적으로 로컬 `gatling-test` 프로젝트를 각 EC2의 `~/gatling-test`로 압축 동기화한 뒤 실행한다. 따라서 콘솔에서 방금 수정한 simulation이나 token generator가 EC2에도 반영된다. 수동 실행에서 동기화를 건너뛰려면 `run-distributed-gatling-join.ps1`에 `-SkipSyncProject`를 지정한다.
+
 ## Token mode
 
 | Mode | 동작 | 사용 조건 |
 | --- | --- | --- |
 | 자동 로그인 | Gatling 실행 전 seed 회원으로 로그인해 access token 준비 | seed 회원이 생성되어 있어야 함 |
-| 직접 입력 | 사용자가 발급한 access token 목록 사용 | token을 이미 확보한 경우 |
+| 직접 입력 | 토큰 파일 자동 생성, 기존 파일 사용, token 목록 붙여넣기 중 선택 | `/join` 큰 테스트는 파일 자동 생성 권장 |
 | 테스트 JWT 생성 | 로그인 API 없이 Gatling이 서로 다른 `sub=memberId` JWT 생성 | 서버 `JWT_SECRET`과 같은 secret 입력 필요 |
+
+큰 `/join` 테스트에서는 `Token mode=직접 입력`, `Access Token 준비 방식=파일 자동 생성`을 사용한다. 콘솔이 실행 전에 access token 파일을 먼저 만들고 Gatling에는 `-DaccessTokensFile=...`만 넘긴다. 따라서 `/join` HTTP 요청 시간에는 JWT 생성이 포함되지 않는다.
+
+토큰 파일은 UTF-8 텍스트이고 JWT를 한 줄에 하나씩 둔다. 이미 만든 파일이 있으면 `기존 파일 사용`, 소량 확인이면 `토큰 목록 붙여넣기`를 선택한다.
+
+콘솔 밖에서 미리 생성해야 할 때는 아래 명령을 사용할 수 있다.
+
+```powershell
+.\gradlew.bat -p load-tests/gatling generateAccessTokens `
+  -Doutput=C:\Users\mn040\IdeaProjects\ticket-workspace\.tmp\access-tokens.txt `
+  -DjwtSecret=0123456789abcdef0123456789abcdef `
+  -DjwtIssuer=ticket `
+  -DsyntheticMemberStartId=1 `
+  -DsyntheticJwtRole=MEMBER `
+  -DsyntheticTokenTtlSeconds=3600 `
+  -DtokenCount=60000
+```
 
 테스트 JWT 생성 모드는 로컬 검증용이다. 운영 secret이나 실제 사용자 token을 문서나 로그에 남기지 않는다.
 
@@ -105,7 +131,7 @@ http://localhost:9090
 ## 구조
 
 ```text
-ticket-gatling-load-tests/console
+gatling-test/console
 ├── src/main/java/com/ticket/gatling/console
 │   ├── ConsoleApplication.java      # main, consolePort 처리
 │   ├── ConsoleServer.java           # HTTP server, UI/report endpoint
@@ -123,6 +149,7 @@ ticket-gatling-load-tests/console
 이 저장소의 `load-tests/gatling` 아래 simulation을 실행한다.
 
 ```text
+com.ticket.loadtest.simulation.QueueJoinOnlySimulation
 com.ticket.loadtest.simulation.QueueEnterSimulation
 com.ticket.loadtest.simulation.LegacyQueueStatusSimulation
 com.ticket.loadtest.simulation.CdnPublicStateSimulation

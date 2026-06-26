@@ -25,6 +25,26 @@ tasks.withType(io.gatling.gradle.GatlingRunTask).configureEach {
     }
 }
 
+tasks.register('generateAccessTokens', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.ticket.loadtest.AccessTokenFileGenerator'
+    [
+            'output',
+            'tokenCount',
+            'jwtSecret',
+            'jwtIssuer',
+            'syntheticMemberStartId',
+            'syntheticJwtRole',
+            'syntheticTokenTtlSeconds'
+    ].each { propertyName ->
+        def propertyValue = System.getProperty(propertyName)
+        if (propertyValue != null) {
+            systemProperty propertyName, propertyValue
+        }
+    }
+}
+
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'

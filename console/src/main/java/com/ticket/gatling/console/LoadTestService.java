@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -23,6 +24,7 @@ import java.util.stream.Stream;
 
 public class LoadTestService {
     private final GatlingCommandBuilder commandBuilder = new GatlingCommandBuilder();
+    private final DistributedGatlingCommandBuilder distributedCommandBuilder = new DistributedGatlingCommandBuilder();
     private final ReportRegistry reportRegistry;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Map<UUID, LoadTestRun> runs = new LinkedHashMap<>();
@@ -41,6 +43,7 @@ public class LoadTestService {
         validateSyntheticJwt(request);
         validateSyntheticAdmissionToken(request);
         validateAutomaticLoginCapacity(request);
+        validateDistributedExecution(request);
         final UUID runId = UUID.randomUUID();
         final LoadTestRun run = new LoadTestRun(runId, request);
         runs.put(runId, run);
@@ -53,7 +56,21 @@ public class LoadTestService {
         if (!request.simulationType().usesAccessTokens()) {
             return;
         }
-        if ("tokens".equalsIgnoreCase(request.accessTokenMode()) && request.accessTokens().isBlank()) {
+        if (!"tokens".equalsIgnoreCase(request.accessTokenMode())) {
+            return;
+        }
+        if (request.generatesAccessTokensFile()) {
+            return;
+        }
+        if (request.usesAccessTokensFile() && request.accessTokensFile().isBlank()) {
+            throw new IllegalArgumentException("Access Token file is required in token mode");
+        }
+        if (request.usesAccessTokensFile()
+                && !request.generatesAccessTokensFile()
+                && !Files.isRegularFile(resolveInputPath(request.ticketProjectPath(), request.accessTokensFile()))) {
+            throw new IllegalArgumentException("Access Token file not found: " + request.accessTokensFile());
+        }
+        if (request.usesInlineAccessTokens() && request.accessTokens().isBlank()) {
             throw new IllegalArgumentException("Access Token list is required in token mode");
         }
     }
@@ -71,7 +88,8 @@ public class LoadTestService {
         if (!request.simulationType().usesAccessTokens()) {
             return;
         }
-        if (!"synthetic-jwt".equalsIgnoreCase(request.accessTokenMode())) {
+        if (!"synthetic-jwt".equalsIgnoreCase(request.accessTokenMode())
+                && !request.generatesAccessTokensFile()) {
             return;
         }
         if (request.jwtSecret().getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
@@ -98,9 +116,6 @@ public class LoadTestService {
         if (!"login".equalsIgnoreCase(request.accessTokenMode())) {
             return;
         }
-        if (!request.accessTokens().isBlank()) {
-            return;
-        }
         final int lastMemberNo = request.loginStartIndex() + request.estimatedVirtualUsers() - 1;
         if (lastMemberNo <= request.seedMemberCount()) {
             return;
@@ -116,6 +131,28 @@ public class LoadTestService {
         ));
     }
 
+    private void validateDistributedExecution(final LoadTestRequest request) {
+        if (!request.distributedExecution()) {
+            return;
+        }
+        if (request.simulationType() != SimulationType.CDN_PUBLIC_STATE
+                && request.simulationType() != SimulationType.LEGACY_QUEUE_STATUS
+                && request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
+            throw new IllegalArgumentException(
+                    "Distributed execution supports only Queue Join Only, CDN Public State and Legacy Queue Status"
+            );
+        }
+        if (request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
+            return;
+        }
+        if ("synthetic-jwt".equalsIgnoreCase(request.accessTokenMode()) || request.generatesAccessTokensFile()) {
+            return;
+        }
+        throw new IllegalArgumentException(
+                "Queue Join Only distributed execution requires synthetic JWT or generated access token file mode"
+        );
+    }
+
     public synchronized List<LoadTestRun> runs() {
         return new ArrayList<>(runs.values()).reversed();
     }
@@ -127,11 +164,15 @@ public class LoadTestService {
     private void execute(final LoadTestRun run, final LoadTestRequest request) {
         final Path executionReportsRoot = executionReportsRoot(request, run.id());
         final Set<Path> beforeReports = listReportDirectories(executionReportsRoot);
+        Path distributedRunDirectory = null;
         int exitCode = -1;
         try {
-            validateLoadTestsProject(request.ticketProjectPath());
-            Files.createDirectories(executionReportsRoot);
-            final List<String> command = commandBuilder.build(request, executionReportsRoot);
+            validateRunnableProject(request);
+            prepareGeneratedAccessTokens(run, request);
+            if (!request.distributedExecution()) {
+                Files.createDirectories(executionReportsRoot);
+            }
+            final List<String> command = buildCommand(request, executionReportsRoot);
             run.appendLog("$ " + String.join(" ", redactSensitiveArguments(command)));
 
             final Process process = new ProcessBuilder(command)
@@ -145,21 +186,110 @@ public class LoadTestService {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     run.appendLog(line);
+                    if (request.distributedExecution()) {
+                        distributedRunDirectory = parseDistributedRunDirectory(line).orElse(distributedRunDirectory);
+                    }
                 }
             }
             exitCode = process.waitFor();
         } catch (Exception exception) {
             run.appendLog("ERROR: " + exception.getMessage());
         } finally {
-            Path reportDirectory = detectReportDirectory(executionReportsRoot, beforeReports).orElse(null);
+            Path reportDirectory = request.distributedExecution()
+                    ? resolveDistributedReportDirectory(request, distributedRunDirectory).orElse(null)
+                    : detectReportDirectory(executionReportsRoot, beforeReports).orElse(null);
             if (reportDirectory != null) {
-                reportDirectory = renameReportDirectory(reportDirectory, request, run);
+                if (request.distributedExecution()) {
+                    writeDistributedIndex(reportDirectory, run);
+                } else {
+                    reportDirectory = renameReportDirectory(reportDirectory, request, run);
+                }
                 reportRegistry.register(run.id(), reportDirectory);
                 run.appendLog("Report: " + reportDirectory);
             }
-            deleteIfEmpty(executionReportsRoot);
+            if (!request.distributedExecution()) {
+                deleteIfEmpty(executionReportsRoot);
+            }
             run.complete(exitCode, reportDirectory);
             runningRunId.compareAndSet(run.id(), null);
+        }
+    }
+
+    private List<String> buildCommand(final LoadTestRequest request, final Path executionReportsRoot) {
+        if (request.distributedExecution()) {
+            return distributedCommandBuilder.build(request);
+        }
+        return commandBuilder.build(request, executionReportsRoot);
+    }
+
+    private void prepareGeneratedAccessTokens(
+            final LoadTestRun run,
+            final LoadTestRequest request
+    ) throws IOException, InterruptedException {
+        if (!request.generatesAccessTokensFile() || request.distributedExecution()) {
+            return;
+        }
+        final List<String> command = accessTokenGenerationCommand(request);
+        run.appendLog("Generating access token file before Gatling run.");
+        run.appendLog("$ " + String.join(" ", redactSensitiveArguments(command)));
+
+        final Process process = new ProcessBuilder(command)
+                .directory(request.ticketProjectPath().toFile())
+                .redirectErrorStream(true)
+                .start();
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
+        )) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                run.appendLog(line);
+            }
+        }
+
+        final int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new IllegalStateException("Access token generation failed with exit code " + exitCode);
+        }
+    }
+
+    private List<String> accessTokenGenerationCommand(final LoadTestRequest request) {
+        final List<String> command = new ArrayList<>();
+        command.add(gradleWrapper(request));
+        command.add("-p");
+        command.add("load-tests/gatling");
+        command.add("generateAccessTokens");
+        command.add("-Doutput=" + request.accessTokensFile());
+        command.add("-DtokenCount=" + request.generatedAccessTokenCount());
+        command.add("-DjwtSecret=" + request.jwtSecret());
+        command.add("-DjwtIssuer=" + request.jwtIssuer());
+        command.add("-DsyntheticMemberStartId=" + request.syntheticMemberStartId());
+        command.add("-DsyntheticJwtRole=" + request.syntheticJwtRole());
+        command.add("-DsyntheticTokenTtlSeconds=" + request.syntheticTokenTtlSeconds());
+        return List.copyOf(command);
+    }
+
+    private String gradleWrapper(final LoadTestRequest request) {
+        final boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
+        return request.ticketProjectPath().resolve(windows ? "gradlew.bat" : "gradlew").toString();
+    }
+
+    private Path resolveInputPath(final Path baseDirectory, final String value) {
+        final Path path = Path.of(value);
+        if (path.isAbsolute()) {
+            return path.normalize();
+        }
+        return baseDirectory.resolve(path).toAbsolutePath().normalize();
+    }
+
+    private void validateRunnableProject(final LoadTestRequest request) {
+        validateLoadTestsProject(request.ticketProjectPath());
+        if (!request.distributedExecution()) {
+            return;
+        }
+        final Path scriptPath = distributedCommandBuilder.scriptPath(request);
+        if (!Files.isRegularFile(scriptPath)) {
+            throw new IllegalArgumentException("Distributed script not found: " + scriptPath);
         }
     }
 
@@ -177,6 +307,117 @@ public class LoadTestService {
                 .resolve("build").resolve("tmp").resolve("gatling-console-runs")
                 .resolve(runId.toString())
                 .toAbsolutePath().normalize();
+    }
+
+    private Optional<Path> parseDistributedRunDirectory(final String line) {
+        final String marker = "Run dir:";
+        final int markerIndex = line.indexOf(marker);
+        if (markerIndex < 0) {
+            return Optional.empty();
+        }
+        final String pathValue = line.substring(markerIndex + marker.length()).trim();
+        if (pathValue.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(Path.of(pathValue).toAbsolutePath().normalize());
+    }
+
+    private Optional<Path> resolveDistributedReportDirectory(
+            final LoadTestRequest request,
+            final Path parsedRunDirectory
+    ) {
+        if (parsedRunDirectory != null && Files.isDirectory(parsedRunDirectory)) {
+            return Optional.of(parsedRunDirectory);
+        }
+        return latestDistributedRunDirectory(request);
+    }
+
+    private Optional<Path> latestDistributedRunDirectory(final LoadTestRequest request) {
+        final String directoryName = switch (request.simulationType()) {
+            case CDN_PUBLIC_STATE -> "distributed-results";
+            case QUEUE_JOIN_ONLY -> "distributed-results-join";
+            default -> "distributed-results-legacy";
+        };
+        final Path root = request.ticketProjectPath().resolve(directoryName).toAbsolutePath().normalize();
+        if (!Files.isDirectory(root)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> stream = Files.list(root)) {
+            return stream.filter(Files::isDirectory)
+                    .max(Comparator.comparingLong(this::lastModified));
+        } catch (IOException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private void writeDistributedIndex(final Path runDirectory, final LoadTestRun run) {
+        final Path index = runDirectory.resolve("index.html");
+        final StringBuilder html = new StringBuilder();
+        html.append("<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">")
+                .append("<title>Distributed Gatling Summary</title>")
+                .append("<style>")
+                .append("body{font-family:Segoe UI,system-ui,sans-serif;margin:24px;color:#17202c;background:#f8fafc;}")
+                .append("h1{font-size:22px;margin:0 0 16px;}h2{font-size:16px;margin:24px 0 10px;}")
+                .append("a{color:#1d4ed8;}pre{padding:14px;border:1px solid #d7dee8;background:#fff;overflow:auto;}")
+                .append("li{margin:6px 0;}")
+                .append("</style></head><body>")
+                .append("<h1>Distributed Gatling Summary</h1>")
+                .append("<p>Run directory: <code>")
+                .append(htmlEscape(runDirectory.toString()))
+                .append("</code></p><ul>");
+        appendFileLink(html, runDirectory, "summary.csv");
+        appendFileLink(html, runDirectory, "summary.md");
+        html.append("</ul>");
+
+        final Path summary = runDirectory.resolve("summary.md");
+        if (Files.isRegularFile(summary)) {
+            try {
+                html.append("<h2>Summary</h2><pre>")
+                        .append(htmlEscape(Files.readString(summary, StandardCharsets.UTF_8)))
+                        .append("</pre>");
+            } catch (IOException exception) {
+                run.appendLog("Distributed summary preview skipped: " + exception.getMessage());
+            }
+        }
+
+        html.append("<h2>Node reports</h2><ul>");
+        try (Stream<Path> stream = Files.walk(runDirectory, 8)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().equals("index.html"))
+                    .filter(path -> !path.equals(index))
+                    .sorted()
+                    .forEach(path -> html.append("<li><a href=\"")
+                            .append(htmlEscape(runDirectory.relativize(path).toString().replace('\\', '/')))
+                            .append("\">")
+                            .append(htmlEscape(runDirectory.relativize(path).toString()))
+                            .append("</a></li>"));
+        } catch (IOException exception) {
+            run.appendLog("Node report list skipped: " + exception.getMessage());
+        }
+        html.append("</ul></body></html>");
+
+        try {
+            Files.writeString(index, html.toString(), StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            run.appendLog("Distributed index write failed: " + exception.getMessage());
+        }
+    }
+
+    private void appendFileLink(final StringBuilder html, final Path directory, final String fileName) {
+        if (Files.isRegularFile(directory.resolve(fileName))) {
+            html.append("<li><a href=\"")
+                    .append(htmlEscape(fileName))
+                    .append("\">")
+                    .append(htmlEscape(fileName))
+                    .append("</a></li>");
+        }
+    }
+
+    private String htmlEscape(final String value) {
+        return value.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 
     private Set<Path> listReportDirectories(final Path reportsRoot) {
@@ -257,25 +498,33 @@ public class LoadTestService {
     }
 
     private List<String> redactSensitiveArguments(final List<String> command) {
-        return command.stream()
-                .map(argument -> {
-                    if (argument.startsWith("-DloginPassword=")) {
-                        return "-DloginPassword=****";
-                    }
-                    if (argument.startsWith("-DjwtSecret=")) {
-                        return "-DjwtSecret=****";
-                    }
-                    if (argument.startsWith("-DaccessTokens=")) {
-                        return "-DaccessTokens=****";
-                    }
-                    if (argument.startsWith("-DadmissionTokenSecret=")) {
-                        return "-DadmissionTokenSecret=****";
-                    }
-                    if (argument.startsWith("-DadmissionTokens=")) {
-                        return "-DadmissionTokens=****";
-                    }
-                    return argument;
-                })
-                .toList();
+        final List<String> redacted = new ArrayList<>();
+        boolean redactNext = false;
+        for (String argument : command) {
+            if (redactNext) {
+                redacted.add("****");
+                redactNext = false;
+                continue;
+            }
+            if (argument.equals("-JwtSecret")) {
+                redacted.add(argument);
+                redactNext = true;
+                continue;
+            }
+            if (argument.startsWith("-DloginPassword=")) {
+                redacted.add("-DloginPassword=****");
+            } else if (argument.startsWith("-DjwtSecret=")) {
+                redacted.add("-DjwtSecret=****");
+            } else if (argument.startsWith("-DaccessTokens=")) {
+                redacted.add("-DaccessTokens=****");
+            } else if (argument.startsWith("-DadmissionTokenSecret=")) {
+                redacted.add("-DadmissionTokenSecret=****");
+            } else if (argument.startsWith("-DadmissionTokens=")) {
+                redacted.add("-DadmissionTokens=****");
+            } else {
+                redacted.add(argument);
+            }
+        }
+        return List.copyOf(redacted);
     }
 }

@@ -3,6 +3,16 @@ package com.ticket.gatling.console;
 import java.util.Arrays;
 
 public enum SimulationType {
+    QUEUE_JOIN_ONLY(
+            "queue-join-only",
+            "Queue Join Only",
+            "com.ticket.loadtest.simulation.QueueJoinOnlySimulation",
+            "https://queue.oneticket.site",
+            false,
+            false,
+            false,
+            true
+    ),
     QUEUE_ENTER(
             "queue-enter",
             "대기열 진입",

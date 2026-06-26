@@ -43,7 +43,9 @@ public class GatlingCommandBuilder {
                 command.add("-DsyntheticMemberStartId=" + request.syntheticMemberStartId());
                 command.add("-DsyntheticJwtRole=" + request.syntheticJwtRole());
                 command.add("-DsyntheticTokenTtlSeconds=" + request.syntheticTokenTtlSeconds());
-            } else if (!request.accessTokens().isBlank()) {
+            } else if (request.usesAccessTokensFile()) {
+                command.add("-DaccessTokensFile=" + request.accessTokensFile());
+            } else if (request.usesInlineAccessTokens()) {
                 command.add("-DaccessTokens=" + request.accessTokens());
             }
         }

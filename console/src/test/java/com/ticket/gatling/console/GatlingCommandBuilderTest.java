@@ -73,6 +73,59 @@ class GatlingCommandBuilderTest {
     }
 
     @Test
+    void buildsQueueJoinOnlyCommandWithoutEnterOrPollingOptions() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
+                "simulation", List.of("queue-join-only"),
+                "performanceId", List.of("13669679"),
+                "accessTokenMode", List.of("synthetic-jwt")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("com.ticket.loadtest.simulation.QueueJoinOnlySimulation"));
+        assertTrue(command.contains("-DbaseUrl=https://queue.oneticket.site"));
+        assertTrue(command.contains("-DperformanceId=13669679"));
+        assertTrue(command.contains("-DaccessTokenMode=synthetic-jwt"));
+        assertFalse(command.contains("-DstatusPolls=3"));
+        assertFalse(command.contains("-DseatIds=1"));
+        assertFalse(command.contains("-DadmissionTokenMode=synthetic"));
+    }
+
+    @Test
+    void passesAccessTokensFileBeforeInlineAccessTokens() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
+                "simulation", List.of("queue-join-only"),
+                "accessTokenMode", List.of("tokens"),
+                "accessTokens", List.of("inline-token"),
+                "accessTokensFile", List.of("C:/tokens/access-tokens.txt")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("-DaccessTokensFile=C:/tokens/access-tokens.txt"));
+        assertFalse(command.contains("-DaccessTokens=inline-token"));
+    }
+
+    @Test
+    void passesGeneratedAccessTokensFileWithoutJwtGenerationArgumentsToGatlingRun() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
+                "simulation", List.of("queue-join-only"),
+                "accessTokenMode", List.of("tokens"),
+                "accessTokenSource", List.of("generate-file"),
+                "accessTokensFile", List.of("C:/tokens/generated-access-tokens.txt")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("-DaccessTokensFile=C:/tokens/generated-access-tokens.txt"));
+        assertFalse(command.stream().anyMatch(value -> value.startsWith("-DaccessTokens=")));
+        assertFalse(command.stream().anyMatch(value -> value.startsWith("-DjwtSecret=")));
+    }
+
+    @Test
     void buildsCdnPublicStateCommandWithPollingOptions() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),

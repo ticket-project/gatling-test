@@ -62,6 +62,22 @@ class SimulationConnectionPolicyTest {
     }
 
     @Test
+    void queueJoinOnlySimulationOnlyCallsJoin() throws IOException {
+        final String source = readSimulation("QueueJoinOnlySimulation.java");
+
+        assertTrue(source.contains("scenario(\"queue-join-only\")"));
+        assertTrue(source.contains("queue join"));
+        assertTrue(source.contains(".post(LoadTestConfig.queueBaseUrl() + \"/api/v1/queue/performances/#{performanceId}/join\")"));
+        assertTrue(source.contains(".headers(LoadTestConfig.authHeaders())"));
+        assertTrue(source.contains(".check(status().is(200))"));
+        assertTrue(source.contains(".check(jsonPath(\"$.seq\").ofLong().saveAs(\"queueSeq\"))"));
+        assertTrue(source.contains(".check(jsonPath(\"$.queueToken\").saveAs(\"queueToken\"))"));
+        assertFalse(source.contains("queue enter"), "join-only simulation must not call enter");
+        assertFalse(source.contains("/api/v1/queue/performances/#{performanceId}/enter"), "join-only simulation must not call enter");
+        assertFalse(source.contains("queueTokenHeaders"), "join-only simulation must not need queue token headers");
+    }
+
+    @Test
     void loadTestConfigSupportsModernAndLegacyQueueHeaders() throws IOException {
         final Path configPath = Path.of("src/gatling/java/com/ticket/loadtest/LoadTestConfig.java");
         final String source = Files.readString(configPath, StandardCharsets.UTF_8);

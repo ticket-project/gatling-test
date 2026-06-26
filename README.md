@@ -26,6 +26,23 @@ GET /api/v1/queue/performances/{performanceId}/state
 Header/cookie/auth 없음
 ```
 
+## Access token 파일 생성
+
+큰 `/join` 부하 테스트에서는 실행 중 synthetic JWT를 만들지 말고 토큰 파일을 미리 만들어 `-DaccessTokenMode=tokens -DaccessTokensFile=...`로 사용한다.
+
+```powershell
+.\gradlew.bat -p load-tests/gatling generateAccessTokens `
+  -Doutput=C:\Users\mn040\IdeaProjects\ticket-workspace\.tmp\access-tokens.txt `
+  -DjwtSecret=0123456789abcdef0123456789abcdef `
+  -DjwtIssuer=ticket `
+  -DsyntheticMemberStartId=1 `
+  -DsyntheticJwtRole=MEMBER `
+  -DsyntheticTokenTtlSeconds=3600 `
+  -DtokenCount=60000
+```
+
+생성된 파일은 UTF-8 텍스트이며 JWT가 한 줄에 하나씩 들어간다. 콘솔에서는 `Token mode=직접 입력`을 선택하고 `Access Token 파일 경로`에 위 파일 경로를 넣는다.
+
 ## 테스트
 
 ```powershell

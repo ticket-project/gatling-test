@@ -3,6 +3,7 @@ package com.ticket.gatling.console;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public record LoadTestRequest(
         Path ticketProjectPath,
@@ -15,6 +16,10 @@ public record LoadTestRequest(
         String injectionMode,
         double usersPerSecond,
         double targetUsersPerSecond,
+        String executionMode,
+        boolean distributedIncludeLocal,
+        boolean distributedCollectReports,
+        String distributedHosts,
         int statusPolls,
         int statusPollPauseSeconds,
         int statusPollPauseJitterSeconds,
@@ -36,10 +41,13 @@ public record LoadTestRequest(
         String admissionTokenSecret,
         int admissionTokenTtlSeconds,
         String accessTokens,
+        String accessTokenSource,
+        String accessTokensFile,
+        int generatedAccessTokenCount,
         String admissionTokens
 ) {
     private static final String DEFAULT_LOAD_TESTS_PATH =
-            "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\ticket-gatling-load-tests";
+            "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test";
     private static final String SYNTHETIC_JWT_SECRET = "0123456789abcdef0123456789abcdef";
     private static final String SYNTHETIC_ADMISSION_SECRET = "0123456789abcdef0123456789abcdef";
 
@@ -76,6 +84,8 @@ public record LoadTestRequest(
         performanceId = defaultIfBlank(performanceId, "1");
         seatIds = defaultIfBlank(seatIds, "1");
         injectionMode = defaultIfBlank(injectionMode, "ramp-users");
+        executionMode = normalizeExecutionMode(executionMode);
+        distributedHosts = defaultIfBlank(distributedHosts, defaultDistributedHosts());
         accessTokenMode = normalizeAccessTokenMode(accessTokenMode);
         loginEmailPrefix = defaultIfBlank(loginEmailPrefix, "loadtest");
         loginEmailDomain = defaultIfBlank(loginEmailDomain, "test.com");
@@ -90,12 +100,23 @@ public record LoadTestRequest(
         admissionTokenAudience = defaultIfBlank(admissionTokenAudience, "ticket-api");
         admissionTokenSecret = defaultIfBlank(admissionTokenSecret, SYNTHETIC_ADMISSION_SECRET);
         accessTokens = accessTokens == null ? "" : accessTokens.trim();
+        accessTokenSource = normalizeAccessTokenSource(accessTokenSource);
+        if ("inline".equals(accessTokenSource) && accessTokens.isBlank()) {
+            accessTokenSource = "generate-file";
+        }
+        accessTokensFile = defaultIfBlank(accessTokensFile, defaultAccessTokensFile(ticketProjectPath));
+        generatedAccessTokenCount = generatedAccessTokenCount <= 0
+                ? estimateVirtualUsers(users, durationSeconds, injectionMode, usersPerSecond, targetUsersPerSecond)
+                : generatedAccessTokenCount;
         admissionTokens = admissionTokens == null ? "" : admissionTokens.trim();
     }
 
     public static LoadTestRequest fromForm(final Map<String, List<String>> form) {
+        final Path ticketProjectPath = Path.of(value(form, "ticketProjectPath", DEFAULT_LOAD_TESTS_PATH));
+        final String accessTokens = value(form, "accessTokens", "");
+        final String accessTokensFile = value(form, "accessTokensFile", "");
         return new LoadTestRequest(
-                Path.of(value(form, "ticketProjectPath", DEFAULT_LOAD_TESTS_PATH)),
+                ticketProjectPath,
                 SimulationType.fromKey(value(form, "simulation", SimulationType.QUEUE_ENTER.key())),
                 value(form, "baseUrl", ""),
                 value(form, "performanceId", "1"),
@@ -105,6 +126,10 @@ public record LoadTestRequest(
                 value(form, "injectionMode", "ramp-users"),
                 doubleValue(form, "usersPerSecond", 1.0),
                 doubleValue(form, "targetUsersPerSecond", 10.0),
+                value(form, "executionMode", "local"),
+                booleanValue(form, "distributedIncludeLocal", false),
+                booleanValue(form, "distributedCollectReports", true),
+                value(form, "distributedHosts", defaultDistributedHosts()),
                 intValue(form, "statusPolls", 3),
                 intValue(form, "statusPollPauseSeconds", 1),
                 intValue(form, "statusPollPauseJitterSeconds", 0),
@@ -125,7 +150,10 @@ public record LoadTestRequest(
                 value(form, "admissionTokenAudience", "ticket-api"),
                 value(form, "admissionTokenSecret", SYNTHETIC_ADMISSION_SECRET),
                 intValue(form, "admissionTokenTtlSeconds", 300),
-                value(form, "accessTokens", ""),
+                accessTokens,
+                value(form, "accessTokenSource", defaultAccessTokenSource(accessTokens, accessTokensFile)),
+                accessTokensFile,
+                intValue(form, "generatedAccessTokenCount", 0),
                 value(form, "admissionTokens", "")
         );
     }
@@ -136,11 +164,37 @@ public record LoadTestRequest(
     }
 
     public int estimatedVirtualUsers() {
-        return switch (injectionMode) {
-            case "constant-users-per-sec" -> (int) Math.ceil(usersPerSecond * durationSeconds);
-            case "ramp-users-per-sec" -> (int) Math.ceil(((usersPerSecond + targetUsersPerSecond) / 2.0) * durationSeconds);
-            default -> users;
-        };
+        return estimateVirtualUsers(users, durationSeconds, injectionMode, usersPerSecond, targetUsersPerSecond);
+    }
+
+    public boolean generatesAccessTokensFile() {
+        return simulationType.usesAccessTokens()
+                && "tokens".equals(accessTokenMode)
+                && "generate-file".equals(accessTokenSource);
+    }
+
+    public boolean usesAccessTokensFile() {
+        return simulationType.usesAccessTokens()
+                && "tokens".equals(accessTokenMode)
+                && (accessTokenSource.equals("generate-file") || accessTokenSource.equals("file"));
+    }
+
+    public boolean usesInlineAccessTokens() {
+        return simulationType.usesAccessTokens()
+                && "tokens".equals(accessTokenMode)
+                && accessTokenSource.equals("inline");
+    }
+
+    public boolean distributedExecution() {
+        return "distributed".equals(executionMode);
+    }
+
+    public List<String> distributedHostList() {
+        return java.util.Arrays.stream(distributedHosts.split("[,\\r\\n]+"))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .map(LoadTestRequest::normalizeDistributedHost)
+                .toList();
     }
 
     private static String value(
@@ -179,11 +233,72 @@ public record LoadTestRequest(
         return Long.parseLong(value(form, key, String.valueOf(defaultValue)));
     }
 
+    private static boolean booleanValue(
+            final Map<String, List<String>> form,
+            final String key,
+            final boolean defaultValue
+    ) {
+        final String raw = value(form, key, String.valueOf(defaultValue)).toLowerCase(java.util.Locale.ROOT);
+        return raw.equals("true") || raw.equals("on") || raw.equals("1") || raw.equals("yes");
+    }
+
+    private static int estimateVirtualUsers(
+            final int users,
+            final int durationSeconds,
+            final String injectionMode,
+            final double usersPerSecond,
+            final double targetUsersPerSecond
+    ) {
+        return switch (injectionMode) {
+            case "constant-users-per-sec" -> (int) Math.ceil(usersPerSecond * durationSeconds);
+            case "ramp-users-per-sec" -> (int) Math.ceil(((usersPerSecond + targetUsersPerSecond) / 2.0) * durationSeconds);
+            default -> users;
+        };
+    }
+
     private static String defaultIfBlank(final String value, final String defaultValue) {
         if (value == null || value.isBlank()) {
             return defaultValue;
         }
         return value.trim();
+    }
+
+    private static String defaultAccessTokenSource(final String accessTokens, final String accessTokensFile) {
+        if (accessTokensFile != null && !accessTokensFile.isBlank()) {
+            return "file";
+        }
+        if (accessTokens != null && !accessTokens.isBlank()) {
+            return "inline";
+        }
+        return "generate-file";
+    }
+
+    private static String defaultAccessTokensFile(final Path ticketProjectPath) {
+        final Path workspacePath = Optional.ofNullable(ticketProjectPath.getParent()).orElse(ticketProjectPath);
+        return workspacePath.resolve(".tmp").resolve("access-tokens.txt").toString();
+    }
+
+    private static String defaultDistributedHosts() {
+        return String.join(System.lineSeparator(),
+                "ubuntu@43.203.155.15",
+                "ubuntu@15.165.40.25",
+                "ubuntu@43.203.136.184"
+        );
+    }
+
+    private static String normalizeDistributedHost(final String value) {
+        if (value.contains("@")) {
+            return value;
+        }
+        return "ubuntu@" + value;
+    }
+
+    private static String normalizeExecutionMode(final String value) {
+        final String mode = defaultIfBlank(value, "local").toLowerCase(java.util.Locale.ROOT);
+        if (mode.equals("local") || mode.equals("distributed")) {
+            return mode;
+        }
+        throw new IllegalArgumentException("Unsupported executionMode: " + mode);
     }
 
     private static String normalizeAccessTokenMode(final String value) {
@@ -192,6 +307,14 @@ public record LoadTestRequest(
             return mode;
         }
         throw new IllegalArgumentException("Unsupported accessTokenMode: " + mode);
+    }
+
+    private static String normalizeAccessTokenSource(final String value) {
+        final String source = defaultIfBlank(value, "generate-file").toLowerCase(java.util.Locale.ROOT);
+        if (source.equals("generate-file") || source.equals("file") || source.equals("inline")) {
+            return source;
+        }
+        throw new IllegalArgumentException("Unsupported accessTokenSource: " + source);
     }
 
     private static String normalizeAdmissionTokenMode(final String value) {

@@ -1,0 +1,95 @@
+package com.ticket.gatling.console;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class DistributedGatlingCommandBuilderTest {
+
+    @Test
+    void buildsCdnDistributedScriptCommandWithConfiguredHosts() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
+                Map.entry("ticketProjectPath", List.of("C:/ticket-workspace/gatling-test")),
+                Map.entry("executionMode", List.of("distributed")),
+                Map.entry("simulation", List.of("cdn-public-state")),
+                Map.entry("baseUrl", List.of("https://queue.example.com")),
+                Map.entry("performanceId", List.of("7")),
+                Map.entry("usersPerSecond", List.of("500")),
+                Map.entry("durationSeconds", List.of("100")),
+                Map.entry("statusPolls", List.of("1")),
+                Map.entry("statusPollPauseSeconds", List.of("0")),
+                Map.entry("statusPollPauseJitterSeconds", List.of("0")),
+                Map.entry("distributedHosts", List.of("43.203.155.15\nubuntu@15.165.40.25")),
+                Map.entry("distributedCollectReports", List.of("on"))
+        ));
+
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request);
+
+        assertTrue(command.getFirst().toLowerCase(java.util.Locale.ROOT).contains("powershell"));
+        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-gatling-cdn.ps1")));
+        assertTrue(command.contains("-Hosts"));
+        assertTrue(command.contains("ubuntu@43.203.155.15,ubuntu@15.165.40.25"));
+        assertTrue(command.contains("-RpsPerNode"));
+        assertTrue(command.contains("500"));
+        assertTrue(command.contains("-DurationSeconds"));
+        assertTrue(command.contains("100"));
+        assertTrue(command.contains("-BaseUrl"));
+        assertTrue(command.contains("https://queue.example.com"));
+        assertTrue(command.contains("-PerformanceId"));
+        assertTrue(command.contains("7"));
+        assertTrue(command.contains("-StatusPolls"));
+        assertTrue(command.contains("1"));
+        assertTrue(command.contains("-CollectReports"));
+        assertFalse(command.contains("-IncludeLocal"));
+    }
+
+    @Test
+    void buildsLegacyDistributedScriptCommandWithLocalNode() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket-workspace/gatling-test"),
+                "executionMode", List.of("distributed"),
+                "simulation", List.of("legacy-queue-status"),
+                "usersPerSecond", List.of("300"),
+                "durationSeconds", List.of("60"),
+                "distributedHosts", List.of("43.203.136.184"),
+                "distributedIncludeLocal", List.of("on")
+        ));
+
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request);
+
+        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-gatling-legacy.ps1")));
+        assertTrue(command.contains("ubuntu@43.203.136.184"));
+        assertTrue(command.contains("-RpsPerNode"));
+        assertTrue(command.contains("300"));
+        assertTrue(command.contains("-IncludeLocal"));
+    }
+
+    @Test
+    void buildsQueueJoinDistributedScriptCommandWithGeneratedTokenFile() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket-workspace/gatling-test"),
+                "executionMode", List.of("distributed"),
+                "simulation", List.of("queue-join-only"),
+                "accessTokenMode", List.of("tokens"),
+                "accessTokenSource", List.of("generate-file"),
+                "usersPerSecond", List.of("300"),
+                "durationSeconds", List.of("60"),
+                "generatedAccessTokenCount", List.of("18000"),
+                "jwtSecret", List.of("0123456789abcdef0123456789abcdef")
+        ));
+
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request);
+
+        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-gatling-join.ps1")));
+        assertTrue(command.contains("-AccessTokenMode"));
+        assertTrue(command.contains("tokens"));
+        assertTrue(command.contains("-GenerateAccessTokens"));
+        assertTrue(command.contains("-TokenCountPerNode"));
+        assertTrue(command.contains("18000"));
+        assertTrue(command.contains("-JwtSecret"));
+    }
+}

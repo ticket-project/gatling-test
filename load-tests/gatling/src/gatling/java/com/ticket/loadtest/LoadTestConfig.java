@@ -8,6 +8,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -23,6 +25,7 @@ import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 
 public final class LoadTestConfig {
+    private static final ConcurrentMap<ConfigKey, CsvValues> CSV_VALUES = new ConcurrentHashMap<>();
     private static final AtomicInteger LOGIN_COUNTER = new AtomicInteger(intProperty(ConfigKey.LOGIN_START_INDEX));
     private static final AtomicInteger TOKEN_COUNTER = new AtomicInteger();
     private static final AtomicInteger ADMISSION_TOKEN_COUNTER = new AtomicInteger();
@@ -107,7 +110,7 @@ public final class LoadTestConfig {
         final String mode = property(ConfigKey.ACCESS_TOKEN_MODE).toLowerCase(Locale.ROOT);
         if ("tokens".equals(mode)) {
             return exec(session -> {
-                final String accessToken = nextFromCsv(ConfigKey.ACCESS_TOKENS, TOKEN_COUNTER);
+                final String accessToken = nextAccessToken();
                 return session.set("accessToken", accessToken)
                         .set("memberId", LoadTestTokens.readSubjectAsLong(accessToken));
             });
@@ -216,8 +219,13 @@ public final class LoadTestConfig {
     }
 
     private static String nextFromCsv(final ConfigKey key, final AtomicInteger counter) {
-        final CsvValues csvValues = parseCsv(key);
+        final CsvValues csvValues = CSV_VALUES.computeIfAbsent(key, LoadTestConfig::parseCsv);
         return csvValues.values().get(Math.floorMod(counter.getAndIncrement(), csvValues.values().size()));
+    }
+
+    private static String nextAccessToken() {
+        final CsvValues csvValues = CSV_VALUES.computeIfAbsent(ConfigKey.ACCESS_TOKENS, ignored -> parseAccessTokens());
+        return csvValues.values().get(Math.floorMod(TOKEN_COUNTER.getAndIncrement(), csvValues.values().size()));
     }
 
     private static CsvValues parseCsv(final ConfigKey key) {
@@ -229,6 +237,14 @@ public final class LoadTestConfig {
             throw new IllegalStateException("System property must contain at least one value: -D" + key.propertyName());
         }
         return new CsvValues(values);
+    }
+
+    private static CsvValues parseAccessTokens() {
+        return new CsvValues(LoadTestTokenValues.fromCsvOrFile(
+                System.getProperty(ConfigKey.ACCESS_TOKENS.propertyName()),
+                optionalProperty(ConfigKey.ACCESS_TOKENS_FILE, ""),
+                ConfigKey.ACCESS_TOKENS.propertyName()
+        ));
     }
 
     private static String seatIdsJsonArray() {
@@ -297,6 +313,7 @@ public final class LoadTestConfig {
         TARGET_USERS_PER_SECOND,
         ACCESS_TOKEN_MODE,
         ACCESS_TOKENS,
+        ACCESS_TOKENS_FILE,
         ADMISSION_TOKEN_MODE,
         ADMISSION_TOKENS,
         ADMISSION_TOKEN_ISSUER,
@@ -330,6 +347,7 @@ public final class LoadTestConfig {
                 case TARGET_USERS_PER_SECOND -> "targetUsersPerSecond";
                 case ACCESS_TOKEN_MODE -> "accessTokenMode";
                 case ACCESS_TOKENS -> "accessTokens";
+                case ACCESS_TOKENS_FILE -> "accessTokensFile";
                 case ADMISSION_TOKEN_MODE -> "admissionTokenMode";
                 case ADMISSION_TOKENS -> "admissionTokens";
                 case ADMISSION_TOKEN_ISSUER -> "admissionTokenIssuer";
@@ -377,7 +395,7 @@ public final class LoadTestConfig {
                 case SYNTHETIC_TOKEN_TTL_SECONDS -> "3600";
                 case JWT_ISSUER -> "ticket";
                 case SYNTHETIC_JWT_ROLE -> "MEMBER";
-                case ACCESS_TOKENS, ADMISSION_TOKENS, JWT_SECRET -> null;
+                case ACCESS_TOKENS, ACCESS_TOKENS_FILE, ADMISSION_TOKENS, JWT_SECRET -> null;
             };
         }
     }

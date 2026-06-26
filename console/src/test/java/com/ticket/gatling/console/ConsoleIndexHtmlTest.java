@@ -20,6 +20,8 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("https://queue.oneticket.site"));
         assertTrue(html.contains("defaultBaseUrl"));
         assertTrue(html.contains("applySimulationDefaultBaseUrl(); updateVisibility(); updateSummary();"));
+        assertTrue(html.contains("queue-join-only"));
+        assertTrue(html.contains("${queueBase}/join"));
         assertTrue(html.contains("legacy-queue-status"));
         assertTrue(html.contains("${queueBase}/status"));
         assertTrue(html.contains("cdn-public-state"));
@@ -27,6 +29,19 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("data-option=\"poll-jitter\""));
         assertTrue(html.contains("name=\"statusPollPauseJitterSeconds\" type=\"number\" min=\"0\" value=\"0\""));
         assertTrue(html.contains("setVisible('[data-option=\"poll-jitter\"]', selected?.usesStatusPolling);"));
+        assertTrue(html.contains("id=\"executionMode\" name=\"executionMode\""));
+        assertTrue(html.contains("value=\"distributed\""));
+        assertTrue(html.contains("id=\"distributedHosts\" name=\"distributedHosts\""));
+        assertTrue(html.contains("ubuntu@43.203.155.15"));
+        assertTrue(html.contains("id=\"distributedIncludeLocal\""));
+        assertTrue(html.indexOf("id=\"distributedCollectReports\"")
+                < html.indexOf("<input name=\"distributedCollectReports\" type=\"hidden\""));
+        assertTrue(html.contains("id=\"accessTokenSource\" name=\"accessTokenSource\""));
+        assertTrue(html.contains("value=\"generate-file\""));
+        assertTrue(html.contains("id=\"generatedAccessTokenCount\" name=\"generatedAccessTokenCount\""));
+        assertTrue(html.contains("id=\"accessTokensFile\" name=\"accessTokensFile\""));
+        assertTrue(html.contains("data-token-config=\"jwt\""));
+        assertTrue(html.contains("normalizeAccessTokenSourceForRun(body);"));
         assertTrue(html.contains("admissionTokenMode"));
         assertTrue(html.contains("Admission Token 목록"));
         assertTrue(html.contains("X-Admission-Token"));

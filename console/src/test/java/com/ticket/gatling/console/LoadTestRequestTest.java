@@ -55,6 +55,58 @@ class LoadTestRequestTest {
     }
 
     @Test
+    void readsAccessTokenFileFromForm() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "accessTokensFile", List.of("C:/tokens/access-tokens.txt")
+        ));
+
+        assertEquals("C:/tokens/access-tokens.txt", request.accessTokensFile());
+        assertEquals("file", request.accessTokenSource());
+    }
+
+    @Test
+    void defaultsGeneratedTokenCountToEstimatedVirtualUsers() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "accessTokenMode", List.of("tokens"),
+                "accessTokenSource", List.of("generate-file"),
+                "injectionMode", List.of("constant-users-per-sec"),
+                "usersPerSecond", List.of("7.5"),
+                "durationSeconds", List.of("60")
+        ));
+
+        assertEquals(450, request.generatedAccessTokenCount());
+        assertEquals(true, request.generatesAccessTokensFile());
+    }
+
+    @Test
+    void fallsBackToGeneratedTokenFileWhenInlineSourceHasNoTokens() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "accessTokenMode", List.of("tokens"),
+                "accessTokenSource", List.of("inline"),
+                "accessTokens", List.of("")
+        ));
+
+        assertEquals("generate-file", request.accessTokenSource());
+        assertEquals(true, request.generatesAccessTokensFile());
+    }
+
+    @Test
+    void readsDistributedExecutionOptionsFromForm() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "executionMode", List.of("distributed"),
+                "distributedIncludeLocal", List.of("on"),
+                "distributedCollectReports", List.of("on"),
+                "distributedHosts", List.of("43.203.155.15\nubuntu@15.165.40.25")
+        ));
+
+        assertEquals("distributed", request.executionMode());
+        assertEquals(true, request.distributedExecution());
+        assertEquals(true, request.distributedIncludeLocal());
+        assertEquals(true, request.distributedCollectReports());
+        assertEquals(List.of("ubuntu@43.203.155.15", "ubuntu@15.165.40.25"), request.distributedHostList());
+    }
+
+    @Test
     void readsAdmissionTokenOptionsFromForm() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "admissionTokenMode", List.of("tokens"),

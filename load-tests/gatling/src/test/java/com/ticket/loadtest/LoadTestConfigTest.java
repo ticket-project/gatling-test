@@ -32,4 +32,13 @@ class LoadTestConfigTest {
         assertTrue(source.contains("case STATUS_POLL_PAUSE_JITTER_SECONDS -> \"statusPollPauseJitterSeconds\";"));
         assertTrue(source.contains("case STATUS_POLL_PAUSE_JITTER_SECONDS -> \"0\";"));
     }
+
+    @Test
+    void supportsAccessTokenFileInTokenMode() throws IOException {
+        final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("ACCESS_TOKENS_FILE"));
+        assertTrue(source.contains("case ACCESS_TOKENS_FILE -> \"accessTokensFile\";"));
+        assertTrue(source.contains("LoadTestTokenValues.fromCsvOrFile"));
+    }
 }

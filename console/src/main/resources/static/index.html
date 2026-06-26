@@ -205,6 +205,13 @@
       resize: vertical;
     }
 
+    .field-note {
+      margin: 6px 0 2px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -222,6 +229,23 @@
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
       margin: 4px 0 12px;
+    }
+
+    .inline-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      margin-top: 10px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .inline-check input {
+      width: auto;
+      min-height: 0;
+      margin: 0;
     }
 
     button {
@@ -534,12 +558,35 @@
 
         <label for="simulation">테스트 종류 <span class="help-chip" tabindex="0" data-help="실행할 Gatling 시나리오입니다. 대기열 진입, 예매 오픈 흐름, 홀드 경합, 티켓 서버 용량 테스트를 선택합니다.">?</span></label>
         <select id="simulation" name="simulation"></select>
+
+        <label for="executionMode">실행 위치 <span class="help-chip" tabindex="0" data-help="로컬은 현재 PC에서 Gatling을 한 번 실행합니다. EC2 분산은 기존 PowerShell 스크립트로 여러 VM과 선택 시 로컬 PC까지 동시에 실행합니다.">?</span></label>
+        <select id="executionMode" name="executionMode">
+          <option value="local">로컬 PC</option>
+          <option value="distributed">EC2 분산</option>
+        </select>
+
+        <div data-execution="distributed" class="hidden">
+          <label for="distributedHosts">EC2 Public IP / SSH 대상 <span class="help-chip" tabindex="0" data-help="부하를 발생시킬 EC2 목록입니다. 한 줄에 하나씩 입력합니다. Public IP만 적으면 ubuntu@IP로 자동 처리되고, 다른 계정이면 user@IP 형식으로 입력합니다.">?</span></label>
+          <textarea id="distributedHosts" name="distributedHosts">ubuntu@43.203.155.15
+ubuntu@15.165.40.25
+ubuntu@43.203.136.184</textarea>
+
+          <label class="inline-check">
+            <input id="distributedIncludeLocal" name="distributedIncludeLocal" type="checkbox">
+            로컬 PC도 부하 발생에 포함
+          </label>
+          <label class="inline-check">
+            <input id="distributedCollectReports" name="distributedCollectReports" type="checkbox" checked>
+            실행 후 원격 리포트 수집
+          </label>
+          <input name="distributedCollectReports" type="hidden" value="false">
+        </div>
       </fieldset>
 
       <fieldset>
         <legend>대상</legend>
         <label for="ticketProjectPath">Gatling 저장소 경로 <span class="help-chip" tabindex="0" data-help="load-tests/gatling 프로젝트가 들어 있는 Gatling 부하 테스트 저장소 경로입니다. 콘솔은 이 경로의 gradlew.bat을 실행해서 load-tests/gatling을 돌립니다.">?</span></label>
-        <input id="ticketProjectPath" name="ticketProjectPath" value="C:\Users\mn040\IdeaProjects\ticket-workspace\ticket-gatling-load-tests">
+        <input id="ticketProjectPath" name="ticketProjectPath" value="C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test">
 
         <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 대상 base URL입니다. legacy-queue-status는 http://52.237.82.8:18090/legacy-queue, cdn-public-state는 https://queue.oneticket.site 를 사용합니다.">?</span></label>
         <input id="baseUrl" name="baseUrl" value="http://52.237.82.8:18090/legacy-queue">
@@ -594,7 +641,7 @@
         <label for="accessTokenMode">토큰 모드 <span class="help-chip" tabindex="0" data-help="자동 로그인은 seed 회원으로 로그인해서 토큰을 받고, 직접 입력은 textarea의 토큰을 그대로 씁니다. 테스트 JWT 생성은 로그인과 회원 seed 없이 memberId가 다른 JWT를 Gatling이 직접 만듭니다.">?</span></label>
         <select id="accessTokenMode" name="accessTokenMode">
           <option value="login">자동 로그인</option>
-          <option value="tokens">직접 입력</option>
+          <option value="tokens">토큰 파일/목록</option>
           <option value="synthetic-jwt">테스트 JWT 생성</option>
         </select>
 
@@ -628,7 +675,7 @@
           </div>
         </div>
 
-        <div data-token-mode="synthetic-jwt" class="hidden">
+        <div data-token-config="jwt" class="hidden">
           <div class="grid-2">
             <div>
               <label for="jwtSecret">JWT Secret <span class="help-chip" tabindex="0" data-help="테스트 JWT 생성 모드에서는 고정된 JWT_SECRET 값을 사용합니다. HS256 기준 32바이트 이상이며 실행 로그에는 마스킹됩니다.">?</span></label>
@@ -656,8 +703,27 @@
         </div>
 
         <div data-token-mode="tokens" class="hidden">
-          <label for="accessTokens">Access Token 목록 <span class="help-chip" tabindex="0" data-help="직접 발급한 JWT를 쉼표로 넣으면 자동 로그인을 하지 않고 이 토큰들을 사용합니다.">?</span></label>
-          <textarea id="accessTokens" name="accessTokens" placeholder="jwt-1,jwt-2,jwt-3"></textarea>
+          <label for="accessTokenSource">Access Token 준비 방식 <span class="help-chip" tabindex="0" data-help="파일 자동 생성은 실행 전에 JWT 파일을 먼저 만들고 Gatling에는 파일 경로만 넘깁니다. /join 요청 시간에는 JWT 생성이 포함되지 않습니다.">?</span></label>
+          <select id="accessTokenSource" name="accessTokenSource">
+            <option value="generate-file">파일 자동 생성 (추천)</option>
+            <option value="file">기존 파일 사용</option>
+            <option value="inline">토큰 목록 붙여넣기</option>
+          </select>
+          <p class="field-note" data-access-token-source="generate-file">
+            실행을 누르면 먼저 access token 파일을 생성한 뒤, Gatling은 그 파일을 순환 사용합니다.
+          </p>
+          <div data-access-token-source="generate-file" class="hidden">
+            <label for="generatedAccessTokenCount">생성할 토큰 수 <span class="help-chip" tabindex="0" data-help="기본값은 현재 부하 모델의 예상 가상 사용자 수입니다. Queue Join Only에서는 보통 join 요청 수와 맞춥니다.">?</span></label>
+            <input id="generatedAccessTokenCount" name="generatedAccessTokenCount" type="number" min="1" value="10">
+          </div>
+          <div data-access-token-file-path>
+            <label for="accessTokensFile">Access Token 파일 경로 <span class="help-chip" tabindex="0" data-help="자동 생성 결과를 저장하거나 기존 UTF-8 토큰 파일을 읽는 경로입니다.">?</span></label>
+            <input id="accessTokensFile" name="accessTokensFile" value="C:\Users\mn040\IdeaProjects\ticket-workspace\.tmp\access-tokens.txt">
+          </div>
+          <div data-access-token-source="inline" class="hidden">
+            <label for="accessTokens">Access Token 목록 <span class="help-chip" tabindex="0" data-help="직접 발급한 JWT를 쉼표로 넣으면 자동 로그인을 하지 않고 이 토큰들을 사용합니다. 큰 테스트에는 파일 방식을 권장합니다.">?</span></label>
+            <textarea id="accessTokens" name="accessTokens" placeholder="jwt-1,jwt-2,jwt-3"></textarea>
+          </div>
         </div>
       </fieldset>
 
@@ -792,7 +858,10 @@ const resetButton = document.querySelector('#resetButton');
 const refreshButton = document.querySelector('#refreshButton');
 const simulationSelect = document.querySelector('#simulation');
 const injectionMode = document.querySelector('#injectionMode');
+const executionMode = document.querySelector('#executionMode');
 const accessTokenMode = document.querySelector('#accessTokenMode');
+const accessTokenSource = document.querySelector('#accessTokenSource');
+const generatedAccessTokenCount = document.querySelector('#generatedAccessTokenCount');
 const runsBody = document.querySelector('#runs');
 const logView = document.querySelector('#log');
 const serverState = document.querySelector('#serverState');
@@ -803,12 +872,16 @@ const copyReportPathButton = document.querySelector('#copyReportPath');
 const openReportButton = document.querySelector('#openReport');
 const apiPreview = document.querySelector('#apiPreview');
 const baseUrlInput = document.querySelector('#baseUrl');
+const ticketProjectPathInput = document.querySelector('#ticketProjectPath');
+const accessTokensFileInput = document.querySelector('#accessTokensFile');
 const tooltip = document.querySelector('#tooltip');
 const copyLogButton = document.querySelector('#copyLog');
 const admissionTokenMode = document.querySelector('#admissionTokenMode');
 let selectedRunId = null;
 let polling = null;
 let simulationMeta = [];
+let generatedAccessTokenCountTouched = false;
+let accessTokensFileTouched = false;
 
 const presets = {
   smoke: { users: 5, durationSeconds: 10, injectionMode: 'ramp-users', usersPerSecond: 1, targetUsersPerSecond: 5 },
@@ -844,6 +917,7 @@ async function startRun(event) {
   runButton.disabled = true;
   serverState.textContent = '실행 중';
   const body = new URLSearchParams(new FormData(form));
+  normalizeAccessTokenSourceForRun(body);
   const validationError = validateBeforeRun(body);
   if (validationError) {
     restoreIdleState(validationError);
@@ -911,21 +985,30 @@ async function refreshRunDetail() {
 }
 
 function updateVisibility() {
+  applyDistributedQueueJoinDefaults();
   const selected = selectedSimulation();
   const mode = injectionMode.value;
+  const distributed = executionMode.value === 'distributed';
   const tokenMode = accessTokenMode.value;
+  const tokenSource = accessTokenSource?.value || 'generate-file';
 
+  setVisible('[data-execution="distributed"]', distributed);
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
   setVisible('[data-option="poll"]', selected?.usesStatusPolling);
   setVisible('[data-option="poll-jitter"]', selected?.usesStatusPolling);
   setVisible('[data-option="access-token"]', selected?.usesAccessTokens);
   setVisible('[data-option="admission-token"]', selected?.usesAdmissionTokens);
   setVisible('[data-injection="duration"]', mode !== 'at-once-users');
-  setVisible('[data-injection="rate"]', mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec');
-  setVisible('[data-injection="target-rate"]', mode === 'ramp-users-per-sec');
+  setVisible('[data-injection="rate"]', distributed || mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec');
+  setVisible('[data-injection="target-rate"]', !distributed && mode === 'ramp-users-per-sec');
   setVisible('[data-token-mode="login"]', tokenMode === 'login');
   setVisible('[data-token-mode="tokens"]', tokenMode === 'tokens');
-  setVisible('[data-token-mode="synthetic-jwt"]', tokenMode === 'synthetic-jwt');
+  setVisible('[data-token-config="jwt"]', tokenMode === 'synthetic-jwt'
+          || (tokenMode === 'tokens' && tokenSource === 'generate-file'));
+  setVisible('[data-access-token-source="generate-file"]', tokenMode === 'tokens' && tokenSource === 'generate-file');
+  setVisible('[data-access-token-source="inline"]', tokenMode === 'tokens' && tokenSource === 'inline');
+  setVisible('[data-access-token-file-path]', tokenMode === 'tokens'
+          && (tokenSource === 'generate-file' || tokenSource === 'file'));
   setVisible('[data-admission-token-mode="synthetic"]', selected?.usesAdmissionTokens && admissionTokenMode.value === 'synthetic');
   setVisible('[data-admission-token-mode="tokens"]', selected?.usesAdmissionTokens && admissionTokenMode.value === 'tokens');
 }
@@ -936,20 +1019,60 @@ function setVisible(selector, visible) {
   });
 }
 
+function applyDistributedQueueJoinDefaults() {
+  const selected = selectedSimulation();
+  if (executionMode.value !== 'distributed' || selected?.key !== 'queue-join-only') {
+    return;
+  }
+  if (accessTokenMode.value === 'login') {
+    accessTokenMode.value = 'tokens';
+  }
+  if (accessTokenMode.value === 'tokens' && accessTokenSource.value !== 'generate-file') {
+    accessTokenSource.value = 'generate-file';
+  }
+}
+
 function updateSummary() {
   const selected = selectedSimulation();
+  const body = new URLSearchParams(new FormData(form));
+  const estimatedUsers = estimateVirtualUsers(body);
+  syncGeneratedAccessTokenFields(estimateAccessTokensPerNode(body));
+  const executionLabel = executionMode.value === 'distributed' ? 'EC2 분산' : '로컬';
   document.querySelector('#summarySimulation').textContent = selected?.label || '-';
-  document.querySelector('#summaryUsers').textContent = String(estimateVirtualUsers(new URLSearchParams(new FormData(form))));
-  document.querySelector('#summaryInjection').textContent = injectionMode.options[injectionMode.selectedIndex]?.text || '-';
+  document.querySelector('#summaryUsers').textContent = String(estimatedUsers);
+  document.querySelector('#summaryInjection').textContent = `${executionLabel} / ${injectionMode.options[injectionMode.selectedIndex]?.text || '-'}`;
   updateApiPreview();
 }
 
 function validateBeforeRun(body) {
   const selected = selectedSimulation();
+  const distributed = String(body.get('executionMode') || 'local') === 'distributed';
   const mode = String(body.get('accessTokenMode') || 'login');
+  const tokenSource = String(body.get('accessTokenSource') || 'generate-file');
   const accessTokens = String(body.get('accessTokens') || '').trim();
+  const accessTokensFile = String(body.get('accessTokensFile') || '').trim();
   const admissionMode = String(body.get('admissionTokenMode') || 'synthetic');
   const admissionTokens = String(body.get('admissionTokens') || '').trim();
+
+  if (distributed) {
+    if (!['cdn-public-state', 'legacy-queue-status', 'queue-join-only'].includes(selected?.key)) {
+      return 'EC2 분산 실행은 Queue Join Only, CDN Public State, Legacy Queue Status 시나리오에서만 지원합니다.';
+    }
+    if (distributedHostCount(body) === 0) {
+      return 'EC2 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
+    }
+    if (Number(body.get('usersPerSecond') || 0) <= 0) {
+      return 'EC2 분산 실행에서는 시작 초당 사용자 수를 노드당 RPS로 사용하므로 0보다 커야 합니다.';
+    }
+    if (selected?.key === 'queue-join-only') {
+      if (mode === 'login') {
+        return 'Queue Join Only EC2 분산 실행은 토큰 파일 자동 생성 또는 테스트 JWT 생성 모드만 지원합니다.';
+      }
+      if (mode === 'tokens' && tokenSource !== 'generate-file') {
+        return 'Queue Join Only EC2 분산 실행의 토큰 파일/목록 모드는 파일 자동 생성만 지원합니다.';
+      }
+    }
+  }
 
   if (selected?.usesAdmissionTokens) {
     if (admissionMode === 'tokens' && !admissionTokens) {
@@ -964,9 +1087,24 @@ function validateBeforeRun(body) {
   }
 
   if (!selected?.usesAccessTokens) return '';
-  if (accessTokens) return '';
   if (mode === 'tokens') {
-    return '직접 입력 모드에서는 Access Token 목록을 하나 이상 입력해야 합니다.';
+    if ((tokenSource === 'generate-file' || tokenSource === 'file') && !accessTokensFile) {
+      return 'Access Token 파일 경로를 입력해야 합니다.';
+    }
+    if (tokenSource === 'inline' && !accessTokens) {
+      return '토큰 목록 붙여넣기 방식에서는 Access Token 목록을 하나 이상 입력해야 합니다.';
+    }
+    if (tokenSource === 'generate-file') {
+      const count = Number(body.get('generatedAccessTokenCount') || 0);
+      const secret = String(body.get('jwtSecret') || '').trim();
+      if (count <= 0) {
+        return '생성할 토큰 수는 1 이상이어야 합니다.';
+      }
+      if (new TextEncoder().encode(secret).length < 32) {
+        return '토큰 파일 자동 생성에는 ticket 서버와 같은 JWT Secret을 32바이트 이상으로 입력해야 합니다.';
+      }
+    }
+    return '';
   }
   if (mode === 'synthetic-jwt') {
     const secret = String(body.get('jwtSecret') || '').trim();
@@ -996,6 +1134,11 @@ function validateBeforeRun(body) {
 }
 
 function estimateVirtualUsers(body) {
+  if (String(body.get('executionMode') || 'local') === 'distributed') {
+    const duration = Number(body.get('durationSeconds') || 0);
+    const usersPerSecond = Number(body.get('usersPerSecond') || 0);
+    return Math.ceil(duration * usersPerSecond * distributedNodeCount(body));
+  }
   const mode = String(body.get('injectionMode') || 'ramp-users');
   const users = Number(body.get('users') || 0);
   const duration = Number(body.get('durationSeconds') || 0);
@@ -1011,6 +1154,59 @@ function estimateVirtualUsers(body) {
   return users;
 }
 
+function syncGeneratedAccessTokenFields(estimatedUsers) {
+  if (generatedAccessTokenCount && !generatedAccessTokenCountTouched) {
+    generatedAccessTokenCount.value = String(Math.max(1, estimatedUsers));
+  }
+  if (accessTokensFileInput && !accessTokensFileTouched) {
+    accessTokensFileInput.value = defaultAccessTokensFilePath();
+  }
+}
+
+function normalizeAccessTokenSourceForRun(body) {
+  const mode = String(body.get('accessTokenMode') || 'login');
+  const tokenSource = String(body.get('accessTokenSource') || 'generate-file');
+  const accessTokens = String(body.get('accessTokens') || '').trim();
+  if (mode === 'tokens' && tokenSource === 'inline' && !accessTokens) {
+    body.set('accessTokenSource', 'generate-file');
+    if (accessTokenSource) {
+      accessTokenSource.value = 'generate-file';
+      updateVisibility();
+      updateSummary();
+    }
+  }
+}
+
+function estimateAccessTokensPerNode(body) {
+  if (String(body.get('executionMode') || 'local') === 'distributed') {
+    const duration = Number(body.get('durationSeconds') || 0);
+    const usersPerSecond = Number(body.get('usersPerSecond') || 0);
+    return Math.ceil(duration * usersPerSecond);
+  }
+  return estimateVirtualUsers(body);
+}
+
+function defaultAccessTokensFilePath() {
+  const repoPath = (ticketProjectPathInput?.value || '').trim();
+  if (!repoPath) return 'access-tokens.txt';
+  const trimmed = repoPath.replace(/[\\\/]+$/, '');
+  const separator = trimmed.includes('\\') ? '\\' : '/';
+  const parent = trimmed.replace(/[\\\/][^\\\/]+$/, '');
+  return `${parent || trimmed}${separator}.tmp${separator}access-tokens.txt`;
+}
+
+function distributedNodeCount(body) {
+  return distributedHostCount(body) + (body.get('distributedIncludeLocal') === 'on' ? 1 : 0);
+}
+
+function distributedHostCount(body) {
+  return String(body.get('distributedHosts') || '')
+    .split(/[,\r\n]+/)
+    .map(value => value.trim())
+    .filter(Boolean)
+    .length;
+}
+
 function updateApiPreview() {
   const baseUrl = trimTrailingSlash(baseUrlInput.value || selectedSimulation()?.defaultBaseUrl || 'http://52.237.82.8:18090/legacy-queue');
   const performanceId = document.querySelector('#performanceId').value || '1';
@@ -1018,6 +1214,9 @@ function updateApiPreview() {
   const queueBase = `${baseUrl}/api/v1/queue/performances/${performanceId}`;
   const performanceBase = `${baseUrl}/api/v1/performances/${performanceId}`;
   const apis = {
+    'queue-join-only': [
+      ['POST', `${queueBase}/join`]
+    ],
     'queue-enter': [
       ['POST', `${queueBase}/enter`]
     ],
@@ -1063,6 +1262,8 @@ function applyPreset(name) {
 
 function resetForm() {
   form.reset();
+  generatedAccessTokenCountTouched = false;
+  accessTokensFileTouched = false;
   applySimulationDefaultBaseUrl();
   updateVisibility();
   updateSummary();
@@ -1126,7 +1327,18 @@ form.addEventListener('submit', startRun);
 form.addEventListener('input', updateSummary);
 simulationSelect.addEventListener('change', () => { applySimulationDefaultBaseUrl(); updateVisibility(); updateSummary(); });
 injectionMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
+executionMode.addEventListener('change', () => {
+  if (executionMode.value === 'distributed') {
+    injectionMode.value = 'constant-users-per-sec';
+  }
+  updateVisibility();
+  updateSummary();
+});
 accessTokenMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
+accessTokenSource.addEventListener('change', () => { updateVisibility(); updateSummary(); });
+generatedAccessTokenCount.addEventListener('input', () => { generatedAccessTokenCountTouched = true; });
+accessTokensFileInput.addEventListener('input', () => { accessTokensFileTouched = true; });
+ticketProjectPathInput.addEventListener('input', () => { updateSummary(); });
 admissionTokenMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
 resetButton.addEventListener('click', resetForm);
 refreshButton.addEventListener('click', refreshRuns);

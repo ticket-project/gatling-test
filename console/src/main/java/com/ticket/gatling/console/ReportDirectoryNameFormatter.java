@@ -23,6 +23,7 @@ final class ReportDirectoryNameFormatter {
 
     private static String shortSimulationName(final SimulationType simulationType) {
         return switch (simulationType) {
+            case QUEUE_JOIN_ONLY -> "queue-join";
             case QUEUE_ENTER -> "queue";
             case LEGACY_QUEUE_STATUS -> "legacy-queue";
             case CDN_PUBLIC_STATE -> "cdn";
