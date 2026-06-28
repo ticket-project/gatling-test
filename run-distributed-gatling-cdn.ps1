@@ -1,5 +1,5 @@
 param(
-    [string]$KeyPath = "C:\Users\mn040\Desktop\ticket\ticket-test-key-01.pem",
+    [string]$KeyPath = "",
     [string[]]$Hosts = @(
         "ubuntu@43.203.155.15",
         "ubuntu@15.165.40.25",
@@ -23,6 +23,8 @@ param(
     [long]$SyntheticMemberStartId = 1,
     [string]$SyntheticJwtRole = "MEMBER",
     [int]$SyntheticTokenTtlSeconds = 3600,
+    [switch]$DumpFailureBody,
+    [int]$DumpFailureBodyLimit = 1,
     [switch]$SyncProject,
     [switch]$SkipPreflight,
     [switch]$IncludeLocal,
@@ -67,6 +69,12 @@ function Normalize-Hosts {
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
+function ConvertTo-RemoteBashCommand {
+    param([string]$Value)
+
+    return (($Value -replace "`r`n", "`n") -replace "`r", "`n")
+}
+
 function New-SshOptions {
     param([string]$KnownHostsFile)
 
@@ -82,6 +90,69 @@ function New-SshOptions {
     }
     $options += @("-i", $KeyPath)
     return $options
+}
+
+function Resolve-DefaultSshKeyPath {
+    param([string]$Value)
+
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        return $Value
+    }
+
+    $userRoot = if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        [Environment]::GetFolderPath("UserProfile")
+    } else {
+        $env:USERPROFILE
+    }
+    $candidates = @(
+        (Join-Path $userRoot "OneDrive\바탕 화면\ticket\ticket-test-key-01.pem"),
+        (Join-Path $userRoot "Desktop\ticket\ticket-test-key-01.pem")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+    return $candidates[-1]
+}
+
+function New-OpenSshKeyPath {
+    param([string]$SourcePath)
+
+    $resolvedPath = (Resolve-Path -LiteralPath $SourcePath).ProviderPath
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+        return $resolvedPath
+    }
+
+    $keyRoot = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        Join-Path ([IO.Path]::GetTempPath()) "ticket-gatling\ssh-keys"
+    } else {
+        Join-Path $env:LOCALAPPDATA "ticket-gatling\ssh-keys"
+    }
+    New-Item -ItemType Directory -Force -Path $keyRoot | Out-Null
+
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash([Text.Encoding]::UTF8.GetBytes($resolvedPath.ToLowerInvariant()))
+    } finally {
+        $sha256.Dispose()
+    }
+    $hash = -join ($hashBytes | ForEach-Object { $_.ToString("x2") })
+    $targetPath = Join-Path $keyRoot ("ssh-key-" + $hash.Substring(0, 16) + ".pem")
+
+    Copy-Item -LiteralPath $resolvedPath -Destination $targetPath -Force
+
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls.exe $targetPath /inheritance:r | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to disable SSH key inheritance: $targetPath"
+    }
+    & icacls.exe $targetPath /grant:r "${currentUser}:F" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to restrict SSH key permissions: $targetPath"
+    }
+
+    return $targetPath
 }
 
 function New-ScpOptions {
@@ -102,7 +173,8 @@ function New-ScpOptions {
 function New-GatlingArgs {
     param(
         [string]$ReportDir = "",
-        [string]$NodeAccessTokensFile = ""
+        [string]$NodeAccessTokensFile = "",
+        [string]$FailureBodyDir = ""
     )
 
     $args = @(
@@ -139,6 +211,14 @@ function New-GatlingArgs {
 
     if (-not [string]::IsNullOrWhiteSpace($ReportDir)) {
         $args += "-DgatlingReportDir=$ReportDir"
+    }
+
+    if ($DumpFailureBody) {
+        $args += "-DdumpFailureBody=true"
+        $args += "-DdumpFailureBodyLimit=$DumpFailureBodyLimit"
+        if (-not [string]::IsNullOrWhiteSpace($FailureBodyDir)) {
+            $args += "-DfailureBodyDir=$FailureBodyDir"
+        }
     }
 
     return $args
@@ -223,7 +303,9 @@ function New-RemoteCommand {
         [string]$NodeName,
         [string]$CollectReportDir,
         [long]$NodeMemberStartId,
-        [string]$NodeAccessTokensFile
+        [string]$NodeAccessTokensFile,
+        [string]$FailureBodyDir,
+        [string]$CollectFailureBodyDir
     )
 
     $prepareTokens = ""
@@ -236,8 +318,8 @@ if [ `$token_status -ne 0 ]; then exit `$token_status; fi
 "@
     }
 
-    $gradleArgs = (New-GatlingArgs -NodeAccessTokensFile $NodeAccessTokensFile) -join " "
-    return @"
+    $gradleArgs = (New-GatlingArgs -NodeAccessTokensFile $NodeAccessTokensFile -FailureBodyDir $FailureBodyDir) -join " "
+    $command = @"
 cd $RemoteProjectDir
 chmod +x gradlew
 $prepareTokens
@@ -245,11 +327,117 @@ $prepareTokens
 status=`$?
 latest=`$(ls -td load-tests/gatling/build/reports/gatling/*/ 2>/dev/null | head -1)
 collect_dir="$CollectReportDir"
+failure_body_dir="$CollectFailureBodyDir"
 rm -rf "`$collect_dir"
 mkdir -p "`$collect_dir"
 if [ -n "`$latest" ]; then cp -R "`$latest" "`$collect_dir/"; fi
+if [ -n "`$failure_body_dir" ] && [ -d "`$failure_body_dir" ]; then cp -R "`$failure_body_dir" "`$collect_dir/failure-bodies"; fi
 exit `$status
 "@
+    return ConvertTo-RemoteBashCommand -Value $command
+}
+
+function ConvertTo-SummaryNumber {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $normalized = [System.Net.WebUtility]::HtmlDecode($Value).Trim().Replace(",", "")
+    $number = 0.0
+    if ([double]::TryParse(
+            $normalized,
+            [System.Globalization.NumberStyles]::Float,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [ref]$number
+        )) {
+        return $number
+    }
+    return $null
+}
+
+function Format-SummaryNumber {
+    param([Nullable[double]]$Value)
+
+    if ($null -eq $Value) {
+        return ""
+    }
+    if ([Math]::Abs($Value - [Math]::Round($Value)) -lt 0.001) {
+        return [string][int][Math]::Round($Value)
+    }
+    return $Value.ToString("0.##", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Read-GatlingRootStats {
+    param([string]$ReportPath)
+
+    if ([string]::IsNullOrWhiteSpace($ReportPath) -or -not (Test-Path -LiteralPath $ReportPath -PathType Leaf)) {
+        return $null
+    }
+
+    $html = Get-Content -LiteralPath $ReportPath -Raw -Encoding UTF8
+    $rowMatch = [regex]::Match(
+        $html,
+        '<tr[^>]*id="ROOT"[^>]*>.*?</tr>',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    if (-not $rowMatch.Success) {
+        return $null
+    }
+
+    $values = @{}
+    foreach ($match in [regex]::Matches($rowMatch.Value, '<td class="value [^"]* col-(\d+)">([^<]*)</td>')) {
+        $values[[int]$match.Groups[1].Value] = ConvertTo-SummaryNumber -Value $match.Groups[2].Value
+    }
+
+    return [pscustomobject]@{
+        TotalRequests = $values[2]
+        OkRequests = $values[3]
+        KoRequests = $values[4]
+        KoPercent = $values[5]
+        RequestsPerSec = $values[6]
+        MinMs = $values[7]
+        P50Ms = $values[8]
+        P75Ms = $values[9]
+        P95Ms = $values[10]
+        P99Ms = $values[11]
+        MaxMs = $values[12]
+        MeanMs = $values[13]
+        StdDevMs = $values[14]
+    }
+}
+
+function Measure-SummaryRows {
+    param([object[]]$Rows)
+
+    $metricRows = @($Rows | Where-Object { $null -ne $_.TotalRequests })
+    if ($metricRows.Count -eq 0) {
+        return $null
+    }
+
+    $totalRequests = ($metricRows | Measure-Object -Property TotalRequests -Sum).Sum
+    $okRequests = ($metricRows | Measure-Object -Property OkRequests -Sum).Sum
+    $koRequests = ($metricRows | Measure-Object -Property KoRequests -Sum).Sum
+    $requestsPerSec = ($metricRows | Measure-Object -Property RequestsPerSec -Sum).Sum
+    $minMs = ($metricRows | Where-Object { $null -ne $_.MinMs } | Measure-Object -Property MinMs -Minimum).Minimum
+    $maxMs = ($metricRows | Where-Object { $null -ne $_.MaxMs } | Measure-Object -Property MaxMs -Maximum).Maximum
+    $meanNumerator = ($metricRows |
+        Where-Object { $null -ne $_.MeanMs -and $null -ne $_.TotalRequests } |
+        ForEach-Object { $_.MeanMs * $_.TotalRequests } |
+        Measure-Object -Sum).Sum
+
+    return [pscustomobject]@{
+        Nodes = $metricRows.Count
+        TotalRequests = $totalRequests
+        OkRequests = $okRequests
+        KoRequests = $koRequests
+        KoPercent = if ($totalRequests -gt 0) { ($koRequests * 100.0) / $totalRequests } else { $null }
+        RequestsPerSec = $requestsPerSec
+        MinMs = $minMs
+        MeanMs = if ($totalRequests -gt 0) { $meanNumerator / $totalRequests } else { $null }
+        MaxMs = $maxMs
+    }
 }
 
 function Write-RunSummary {
@@ -263,10 +451,24 @@ function Write-RunSummary {
         $report = Get-ChildItem -Path (Join-Path $RunDir $node) -Recurse -Filter index.html -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
+        $stats = if ($report) { Read-GatlingRootStats -ReportPath $report.FullName } else { $null }
 
         $rows += [pscustomobject]@{
             Node = $node
             Status = $status
+            TotalRequests = if ($stats) { $stats.TotalRequests } else { $null }
+            OkRequests = if ($stats) { $stats.OkRequests } else { $null }
+            KoRequests = if ($stats) { $stats.KoRequests } else { $null }
+            KoPercent = if ($stats) { $stats.KoPercent } else { $null }
+            RequestsPerSec = if ($stats) { $stats.RequestsPerSec } else { $null }
+            MinMs = if ($stats) { $stats.MinMs } else { $null }
+            P50Ms = if ($stats) { $stats.P50Ms } else { $null }
+            P75Ms = if ($stats) { $stats.P75Ms } else { $null }
+            P95Ms = if ($stats) { $stats.P95Ms } else { $null }
+            P99Ms = if ($stats) { $stats.P99Ms } else { $null }
+            MaxMs = if ($stats) { $stats.MaxMs } else { $null }
+            MeanMs = if ($stats) { $stats.MeanMs } else { $null }
+            StdDevMs = if ($stats) { $stats.StdDevMs } else { $null }
             ReportPath = if ($report) { $report.FullName } else { "" }
             LogPath = $log.FullName
         }
@@ -276,9 +478,29 @@ function Write-RunSummary {
     $mdPath = Join-Path $RunDir "summary.md"
     $rows | ConvertTo-Csv -NoTypeInformation | Set-Content -Path $csvPath -Encoding UTF8
 
-    $md = @("# Distributed Gatling Summary", "", "- Run directory: $RunDir", "", "| Node | Status | Report |", "|---|---:|---|")
+    $overall = Measure-SummaryRows -Rows $rows
+    $md = @("# Distributed Gatling Summary", "", "- Run directory: $RunDir", "")
+    if ($overall) {
+        $md += @(
+            "## Overall (derived)",
+            "",
+            "| Nodes | Total | OK | KO | KO % | Cnt/s | Min ms | Mean ms | Max ms |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| $($overall.Nodes) | $(Format-SummaryNumber $overall.TotalRequests) | $(Format-SummaryNumber $overall.OkRequests) | $(Format-SummaryNumber $overall.KoRequests) | $(Format-SummaryNumber $overall.KoPercent) | $(Format-SummaryNumber $overall.RequestsPerSec) | $(Format-SummaryNumber $overall.MinMs) | $(Format-SummaryNumber $overall.MeanMs) | $(Format-SummaryNumber $overall.MaxMs) |",
+            "",
+            "> p50/p75/p95/p99 are shown per node. Exact global percentiles require raw response-time distribution across all nodes.",
+            ""
+        )
+    }
+
+    $md += @(
+        "## Node Metrics",
+        "",
+        "| Node | Status | Total | OK | KO | KO % | Cnt/s | Min ms | p50 ms | p75 ms | p95 ms | p99 ms | Max ms | Mean ms | Report |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"
+    )
     foreach ($row in $rows) {
-        $md += "| $($row.Node) | $($row.Status) | $($row.ReportPath) |"
+        $md += "| $($row.Node) | $($row.Status) | $(Format-SummaryNumber $row.TotalRequests) | $(Format-SummaryNumber $row.OkRequests) | $(Format-SummaryNumber $row.KoRequests) | $(Format-SummaryNumber $row.KoPercent) | $(Format-SummaryNumber $row.RequestsPerSec) | $(Format-SummaryNumber $row.MinMs) | $(Format-SummaryNumber $row.P50Ms) | $(Format-SummaryNumber $row.P75Ms) | $(Format-SummaryNumber $row.P95Ms) | $(Format-SummaryNumber $row.P99Ms) | $(Format-SummaryNumber $row.MaxMs) | $(Format-SummaryNumber $row.MeanMs) | $($row.ReportPath) |"
     }
     $md | Set-Content -Path $mdPath -Encoding UTF8
 
@@ -314,9 +536,11 @@ if ($SyncProject) {
         "C:\Windows\Sysnative\tar.exe"
     )
 }
-if (-not (Test-Path $KeyPath)) {
+$KeyPath = Resolve-DefaultSshKeyPath -Value $KeyPath
+if (-not (Test-Path -LiteralPath $KeyPath -PathType Leaf)) {
     throw "SSH key not found: $KeyPath"
 }
+$KeyPath = New-OpenSshKeyPath -SourcePath $KeyPath
 $Hosts = Normalize-Hosts -Values $Hosts
 if ($Hosts.Count -eq 0) {
     throw "At least one SSH host is required"
@@ -382,13 +606,17 @@ foreach ($hostName in $Hosts) {
     $remoteReportRoot = "load-tests/gatling/build/reports/distributed/$startedAt/$safeName"
     $remoteTokenFile = "load-tests/gatling/build/tmp/distributed-access-tokens/$startedAt/$safeName/access-tokens.txt"
     $remoteGatlingTokenFile = if ($GenerateAccessTokens) { $remoteTokenFile } else { "" }
+    $remoteFailureBodyDir = "build/reports/failure-bodies/$startedAt/$safeName"
+    $remoteCollectFailureBodyDir = "load-tests/gatling/$remoteFailureBodyDir"
     $nodeMemberStartId = $SyntheticMemberStartId + ([long]$nodeIndex * [long]$EffectiveTokenCountPerNode)
     $remoteReportRoots[$safeName] = $remoteReportRoot
     $remoteCommand = New-RemoteCommand `
         -NodeName $safeName `
         -CollectReportDir $remoteReportRoot `
         -NodeMemberStartId $nodeMemberStartId `
-        -NodeAccessTokensFile $remoteGatlingTokenFile
+        -NodeAccessTokensFile $remoteGatlingTokenFile `
+        -FailureBodyDir $remoteFailureBodyDir `
+        -CollectFailureBodyDir $remoteCollectFailureBodyDir
 
     $jobs += Start-Job -Name $safeName -ScriptBlock {
         param($SshCommand, $SshOptions, $HostName, $Command, $LogPath)
@@ -404,13 +632,15 @@ if ($IncludeLocal) {
     $localReportRoot = "load-tests\gatling\build\reports\distributed\$startedAt\local"
     $localTokenFile = "load-tests\gatling\build\tmp\distributed-access-tokens\$startedAt\local\access-tokens.txt"
     $localGatlingTokenFile = if ($GenerateAccessTokens) { $localTokenFile } else { "" }
+    $localFailureBodyDir = "build\reports\failure-bodies\$startedAt\local"
+    $localCollectFailureBodyDir = Join-Path $LocalProjectDir "load-tests\gatling\$localFailureBodyDir"
     $localMemberStartId = $SyntheticMemberStartId + ([long]$Hosts.Count * [long]$EffectiveTokenCountPerNode)
     $localTokenArgs = if ($GenerateAccessTokens) {
         New-AccessTokenGenerationArgs -Output $localTokenFile -NodeMemberStartId $localMemberStartId
     } else {
         @()
     }
-    $localArgs = New-GatlingArgs -ReportDir $localReportRoot -NodeAccessTokensFile $localGatlingTokenFile
+    $localArgs = New-GatlingArgs -ReportDir $localReportRoot -NodeAccessTokensFile $localGatlingTokenFile -FailureBodyDir $localFailureBodyDir
 
     $jobs += Start-Job -Name "local" -ScriptBlock {
         param($ProjectDir, $TokenArguments, $Arguments, $LogPath)
@@ -468,6 +698,10 @@ if ($CollectReports) {
         New-Item -ItemType Directory -Force -Path $localTarget | Out-Null
         if (Test-Path $localReports) {
             Copy-Item -Recurse -Force $localReports $localTarget
+        }
+        if ($DumpFailureBody -and (Test-Path $localCollectFailureBodyDir)) {
+            New-Item -ItemType Directory -Force -Path $localTarget | Out-Null
+            Copy-Item -Recurse -Force $localCollectFailureBodyDir (Join-Path $localTarget "failure-bodies")
         }
     }
 }

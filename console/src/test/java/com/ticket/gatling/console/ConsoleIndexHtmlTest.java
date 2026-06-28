@@ -36,6 +36,8 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("id=\"distributedIncludeLocal\""));
         assertTrue(html.indexOf("id=\"distributedCollectReports\"")
                 < html.indexOf("<input name=\"distributedCollectReports\" type=\"hidden\""));
+        assertTrue(html.contains("id=\"distributedDumpFailureBody\""));
+        assertTrue(html.contains("name=\"distributedDumpFailureBodyLimit\" type=\"number\" min=\"1\" value=\"1\""));
         assertTrue(html.contains("id=\"accessTokenSource\" name=\"accessTokenSource\""));
         assertTrue(html.contains("value=\"generate-file\""));
         assertTrue(html.contains("id=\"generatedAccessTokenCount\" name=\"generatedAccessTokenCount\""));

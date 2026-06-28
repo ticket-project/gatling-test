@@ -1,5 +1,6 @@
 package com.ticket.gatling.console;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +20,10 @@ public record LoadTestRequest(
         String executionMode,
         boolean distributedIncludeLocal,
         boolean distributedCollectReports,
+        boolean distributedDumpFailureBody,
+        int distributedDumpFailureBodyLimit,
         String distributedHosts,
+        Path sshKeyPath,
         int statusPolls,
         int statusPollPauseSeconds,
         int statusPollPauseJitterSeconds,
@@ -48,6 +52,7 @@ public record LoadTestRequest(
 ) {
     private static final String DEFAULT_LOAD_TESTS_PATH =
             "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test";
+    private static final String SSH_KEY_FILE_NAME = "ticket-test-key-01.pem";
     private static final String SYNTHETIC_JWT_SECRET = "0123456789abcdef0123456789abcdef";
     private static final String SYNTHETIC_ADMISSION_SECRET = "0123456789abcdef0123456789abcdef";
 
@@ -79,7 +84,11 @@ public record LoadTestRequest(
         if (statusPollPauseJitterSeconds < 0) {
             throw new IllegalArgumentException("statusPollPauseJitterSeconds must be non-negative");
         }
+        if (distributedDumpFailureBodyLimit <= 0) {
+            throw new IllegalArgumentException("distributedDumpFailureBodyLimit must be positive");
+        }
         ticketProjectPath = ticketProjectPath.toAbsolutePath().normalize();
+        sshKeyPath = sshKeyPath.toAbsolutePath().normalize();
         baseUrl = defaultIfBlank(baseUrl, simulationType.defaultBaseUrl());
         performanceId = defaultIfBlank(performanceId, "1");
         seatIds = defaultIfBlank(seatIds, "1");
@@ -113,6 +122,7 @@ public record LoadTestRequest(
 
     public static LoadTestRequest fromForm(final Map<String, List<String>> form) {
         final Path ticketProjectPath = Path.of(value(form, "ticketProjectPath", DEFAULT_LOAD_TESTS_PATH));
+        final Path sshKeyPath = Path.of(value(form, "sshKeyPath", defaultSshKeyPath()));
         final String accessTokens = value(form, "accessTokens", "");
         final String accessTokensFile = value(form, "accessTokensFile", "");
         return new LoadTestRequest(
@@ -129,7 +139,10 @@ public record LoadTestRequest(
                 value(form, "executionMode", "local"),
                 booleanValue(form, "distributedIncludeLocal", false),
                 booleanValue(form, "distributedCollectReports", true),
+                booleanValue(form, "distributedDumpFailureBody", false),
+                intValue(form, "distributedDumpFailureBodyLimit", 1),
                 value(form, "distributedHosts", defaultDistributedHosts()),
+                sshKeyPath,
                 intValue(form, "statusPolls", 3),
                 intValue(form, "statusPollPauseSeconds", 1),
                 intValue(form, "statusPollPauseJitterSeconds", 0),
@@ -276,6 +289,27 @@ public record LoadTestRequest(
     private static String defaultAccessTokensFile(final Path ticketProjectPath) {
         final Path workspacePath = Optional.ofNullable(ticketProjectPath.getParent()).orElse(ticketProjectPath);
         return workspacePath.resolve(".tmp").resolve("access-tokens.txt").toString();
+    }
+
+    private static String defaultSshKeyPath() {
+        final Path userHome = userHomePath();
+        final List<Path> candidates = List.of(
+                userHome.resolve("OneDrive").resolve("바탕 화면").resolve("ticket").resolve(SSH_KEY_FILE_NAME),
+                userHome.resolve("Desktop").resolve("ticket").resolve(SSH_KEY_FILE_NAME)
+        );
+        return candidates.stream()
+                .filter(Files::isRegularFile)
+                .findFirst()
+                .orElse(candidates.getLast())
+                .toString();
+    }
+
+    private static Path userHomePath() {
+        final String userProfile = System.getenv("USERPROFILE");
+        if (userProfile != null && !userProfile.isBlank()) {
+            return Path.of(userProfile);
+        }
+        return Path.of(System.getProperty("user.home", ""));
     }
 
     private static String defaultDistributedHosts() {

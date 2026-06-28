@@ -1,5 +1,5 @@
 param(
-    [string]$KeyPath = "C:\Users\mn040\Desktop\ticket\ticket-test-key-01.pem",
+    [string]$KeyPath = "",
     [string[]]$Hosts = @(
         "ubuntu@43.203.155.15",
         "ubuntu@15.165.40.25",
@@ -23,6 +23,8 @@ param(
     [long]$SyntheticMemberStartId = 1,
     [string]$SyntheticJwtRole = "MEMBER",
     [int]$SyntheticTokenTtlSeconds = 3600,
+    [switch]$DumpFailureBody,
+    [int]$DumpFailureBodyLimit = 1,
     [switch]$SkipSyncProject,
     [switch]$SkipPreflight,
     [switch]$IncludeLocal,
@@ -56,6 +58,7 @@ $arguments = @{
     SyntheticMemberStartId = $SyntheticMemberStartId
     SyntheticJwtRole = $SyntheticJwtRole
     SyntheticTokenTtlSeconds = $SyntheticTokenTtlSeconds
+    DumpFailureBodyLimit = $DumpFailureBodyLimit
     SkipPreflight = $SkipPreflight
     LocalProjectDir = $LocalProjectDir
     ReportRoot = $ReportRoot
@@ -69,6 +72,9 @@ if ($AccessTokenMode -eq "tokens" -and ($GenerateAccessTokens -or [string]::IsNu
 }
 if ($IncludeLocal) {
     $arguments.IncludeLocal = $true
+}
+if ($DumpFailureBody) {
+    $arguments.DumpFailureBody = $true
 }
 if ($CollectReports) {
     $arguments.CollectReports = $true

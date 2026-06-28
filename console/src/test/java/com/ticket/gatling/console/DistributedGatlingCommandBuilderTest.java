@@ -24,7 +24,9 @@ class DistributedGatlingCommandBuilderTest {
                 Map.entry("statusPollPauseSeconds", List.of("0")),
                 Map.entry("statusPollPauseJitterSeconds", List.of("0")),
                 Map.entry("distributedHosts", List.of("43.203.155.15\nubuntu@15.165.40.25")),
-                Map.entry("distributedCollectReports", List.of("on"))
+                Map.entry("distributedCollectReports", List.of("on")),
+                Map.entry("distributedDumpFailureBody", List.of("on")),
+                Map.entry("distributedDumpFailureBodyLimit", List.of("2"))
         ));
 
         final List<String> command = new DistributedGatlingCommandBuilder().build(request);
@@ -43,6 +45,9 @@ class DistributedGatlingCommandBuilderTest {
         assertTrue(command.contains("7"));
         assertTrue(command.contains("-StatusPolls"));
         assertTrue(command.contains("1"));
+        assertTrue(command.contains("-DumpFailureBody"));
+        assertTrue(command.contains("-DumpFailureBodyLimit"));
+        assertTrue(command.contains("2"));
         assertTrue(command.contains("-CollectReports"));
         assertFalse(command.contains("-IncludeLocal"));
     }

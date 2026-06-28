@@ -23,6 +23,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class LoadTestService {
+    private static final int FAILURE_BODY_PREVIEW_LIMIT = 4_000;
+
     private final GatlingCommandBuilder commandBuilder = new GatlingCommandBuilder();
     private final DistributedGatlingCommandBuilder distributedCommandBuilder = new DistributedGatlingCommandBuilder();
     private final ReportRegistry reportRegistry;
@@ -354,31 +356,46 @@ public class LoadTestService {
         final Path index = runDirectory.resolve("index.html");
         final StringBuilder html = new StringBuilder();
         html.append("<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">")
+                .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
                 .append("<title>Distributed Gatling Summary</title>")
                 .append("<style>")
-                .append("body{font-family:Segoe UI,system-ui,sans-serif;margin:24px;color:#17202c;background:#f8fafc;}")
-                .append("h1{font-size:22px;margin:0 0 16px;}h2{font-size:16px;margin:24px 0 10px;}")
-                .append("a{color:#1d4ed8;}pre{padding:14px;border:1px solid #d7dee8;background:#fff;overflow:auto;}")
-                .append("li{margin:6px 0;}")
+                .append("body{font-family:Segoe UI,system-ui,sans-serif;margin:0;color:#17202c;background:#eef2f7;}")
+                .append("main{padding:22px 24px 28px;}h1{font-size:22px;margin:0 0 8px;}h2{font-size:16px;margin:24px 0 10px;}")
+                .append("a{color:#1d4ed8;font-weight:650;text-decoration:none;}a:hover{text-decoration:underline;}")
+                .append(".muted{color:#66758a;font-size:12px}.path{overflow-wrap:anywhere}.actions{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 18px;}")
+                .append(".actions a{border:1px solid #b8c3d1;border-radius:6px;background:#fff;padding:7px 10px;}")
+                .append(".cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(136px,1fr));gap:10px;margin:18px 0;}")
+                .append(".card{border:1px solid #d7dee8;border-radius:8px;background:#fff;padding:12px}.label{color:#66758a;font-size:11px;font-weight:700}.value{margin-top:4px;font-size:20px;font-weight:760;}")
+                .append(".table-wrap{overflow:auto;border:1px solid #d7dee8;border-radius:8px;background:#fff;}table{width:100%;border-collapse:collapse;white-space:nowrap;}")
+                .append("th,td{border-bottom:1px solid #e5eaf0;padding:9px 10px;text-align:right;}th{background:#f8fafc;color:#66758a;font-size:12px;}td:first-child,th:first-child{text-align:left;}")
+                .append(".status{font-weight:760}.SUCCESS{color:#067647}.FAILED{color:#b42318}.UNKNOWN{color:#b54708}.note{margin-top:10px;color:#66758a;font-size:12px;}")
+                .append(".failure-preview{background:#fff;border:1px solid #d7dee8;border-radius:8px;margin:8px 0;padding:10px;}.failure-preview summary{cursor:pointer;font-weight:700;text-align:left;}")
+                .append(".failure-preview pre{max-height:320px;white-space:pre-wrap;overflow:auto;margin:10px 0 0;}.status-code{font-weight:760;color:#b42318;}")
+                .append("pre{padding:14px;border:1px solid #d7dee8;background:#fff;overflow:auto;}")
                 .append("</style></head><body>")
+                .append("<main>")
                 .append("<h1>Distributed Gatling Summary</h1>")
-                .append("<p>Run directory: <code>")
+                .append("<div class=\"muted path\">Run directory: ")
                 .append(htmlEscape(runDirectory.toString()))
-                .append("</code></p><ul>");
+                .append("</div><div class=\"actions\">");
         appendFileLink(html, runDirectory, "summary.csv");
         appendFileLink(html, runDirectory, "summary.md");
-        html.append("</ul>");
+        html.append("</div>");
 
-        final Path summary = runDirectory.resolve("summary.md");
-        if (Files.isRegularFile(summary)) {
-            try {
-                html.append("<h2>Summary</h2><pre>")
-                        .append(htmlEscape(Files.readString(summary, StandardCharsets.UTF_8)))
-                        .append("</pre>");
-            } catch (IOException exception) {
-                run.appendLog("Distributed summary preview skipped: " + exception.getMessage());
+        if (!appendDistributedSummary(html, runDirectory, run)) {
+            final Path summary = runDirectory.resolve("summary.md");
+            if (Files.isRegularFile(summary)) {
+                try {
+                    html.append("<h2>Summary</h2><pre>")
+                            .append(htmlEscape(Files.readString(summary, StandardCharsets.UTF_8)))
+                            .append("</pre>");
+                } catch (IOException exception) {
+                    run.appendLog("Distributed summary preview skipped: " + exception.getMessage());
+                }
             }
         }
+
+        appendFailureResponseBodies(html, runDirectory, run);
 
         html.append("<h2>Node reports</h2><ul>");
         try (Stream<Path> stream = Files.walk(runDirectory, 8)) {
@@ -394,7 +411,7 @@ public class LoadTestService {
         } catch (IOException exception) {
             run.appendLog("Node report list skipped: " + exception.getMessage());
         }
-        html.append("</ul></body></html>");
+        html.append("</ul></main></body></html>");
 
         try {
             Files.writeString(index, html.toString(), StandardCharsets.UTF_8);
@@ -403,13 +420,391 @@ public class LoadTestService {
         }
     }
 
+    private boolean appendDistributedSummary(
+            final StringBuilder html,
+            final Path runDirectory,
+            final LoadTestRun run
+    ) {
+        final Path summaryCsv = runDirectory.resolve("summary.csv");
+        if (!Files.isRegularFile(summaryCsv)) {
+            return false;
+        }
+        final List<Map<String, String>> rows;
+        try {
+            rows = readSummaryCsv(summaryCsv);
+        } catch (IOException exception) {
+            run.appendLog("Distributed summary table skipped: " + exception.getMessage());
+            return false;
+        }
+        if (rows.isEmpty()) {
+            return false;
+        }
+
+        final double total = rows.stream().mapToDouble(row -> numberValue(row, "TotalRequests")).sum();
+        final double ok = rows.stream().mapToDouble(row -> numberValue(row, "OkRequests")).sum();
+        final double ko = rows.stream().mapToDouble(row -> numberValue(row, "KoRequests")).sum();
+        final double rps = rows.stream().mapToDouble(row -> numberValue(row, "RequestsPerSec")).sum();
+        final double min = rows.stream()
+                .mapToDouble(row -> numberValue(row, "MinMs"))
+                .filter(value -> value > 0)
+                .min()
+                .orElse(0);
+        final double max = rows.stream().mapToDouble(row -> numberValue(row, "MaxMs")).max().orElse(0);
+        final double meanNumerator = rows.stream()
+                .mapToDouble(row -> numberValue(row, "MeanMs") * numberValue(row, "TotalRequests"))
+                .sum();
+        final double mean = total > 0 ? meanNumerator / total : 0;
+        final double koPercent = total > 0 ? ko * 100.0 / total : 0;
+
+        html.append("<h2>Overall</h2><section class=\"cards\">");
+        appendMetricCard(html, "Nodes", String.valueOf(rows.size()));
+        appendMetricCard(html, "Total", formatDisplayNumber(total));
+        appendMetricCard(html, "OK", formatDisplayNumber(ok));
+        appendMetricCard(html, "KO", formatDisplayNumber(ko));
+        appendMetricCard(html, "KO %", formatDisplayNumber(koPercent));
+        appendMetricCard(html, "Cnt/s", formatDisplayNumber(rps));
+        appendMetricCard(html, "Mean ms", formatDisplayNumber(mean));
+        appendMetricCard(html, "Max ms", formatDisplayNumber(max));
+        html.append("</section>");
+        if (min > 0) {
+            html.append("<p class=\"note\">Min ms: ")
+                    .append(htmlEscape(formatDisplayNumber(min)))
+                    .append(". p50/p75/p95/p99는 노드별 값입니다.</p>");
+        }
+
+        html.append("<h2>Node Metrics</h2><div class=\"table-wrap\"><table><thead><tr>")
+                .append("<th>Node</th><th>Status</th><th>Total</th><th>OK</th><th>KO</th><th>KO %</th>")
+                .append("<th>Cnt/s</th><th>Min</th><th>p50</th><th>p75</th><th>p95</th><th>p99</th>")
+                .append("<th>Max</th><th>Mean</th><th>Report</th><th>Log</th></tr></thead><tbody>");
+        for (Map<String, String> row : rows) {
+            html.append("<tr>")
+                    .append("<td>").append(htmlEscape(rowValue(row, "Node"))).append("</td>")
+                    .append("<td class=\"status ").append(htmlEscape(rowValue(row, "Status"))).append("\">")
+                    .append(htmlEscape(rowValue(row, "Status"))).append("</td>");
+            appendMetricCell(html, row, "TotalRequests");
+            appendMetricCell(html, row, "OkRequests");
+            appendMetricCell(html, row, "KoRequests");
+            appendMetricCell(html, row, "KoPercent");
+            appendMetricCell(html, row, "RequestsPerSec");
+            appendMetricCell(html, row, "MinMs");
+            appendMetricCell(html, row, "P50Ms");
+            appendMetricCell(html, row, "P75Ms");
+            appendMetricCell(html, row, "P95Ms");
+            appendMetricCell(html, row, "P99Ms");
+            appendMetricCell(html, row, "MaxMs");
+            appendMetricCell(html, row, "MeanMs");
+            appendPathLinkCell(html, runDirectory, rowValue(row, "ReportPath"), "Report");
+            appendPathLinkCell(html, runDirectory, rowValue(row, "LogPath"), "Log");
+            html.append("</tr>");
+        }
+        html.append("</tbody></table></div>");
+        return true;
+    }
+
+    private void appendFailureResponseBodies(
+            final StringBuilder html,
+            final Path runDirectory,
+            final LoadTestRun run
+    ) {
+        final List<FailureResponseBody> bodies = findFailureResponseBodies(runDirectory, run);
+        if (bodies.isEmpty()) {
+            return;
+        }
+
+        html.append("<h2>Failure Response Bodies</h2>")
+                .append("<p class=\"note\">")
+                .append("`-DumpFailureBody`로 저장된 실패 응답입니다. Body 링크는 원본 HTML을 그대로 열고, Preview는 일부를 텍스트로 보여줍니다.")
+                .append("</p>")
+                .append("<div class=\"table-wrap\"><table><thead><tr>")
+                .append("<th>Node</th><th>Status</th><th>Server</th><th>CF-Ray</th><th>CF Cache</th><th>Body</th><th>Meta</th>")
+                .append("</tr></thead><tbody>");
+
+        for (FailureResponseBody body : bodies) {
+            html.append("<tr>")
+                    .append("<td>").append(htmlEscape(body.node())).append("</td>")
+                    .append("<td><span class=\"status-code\">").append(htmlEscape(body.status())).append("</span></td>")
+                    .append("<td>").append(htmlEscape(body.server())).append("</td>")
+                    .append("<td>").append(htmlEscape(body.cfRay())).append("</td>")
+                    .append("<td>").append(htmlEscape(body.cfCacheStatus())).append("</td>")
+                    .append("<td>");
+            appendPathLink(html, runDirectory, body.bodyPath(), "Body");
+            html.append("</td><td>");
+            appendPathLink(html, runDirectory, body.metadataPath(), "Meta");
+            html.append("</td></tr>");
+
+            final String preview = failureBodyPreview(body.bodyPath(), run);
+            if (!preview.isBlank()) {
+                html.append("<tr><td colspan=\"7\"><details class=\"failure-preview\"><summary>")
+                        .append(htmlEscape(body.node()))
+                        .append(" / ")
+                        .append(htmlEscape(body.bodyPath().getFileName().toString()))
+                        .append(" preview</summary><pre>")
+                        .append(htmlEscape(preview))
+                        .append("</pre></details></td></tr>");
+            }
+        }
+
+        html.append("</tbody></table></div>");
+    }
+
+    private List<FailureResponseBody> findFailureResponseBodies(final Path runDirectory, final LoadTestRun run) {
+        if (!Files.isDirectory(runDirectory)) {
+            return List.of();
+        }
+        try (Stream<Path> stream = Files.walk(runDirectory, 8)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(this::isFailureBodyHtml)
+                    .sorted(Comparator.comparing(path -> runDirectory.relativize(path).toString()))
+                    .map(path -> toFailureResponseBody(runDirectory, path, run))
+                    .flatMap(Optional::stream)
+                    .toList();
+        } catch (IOException exception) {
+            run.appendLog("Failure response body list skipped: " + exception.getMessage());
+            return List.of();
+        }
+    }
+
+    private boolean isFailureBodyHtml(final Path path) {
+        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".html")
+                && path.toString().contains("failure-bodies");
+    }
+
+    private Optional<FailureResponseBody> toFailureResponseBody(
+            final Path runDirectory,
+            final Path bodyPath,
+            final LoadTestRun run
+    ) {
+        final Path metadataPath = siblingWithExtension(bodyPath, ".txt");
+        final Map<String, String> metadata = readFailureBodyMetadata(metadataPath, run);
+        final Path relativePath = runDirectory.relativize(bodyPath);
+        final String node = relativePath.getNameCount() > 0 ? relativePath.getName(0).toString() : "";
+        return Optional.of(new FailureResponseBody(
+                bodyPath,
+                metadataPath,
+                node,
+                metadataValue(metadata, "status", statusFromFileName(bodyPath)),
+                metadataValue(metadata, "server", ""),
+                metadataValue(metadata, "cfRay", ""),
+                metadataValue(metadata, "cfCacheStatus", "")
+        ));
+    }
+
+    private Map<String, String> readFailureBodyMetadata(final Path metadataPath, final LoadTestRun run) {
+        if (!Files.isRegularFile(metadataPath)) {
+            return Map.of();
+        }
+        final Map<String, String> metadata = new LinkedHashMap<>();
+        try {
+            for (String line : Files.readAllLines(metadataPath, StandardCharsets.UTF_8)) {
+                final int separator = line.indexOf('=');
+                if (separator <= 0) {
+                    continue;
+                }
+                metadata.put(line.substring(0, separator).trim(), line.substring(separator + 1).trim());
+            }
+        } catch (IOException exception) {
+            run.appendLog("Failure response metadata skipped: " + exception.getMessage());
+        }
+        return metadata;
+    }
+
+    private Path siblingWithExtension(final Path path, final String extension) {
+        final String fileName = path.getFileName().toString();
+        final int dotIndex = fileName.lastIndexOf('.');
+        final String baseName = dotIndex < 0 ? fileName : fileName.substring(0, dotIndex);
+        return path.resolveSibling(baseName + extension);
+    }
+
+    private String metadataValue(
+            final Map<String, String> metadata,
+            final String key,
+            final String defaultValue
+    ) {
+        return metadata.getOrDefault(key, defaultValue);
+    }
+
+    private String statusFromFileName(final Path bodyPath) {
+        final String name = bodyPath.getFileName().toString();
+        final String marker = "-status-";
+        final int markerIndex = name.indexOf(marker);
+        if (markerIndex < 0) {
+            return "";
+        }
+        int endIndex = markerIndex + marker.length();
+        while (endIndex < name.length() && Character.isDigit(name.charAt(endIndex))) {
+            endIndex++;
+        }
+        return name.substring(markerIndex + marker.length(), endIndex);
+    }
+
+    private String failureBodyPreview(final Path bodyPath, final LoadTestRun run) {
+        try {
+            final String body = Files.readString(bodyPath, StandardCharsets.UTF_8);
+            if (body.length() <= FAILURE_BODY_PREVIEW_LIMIT) {
+                return body;
+            }
+            return body.substring(0, FAILURE_BODY_PREVIEW_LIMIT) + "\n... preview truncated ...";
+        } catch (IOException exception) {
+            run.appendLog("Failure response body preview skipped: " + exception.getMessage());
+            return "";
+        }
+    }
+
+    private List<Map<String, String>> readSummaryCsv(final Path summaryCsv) throws IOException {
+        final List<String> lines = Files.readAllLines(summaryCsv, StandardCharsets.UTF_8);
+        if (lines.size() < 2) {
+            return List.of();
+        }
+        final List<String> headers = parseCsvLine(lines.getFirst());
+        final List<Map<String, String>> rows = new ArrayList<>();
+        for (int index = 1; index < lines.size(); index++) {
+            if (lines.get(index).isBlank()) {
+                continue;
+            }
+            final List<String> values = parseCsvLine(lines.get(index));
+            final Map<String, String> row = new LinkedHashMap<>();
+            for (int column = 0; column < headers.size(); column++) {
+                row.put(headers.get(column), column < values.size() ? values.get(column) : "");
+            }
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private List<String> parseCsvLine(final String line) {
+        final List<String> values = new ArrayList<>();
+        final StringBuilder value = new StringBuilder();
+        boolean quoted = false;
+        for (int index = 0; index < line.length(); index++) {
+            final char current = line.charAt(index);
+            if (quoted && current == '"' && index + 1 < line.length() && line.charAt(index + 1) == '"') {
+                value.append('"');
+                index++;
+            } else if (current == '"') {
+                quoted = !quoted;
+            } else if (current == ',' && !quoted) {
+                values.add(value.toString());
+                value.setLength(0);
+            } else {
+                value.append(current);
+            }
+        }
+        values.add(value.toString());
+        return values;
+    }
+
+    private void appendMetricCard(final StringBuilder html, final String label, final String value) {
+        html.append("<div class=\"card\"><div class=\"label\">")
+                .append(htmlEscape(label))
+                .append("</div><div class=\"value\">")
+                .append(htmlEscape(value))
+                .append("</div></div>");
+    }
+
+    private void appendMetricCell(
+            final StringBuilder html,
+            final Map<String, String> row,
+            final String key
+    ) {
+        html.append("<td>").append(htmlEscape(formatDisplayNumber(rowValue(row, key)))).append("</td>");
+    }
+
+    private void appendPathLinkCell(
+            final StringBuilder html,
+            final Path runDirectory,
+            final String value,
+            final String label
+    ) {
+        final Optional<String> link = relativeLink(runDirectory, value);
+        if (link.isEmpty()) {
+            html.append("<td>-</td>");
+            return;
+        }
+        html.append("<td><a href=\"")
+                .append(htmlEscape(link.get()))
+                .append("\">")
+                .append(htmlEscape(label))
+                .append("</a></td>");
+    }
+
+    private void appendPathLink(
+            final StringBuilder html,
+            final Path runDirectory,
+            final Path path,
+            final String label
+    ) {
+        if (!Files.isRegularFile(path)) {
+            html.append("-");
+            return;
+        }
+        final Optional<String> link = relativeLink(runDirectory, path.toString());
+        if (link.isEmpty()) {
+            html.append("-");
+            return;
+        }
+        html.append("<a href=\"")
+                .append(htmlEscape(link.get()))
+                .append("\">")
+                .append(htmlEscape(label))
+                .append("</a>");
+    }
+
+    private Optional<String> relativeLink(final Path runDirectory, final String value) {
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            final Path path = Path.of(value).toAbsolutePath().normalize();
+            if (!path.startsWith(runDirectory.toAbsolutePath().normalize())) {
+                return Optional.empty();
+            }
+            return Optional.of(runDirectory.relativize(path).toString().replace('\\', '/'));
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private String rowValue(final Map<String, String> row, final String key) {
+        return row.getOrDefault(key, "");
+    }
+
+    private double numberValue(final Map<String, String> row, final String key) {
+        final String value = rowValue(row, key);
+        if (value.isBlank()) {
+            return 0;
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException exception) {
+            return 0;
+        }
+    }
+
+    private String formatDisplayNumber(final String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        try {
+            return formatDisplayNumber(Double.parseDouble(value));
+        } catch (NumberFormatException exception) {
+            return value;
+        }
+    }
+
+    private String formatDisplayNumber(final double value) {
+        if (Math.abs(value - Math.round(value)) < 0.001) {
+            return String.valueOf(Math.round(value));
+        }
+        return String.format(Locale.ROOT, "%.2f", value);
+    }
+
     private void appendFileLink(final StringBuilder html, final Path directory, final String fileName) {
         if (Files.isRegularFile(directory.resolve(fileName))) {
-            html.append("<li><a href=\"")
+            html.append("<a href=\"")
                     .append(htmlEscape(fileName))
                     .append("\">")
                     .append(htmlEscape(fileName))
-                    .append("</a></li>");
+                    .append("</a>");
         }
     }
 
@@ -418,6 +813,17 @@ public class LoadTestService {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");
+    }
+
+    private record FailureResponseBody(
+            Path bodyPath,
+            Path metadataPath,
+            String node,
+            String status,
+            String server,
+            String cfRay,
+            String cfCacheStatus
+    ) {
     }
 
     private Set<Path> listReportDirectories(final Path reportsRoot) {

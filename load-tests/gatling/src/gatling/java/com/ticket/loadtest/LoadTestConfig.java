@@ -2,7 +2,12 @@ package com.ticket.loadtest;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.OpenInjectionStep;
+import io.gatling.javaapi.core.Session;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -30,6 +35,7 @@ public final class LoadTestConfig {
     private static final AtomicInteger TOKEN_COUNTER = new AtomicInteger();
     private static final AtomicInteger ADMISSION_TOKEN_COUNTER = new AtomicInteger();
     private static final AtomicInteger SEAT_ID_COUNTER = new AtomicInteger();
+    private static final AtomicInteger FAILURE_BODY_DUMP_COUNTER = new AtomicInteger();
     private static final AtomicLong SYNTHETIC_MEMBER_COUNTER =
             new AtomicLong(longProperty(ConfigKey.SYNTHETIC_MEMBER_START_ID));
 
@@ -163,6 +169,45 @@ public final class LoadTestConfig {
         return Map.of("Authorization", "Bearer #{accessToken}");
     }
 
+    public static boolean dumpFailureBodyEnabled() {
+        return booleanProperty(ConfigKey.DUMP_FAILURE_BODY);
+    }
+
+    public static ChainBuilder dumpFailureResponseBody(final String requestName) {
+        return exec(session -> {
+            if (!dumpFailureBodyEnabled() || !session.contains("httpStatus")) {
+                return session;
+            }
+
+            final int status = session.getInt("httpStatus");
+            if (status == 200) {
+                return removeFailureResponseDebugValues(session);
+            }
+
+            final int dumpIndex = FAILURE_BODY_DUMP_COUNTER.incrementAndGet();
+            if (dumpIndex > intProperty(ConfigKey.DUMP_FAILURE_BODY_LIMIT)) {
+                return removeFailureResponseDebugValues(session);
+            }
+
+            final String responseBody = session.contains("responseBody") ? session.getString("responseBody") : "";
+            final Path outputDir = Path.of(property(ConfigKey.FAILURE_BODY_DIR));
+            final String fileBaseName = sanitizeFileName(requestName) + "-" + dumpIndex + "-status-" + status;
+            final Path bodyPath = outputDir.resolve(fileBaseName + ".html");
+            final Path metaPath = outputDir.resolve(fileBaseName + ".txt");
+
+            try {
+                Files.createDirectories(outputDir);
+                Files.writeString(bodyPath, responseBody, StandardCharsets.UTF_8);
+                Files.writeString(metaPath, failureBodyMetadata(requestName, status, bodyPath, session), StandardCharsets.UTF_8);
+                System.out.println("Failure response body dumped: " + bodyPath.toAbsolutePath());
+            } catch (IOException e) {
+                System.err.println("Failed to dump failure response body: " + e.getMessage());
+            }
+
+            return removeFailureResponseDebugValues(session);
+        });
+    }
+
     public static Map<CharSequence, String> queueTokenHeaders() {
         return Map.of("X-Queue-Token", "#{queueToken}");
     }
@@ -200,6 +245,10 @@ public final class LoadTestConfig {
 
     private static int intProperty(final ConfigKey key) {
         return Integer.parseInt(property(key));
+    }
+
+    private static boolean booleanProperty(final ConfigKey key) {
+        return Boolean.parseBoolean(property(key));
     }
 
     private static int nonNegativeIntProperty(final ConfigKey key) {
@@ -292,6 +341,51 @@ public final class LoadTestConfig {
         );
     }
 
+    private static String failureBodyMetadata(
+            final String requestName,
+            final int status,
+            final Path bodyPath,
+            final Session session
+    ) {
+        return """
+                request=%s
+                status=%d
+                server=%s
+                cfRay=%s
+                cfCacheStatus=%s
+                baseUrl=%s
+                queueBaseUrl=%s
+                bodyPath=%s
+                """.formatted(
+                requestName,
+                status,
+                optionalSessionValue(session, "responseServer"),
+                optionalSessionValue(session, "responseCfRay"),
+                optionalSessionValue(session, "responseCfCacheStatus"),
+                baseUrl(),
+                queueBaseUrl(),
+                bodyPath.toAbsolutePath()
+        );
+    }
+
+    private static String optionalSessionValue(final Session session, final String key) {
+        return session.contains(key) ? session.getString(key) : "";
+    }
+
+    private static Session removeFailureResponseDebugValues(final Session session) {
+        return session.removeAll(
+                "httpStatus",
+                "responseBody",
+                "responseServer",
+                "responseCfRay",
+                "responseCfCacheStatus"
+        );
+    }
+
+    private static String sanitizeFileName(final String value) {
+        return value.replaceAll("[^A-Za-z0-9._-]", "-");
+    }
+
     private record CsvValues(List<String> values) {
     }
 
@@ -329,7 +423,10 @@ public final class LoadTestConfig {
         SYNTHETIC_TOKEN_TTL_SECONDS,
         JWT_ISSUER,
         SYNTHETIC_JWT_ROLE,
-        JWT_SECRET;
+        JWT_SECRET,
+        DUMP_FAILURE_BODY,
+        DUMP_FAILURE_BODY_LIMIT,
+        FAILURE_BODY_DIR;
 
         private String propertyName() {
             return switch (this) {
@@ -364,6 +461,9 @@ public final class LoadTestConfig {
                 case JWT_ISSUER -> "jwtIssuer";
                 case SYNTHETIC_JWT_ROLE -> "syntheticJwtRole";
                 case JWT_SECRET -> "jwtSecret";
+                case DUMP_FAILURE_BODY -> "dumpFailureBody";
+                case DUMP_FAILURE_BODY_LIMIT -> "dumpFailureBodyLimit";
+                case FAILURE_BODY_DIR -> "failureBodyDir";
             };
         }
 
@@ -395,6 +495,9 @@ public final class LoadTestConfig {
                 case SYNTHETIC_TOKEN_TTL_SECONDS -> "3600";
                 case JWT_ISSUER -> "ticket";
                 case SYNTHETIC_JWT_ROLE -> "MEMBER";
+                case DUMP_FAILURE_BODY -> "false";
+                case DUMP_FAILURE_BODY_LIMIT -> "1";
+                case FAILURE_BODY_DIR -> "build/reports/failure-bodies";
                 case ACCESS_TOKENS, ACCESS_TOKENS_FILE, ADMISSION_TOKENS, JWT_SECRET -> null;
             };
         }

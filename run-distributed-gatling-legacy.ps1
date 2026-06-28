@@ -1,5 +1,5 @@
 param(
-    [string]$KeyPath = "C:\Users\mn040\Desktop\ticket\ticket-test-key-01.pem",
+    [string]$KeyPath = "",
     [string[]]$Hosts = @(
         "ubuntu@43.203.155.15",
         "ubuntu@15.165.40.25",
@@ -14,6 +14,8 @@ param(
     [int]$StatusPolls = 1,
     [int]$StatusPollPauseSeconds = 0,
     [int]$StatusPollPauseJitterSeconds = 0,
+    [switch]$DumpFailureBody,
+    [int]$DumpFailureBodyLimit = 1,
     [switch]$IncludeLocal,
     [switch]$CollectReports,
     [string]$LocalProjectDir = (Join-Path $PSScriptRoot "."),
@@ -37,10 +39,14 @@ $arguments = @{
     StatusPolls = $StatusPolls
     StatusPollPauseSeconds = $StatusPollPauseSeconds
     StatusPollPauseJitterSeconds = $StatusPollPauseJitterSeconds
+    DumpFailureBodyLimit = $DumpFailureBodyLimit
     LocalProjectDir = $LocalProjectDir
     ReportRoot = $ReportRoot
 }
 
+if ($DumpFailureBody) {
+    $arguments.DumpFailureBody = $true
+}
 if ($IncludeLocal) {
     $arguments.IncludeLocal = $true
 }

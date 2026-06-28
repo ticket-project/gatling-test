@@ -96,6 +96,8 @@ class LoadTestRequestTest {
                 "executionMode", List.of("distributed"),
                 "distributedIncludeLocal", List.of("on"),
                 "distributedCollectReports", List.of("on"),
+                "distributedDumpFailureBody", List.of("on"),
+                "distributedDumpFailureBodyLimit", List.of("2"),
                 "distributedHosts", List.of("43.203.155.15\nubuntu@15.165.40.25")
         ));
 
@@ -103,6 +105,8 @@ class LoadTestRequestTest {
         assertEquals(true, request.distributedExecution());
         assertEquals(true, request.distributedIncludeLocal());
         assertEquals(true, request.distributedCollectReports());
+        assertEquals(true, request.distributedDumpFailureBody());
+        assertEquals(2, request.distributedDumpFailureBodyLimit());
         assertEquals(List.of("ubuntu@43.203.155.15", "ubuntu@15.165.40.25"), request.distributedHostList());
     }
 

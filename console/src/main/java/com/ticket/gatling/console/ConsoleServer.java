@@ -213,6 +213,9 @@ public class ConsoleServer {
         if (name.endsWith(".json")) {
             return "application/json; charset=UTF-8";
         }
+        if (name.endsWith(".txt") || name.endsWith(".csv") || name.endsWith(".md")) {
+            return "text/plain; charset=UTF-8";
+        }
         if (name.endsWith(".png")) {
             return "image/png";
         }

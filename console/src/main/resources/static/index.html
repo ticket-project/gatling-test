@@ -571,6 +571,9 @@
 ubuntu@15.165.40.25
 ubuntu@43.203.136.184</textarea>
 
+          <label for="sshKeyPath">SSH key 경로 <span class="help-chip" tabindex="0" data-help="비워두면 현재 PC에서 C:\Users\mn040\OneDrive\바탕 화면\ticket\ticket-test-key-01.pem, C:\Users\mn040\Desktop\ticket\ticket-test-key-01.pem 순서로 자동 선택합니다.">?</span></label>
+          <input id="sshKeyPath" name="sshKeyPath" value="">
+
           <label class="inline-check">
             <input id="distributedIncludeLocal" name="distributedIncludeLocal" type="checkbox">
             로컬 PC도 부하 발생에 포함
@@ -580,6 +583,15 @@ ubuntu@43.203.136.184</textarea>
             실행 후 원격 리포트 수집
           </label>
           <input name="distributedCollectReports" type="hidden" value="false">
+
+          <label class="inline-check">
+            <input id="distributedDumpFailureBody" name="distributedDumpFailureBody" type="checkbox">
+            실패 응답 body를 리포트에 저장
+          </label>
+          <input name="distributedDumpFailureBody" type="hidden" value="false">
+
+          <label for="distributedDumpFailureBodyLimit">노드당 저장할 실패 응답 수 <span class="help-chip" tabindex="0" data-help="503 같은 실패 응답의 HTML body와 Cloudflare 관련 헤더를 결과 리포트에 저장합니다. 부하 수치 왜곡을 줄이기 위해 보통 1개만 저장합니다.">?</span></label>
+          <input id="distributedDumpFailureBodyLimit" name="distributedDumpFailureBodyLimit" type="number" min="1" value="1">
         </div>
       </fieldset>
 

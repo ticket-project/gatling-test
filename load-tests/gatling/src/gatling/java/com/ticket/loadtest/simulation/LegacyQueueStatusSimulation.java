@@ -1,8 +1,10 @@
 package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.LoadTestConfig;
+import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
+import io.gatling.javaapi.http.HttpRequestActionBuilder;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import java.util.Iterator;
@@ -10,9 +12,11 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
+import static io.gatling.javaapi.core.CoreDsl.bodyString;
 import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
+import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 
@@ -25,14 +29,31 @@ public class LegacyQueueStatusSimulation extends Simulation {
             .contentTypeHeader("application/json");
 
     public LegacyQueueStatusSimulation() {
+        HttpRequestActionBuilder queueStatus = http("queue status")
+                .get("/api/v1/queue/performances/#{performanceId}/status")
+                .headers(LoadTestConfig.queueSessionHeaders());
+
+        if (LoadTestConfig.dumpFailureBodyEnabled()) {
+            queueStatus = queueStatus
+                    .check(status().saveAs("httpStatus"))
+                    .check(header("Server").optional().saveAs("responseServer"))
+                    .check(header("CF-Ray").optional().saveAs("responseCfRay"))
+                    .check(header("CF-Cache-Status").optional().saveAs("responseCfCacheStatus"))
+                    .check(bodyString().optional().saveAs("responseBody"));
+        }
+
+        queueStatus = queueStatus.check(status().is(200));
+
+        ChainBuilder queueStatusChain = exec(queueStatus);
+        if (LoadTestConfig.dumpFailureBodyEnabled()) {
+            queueStatusChain = queueStatusChain.exec(LoadTestConfig.dumpFailureResponseBody("queue-status"));
+        }
+
         final ScenarioBuilder scenario = scenario("legacy-queue-status")
                 .exec(LoadTestConfig.initializeSession())
                 .feed(legacyQueueSessionFeeder())
                 .repeat(LoadTestConfig.statusPolls()).on(
-                        exec(http("queue status")
-                                .get("/api/v1/queue/performances/#{performanceId}/status")
-                                .headers(LoadTestConfig.queueSessionHeaders())
-                                .check(status().is(200)))
+                        queueStatusChain
                                 .pause(LoadTestConfig.statusPollPauseMin(), LoadTestConfig.statusPollPauseMax())
                 );
 

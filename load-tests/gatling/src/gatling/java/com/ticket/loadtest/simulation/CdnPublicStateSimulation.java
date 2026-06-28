@@ -2,11 +2,14 @@ package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.CdnCacheCounters;
 import com.ticket.loadtest.LoadTestConfig;
+import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Session;
 import io.gatling.javaapi.core.Simulation;
+import io.gatling.javaapi.http.HttpRequestActionBuilder;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
+import static io.gatling.javaapi.core.CoreDsl.bodyString;
 import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
@@ -25,30 +28,48 @@ public class CdnPublicStateSimulation extends Simulation {
             .acceptHeader("application/json");
 
     public CdnPublicStateSimulation() {
+        HttpRequestActionBuilder publicState = http("cdn public state")
+                .get("/api/v1/queue/performances/#{performanceId}/state");
+
+        if (LoadTestConfig.dumpFailureBodyEnabled()) {
+            publicState = publicState
+                    .check(status().saveAs("httpStatus"))
+                    .check(header("Server").optional().saveAs("responseServer"))
+                    .check(header("CF-Ray").optional().saveAs("responseCfRay"))
+                    .check(header("CF-Cache-Status").optional().saveAs("responseCfCacheStatus"))
+                    .check(bodyString().optional().saveAs("responseBody"));
+        }
+
+        publicState = publicState
+                .check(status().is(200))
+                .check(header("X-Cache").optional().saveAs("cdnXCache"))
+                .check(header("CF-Cache-Status").optional().saveAs("cdnCfCacheStatus"))
+                .check(header("Cache-Status").optional().saveAs("cdnCacheStatus"))
+                .check(header("Age").optional().saveAs("cdnAge"))
+                .check(jsonPath("$.performanceId").exists())
+                .check(jsonPath("$.admittedUntilSeq").exists());
+
+        ChainBuilder publicStateChain = exec(publicState)
+                .exec(session -> {
+                    CDN_CACHE_COUNTERS.record(
+                            headerValue(session, "cdnXCache"),
+                            headerValue(session, "cdnCfCacheStatus"),
+                            headerValue(session, "cdnCacheStatus"),
+                            headerValue(session, "cdnAge")
+                    );
+                    return session.remove("cdnXCache")
+                            .remove("cdnCfCacheStatus")
+                            .remove("cdnCacheStatus")
+                            .remove("cdnAge");
+                });
+        if (LoadTestConfig.dumpFailureBodyEnabled()) {
+            publicStateChain = publicStateChain.exec(LoadTestConfig.dumpFailureResponseBody("cdn-public-state"));
+        }
+
         final ScenarioBuilder scenario = scenario("cdn-public-state")
                 .exec(LoadTestConfig.initializeSession())
                 .repeat(LoadTestConfig.statusPolls()).on(
-                        exec(http("cdn public state")
-                                .get("/api/v1/queue/performances/#{performanceId}/state")
-                                .check(status().is(200))
-                                .check(header("X-Cache").optional().saveAs("cdnXCache"))
-                                .check(header("CF-Cache-Status").optional().saveAs("cdnCfCacheStatus"))
-                                .check(header("Cache-Status").optional().saveAs("cdnCacheStatus"))
-                                .check(header("Age").optional().saveAs("cdnAge"))
-                                .check(jsonPath("$.performanceId").exists())
-                                .check(jsonPath("$.admittedUntilSeq").exists()))
-                                .exec(session -> {
-                                    CDN_CACHE_COUNTERS.record(
-                                            headerValue(session, "cdnXCache"),
-                                            headerValue(session, "cdnCfCacheStatus"),
-                                            headerValue(session, "cdnCacheStatus"),
-                                            headerValue(session, "cdnAge")
-                                    );
-                                    return session.remove("cdnXCache")
-                                            .remove("cdnCfCacheStatus")
-                                            .remove("cdnCacheStatus")
-                                            .remove("cdnAge");
-                                })
+                        publicStateChain
                                 .pause(LoadTestConfig.statusPollPauseMin(), LoadTestConfig.statusPollPauseMax())
                 );
 

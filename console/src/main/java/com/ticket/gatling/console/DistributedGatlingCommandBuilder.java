@@ -16,6 +16,8 @@ public class DistributedGatlingCommandBuilder {
         command.add("Bypass");
         command.add("-File");
         command.add(scriptPath(request).toString());
+        command.add("-KeyPath");
+        command.add(request.sshKeyPath().toString());
         command.add("-Hosts");
         command.add(String.join(",", request.distributedHostList()));
         command.add("-RpsPerNode");
@@ -61,7 +63,12 @@ public class DistributedGatlingCommandBuilder {
         if (request.distributedIncludeLocal()) {
             command.add("-IncludeLocal");
         }
-        if (request.distributedCollectReports()) {
+        if (request.distributedDumpFailureBody()) {
+            command.add("-DumpFailureBody");
+            command.add("-DumpFailureBodyLimit");
+            command.add(String.valueOf(request.distributedDumpFailureBodyLimit()));
+        }
+        if (request.distributedCollectReports() || request.distributedDumpFailureBody()) {
             command.add("-CollectReports");
         }
 
