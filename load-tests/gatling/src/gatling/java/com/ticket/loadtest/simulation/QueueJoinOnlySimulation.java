@@ -38,8 +38,9 @@ public class QueueJoinOnlySimulation extends Simulation {
 
         queueJoin = queueJoin
                 .check(status().is(200))
-                .check(jsonPath("$.seq").ofLong().saveAs("queueSeq"))
-                .check(jsonPath("$.queueToken").saveAs("queueToken"));
+                .check(jsonPath("$.queueToken").saveAs("queueToken"))
+                .check(jsonPath("$.seq").ofLong().optional().saveAs("queueSeq"))
+                .check(jsonPath("$.localSeq").ofLong().optional().saveAs("queueLocalSeq"));
 
         ScenarioBuilder scenario = scenario("queue-join-only")
                 .exec(LoadTestConfig.initializeSession())

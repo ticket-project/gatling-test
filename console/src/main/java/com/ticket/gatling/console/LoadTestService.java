@@ -197,13 +197,18 @@ public class LoadTestService {
         } catch (Exception exception) {
             run.appendLog("ERROR: " + exception.getMessage());
         } finally {
+            boolean createdFailureReport = false;
             Path reportDirectory = request.distributedExecution()
                     ? resolveDistributedReportDirectory(request, distributedRunDirectory).orElse(null)
                     : detectReportDirectory(executionReportsRoot, beforeReports).orElse(null);
+            if (reportDirectory == null && exitCode != 0) {
+                reportDirectory = createFailureReportDirectory(request, run, exitCode);
+                createdFailureReport = reportDirectory != null;
+            }
             if (reportDirectory != null) {
                 if (request.distributedExecution()) {
                     writeDistributedIndex(reportDirectory, run);
-                } else {
+                } else if (!createdFailureReport) {
                     reportDirectory = renameReportDirectory(reportDirectory, request, run);
                 }
                 reportRegistry.register(run.id(), reportDirectory);
@@ -215,6 +220,55 @@ public class LoadTestService {
             run.complete(exitCode, reportDirectory);
             runningRunId.compareAndSet(run.id(), null);
         }
+    }
+
+    private Path createFailureReportDirectory(
+            final LoadTestRequest request,
+            final LoadTestRun run,
+            final int exitCode
+    ) {
+        final Path reportRoot = archivedReportRoot(request);
+        final Path reportDirectory = uniqueReportDirectory(reportRoot
+                .resolve(ReportDirectoryNameFormatter.format(request) + " - failed"));
+        try {
+            Files.createDirectories(reportDirectory);
+            Files.writeString(reportDirectory.resolve("run.log"), run.log(), StandardCharsets.UTF_8);
+            Files.writeString(
+                    reportDirectory.resolve("index.html"),
+                    failureReportHtml(request, run, exitCode, reportDirectory),
+                    StandardCharsets.UTF_8
+            );
+            return reportDirectory;
+        } catch (IOException exception) {
+            run.appendLog("Failure report creation skipped: " + exception.getMessage());
+            return null;
+        }
+    }
+
+    private String failureReportHtml(
+            final LoadTestRequest request,
+            final LoadTestRun run,
+            final int exitCode,
+            final Path reportDirectory
+    ) {
+        return "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\">"
+                + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+                + "<title>Gatling Run Failed</title>"
+                + "<style>"
+                + "body{font-family:Segoe UI,system-ui,sans-serif;margin:0;color:#17202c;background:#eef2f7;}"
+                + "main{padding:22px 24px 28px;}h1{font-size:22px;margin:0 0 8px;}"
+                + ".muted{color:#66758a;font-size:12px}.path{overflow-wrap:anywhere}"
+                + "pre{white-space:pre-wrap;word-break:break-word;background:#111827;color:#d8dee9;"
+                + "border-radius:8px;padding:14px;line-height:1.55;font-size:12px;}"
+                + "a{color:#1d4ed8;font-weight:650;text-decoration:none;}"
+                + "</style></head><body><main>"
+                + "<h1>Gatling run failed before report generation</h1>"
+                + "<div class=\"muted path\">Run directory: " + htmlEscape(reportDirectory.toString()) + "</div>"
+                + "<p>Simulation: " + htmlEscape(request.simulationType().label())
+                + " / exitCode: " + exitCode + "</p>"
+                + "<p><a href=\"run.log\">run.log</a></p>"
+                + "<h2>Console log</h2><pre>" + htmlEscape(run.log()) + "</pre>"
+                + "</main></body></html>";
     }
 
     private List<String> buildCommand(final LoadTestRequest request, final Path executionReportsRoot) {
@@ -335,12 +389,7 @@ public class LoadTestService {
     }
 
     private Optional<Path> latestDistributedRunDirectory(final LoadTestRequest request) {
-        final String directoryName = switch (request.simulationType()) {
-            case CDN_PUBLIC_STATE -> "distributed-results";
-            case QUEUE_JOIN_ONLY -> "distributed-results-join";
-            default -> "distributed-results-legacy";
-        };
-        final Path root = request.ticketProjectPath().resolve(directoryName).toAbsolutePath().normalize();
+        final Path root = distributedReportRoot(request);
         if (!Files.isDirectory(root)) {
             return Optional.empty();
         }
@@ -350,6 +399,15 @@ public class LoadTestService {
         } catch (IOException exception) {
             return Optional.empty();
         }
+    }
+
+    private Path distributedReportRoot(final LoadTestRequest request) {
+        final String directoryName = switch (request.simulationType()) {
+            case CDN_PUBLIC_STATE -> "distributed-results";
+            case QUEUE_JOIN_ONLY -> "distributed-results-join";
+            default -> "distributed-results-legacy";
+        };
+        return request.ticketProjectPath().resolve(directoryName).toAbsolutePath().normalize();
     }
 
     private void writeDistributedIndex(final Path runDirectory, final LoadTestRun run) {
@@ -858,7 +916,7 @@ public class LoadTestService {
             final LoadTestRequest request,
             final LoadTestRun run
     ) {
-        final Path target = uniqueReportDirectory(request.reportsRoot()
+        final Path target = uniqueReportDirectory(archivedReportRoot(request)
                 .resolve(ReportDirectoryNameFormatter.format(request)));
         if (reportDirectory.equals(target)) {
             return reportDirectory;
@@ -885,6 +943,15 @@ public class LoadTestService {
             suffix++;
         } while (Files.exists(candidate));
         return candidate;
+    }
+
+    private Path archivedReportRoot(final LoadTestRequest request) {
+        if (request.simulationType() == SimulationType.QUEUE_JOIN_ONLY) {
+            return distributedReportRoot(request);
+        }
+        return request.distributedExecution()
+                ? distributedReportRoot(request)
+                : request.reportsRoot();
     }
 
     private void deleteIfEmpty(final Path directory) {
