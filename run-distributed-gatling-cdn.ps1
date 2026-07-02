@@ -69,6 +69,92 @@ function Normalize-Hosts {
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
+function Get-SimulationRunName {
+    if ($Simulation -like "*QueueJoinOnly*") {
+        return "join"
+    }
+    if ($Simulation -like "*Legacy*") {
+        return "legacy"
+    }
+    if ($Simulation -like "*CdnPublicState*") {
+        return "cdn"
+    }
+    return (($Simulation -split "\.")[-1] -replace "Simulation$", "").ToLowerInvariant()
+}
+
+function Get-BaseUrlRunName {
+    if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+        return ""
+    }
+
+    $target = $BaseUrl.Trim()
+    $uri = $null
+    if ([Uri]::TryCreate($target, [UriKind]::Absolute, [ref]$uri) -and -not [string]::IsNullOrWhiteSpace($uri.Host)) {
+        $path = $uri.AbsolutePath.Trim("/")
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            return "api-$($uri.Host.ToLowerInvariant())"
+        }
+        return "api-$($uri.Host.ToLowerInvariant())-$($path -replace '/', '-')"
+    }
+
+    return "api-$target"
+}
+
+function New-RunDirectoryName {
+    $nodeCount = $Hosts.Count + [int]$IncludeLocal.IsPresent
+    $parts = @(
+        (Get-SimulationRunName),
+        (Get-BaseUrlRunName),
+        "pid$PerformanceId",
+        "rps$RpsPerNode",
+        "nodes$nodeCount",
+        "dur${DurationSeconds}s"
+    )
+
+    if ($GenerateAccessTokens) {
+        $parts += "tokens$EffectiveTokenCountPerNode"
+    } elseif (-not [string]::IsNullOrWhiteSpace($AccessTokenMode)) {
+        $parts += $AccessTokenMode.ToLowerInvariant()
+    }
+
+    if ($StatusPolls -gt 0) {
+        $pollPart = "poll${StatusPolls}x${StatusPollPauseSeconds}s"
+        if ($StatusPollPauseJitterSeconds -gt 0) {
+            $pollPart += "_jitter${StatusPollPauseJitterSeconds}s"
+        }
+        $parts += $pollPart
+    }
+    if ($IncludeLocal) {
+        $parts += "local"
+    }
+    if ($DumpFailureBody) {
+        $parts += "dumpbody"
+    }
+
+    $name = ($parts -join "_") -replace "[^A-Za-z0-9._-]", "-"
+    return $name.Trim("._-")
+}
+
+function New-UniqueRunDirectoryPath {
+    param(
+        [string]$Root,
+        [string]$Name
+    )
+
+    $candidate = Join-Path $Root $Name
+    if (-not (Test-Path -LiteralPath $candidate)) {
+        return $candidate
+    }
+
+    for ($index = 2; $index -lt 1000; $index++) {
+        $candidate = Join-Path $Root "${Name}_$index"
+        if (-not (Test-Path -LiteralPath $candidate)) {
+            return $candidate
+        }
+    }
+    throw "Could not create unique run directory under ${Root}: $Name"
+}
+
 function ConvertTo-RemoteBashCommand {
     param([string]$Value)
 
@@ -143,11 +229,18 @@ function New-OpenSshKeyPath {
     Copy-Item -LiteralPath $resolvedPath -Destination $targetPath -Force
 
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    & icacls.exe $targetPath /inheritance:r | Out-Null
+    $windowsRoot = if ([string]::IsNullOrWhiteSpace($env:SystemRoot)) { "C:\Windows" } else { $env:SystemRoot }
+    $icaclsCommand = Resolve-CommandPath -Name "icacls.exe" -Candidates @(
+        (Join-Path $windowsRoot "System32\icacls.exe"),
+        (Join-Path $windowsRoot "Sysnative\icacls.exe"),
+        "C:\Windows\System32\icacls.exe",
+        "C:\Windows\Sysnative\icacls.exe"
+    )
+    & $icaclsCommand $targetPath /inheritance:r | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to disable SSH key inheritance: $targetPath"
     }
-    & icacls.exe $targetPath /grant:r "${currentUser}:F" | Out-Null
+    & $icaclsCommand $targetPath /grant:r "${currentUser}:F" | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to restrict SSH key permissions: $targetPath"
     }
@@ -556,7 +649,8 @@ $EffectiveTokenCountPerNode = if ($TokenCountPerNode -gt 0) {
 }
 
 $startedAt = Get-Date -Format "yyyyMMdd-HHmmss"
-$runDir = Join-Path $ReportRoot $startedAt
+$runDirectoryName = New-RunDirectoryName
+$runDir = New-UniqueRunDirectoryPath -Root $ReportRoot -Name $runDirectoryName
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 $knownHostsFile = Join-Path $runDir "known_hosts"
 New-Item -ItemType File -Force -Path $knownHostsFile | Out-Null
