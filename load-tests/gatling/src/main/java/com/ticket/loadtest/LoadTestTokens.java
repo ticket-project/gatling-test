@@ -12,6 +12,7 @@ import java.util.regex.Pattern;
 public final class LoadTestTokens {
 
     private static final Pattern SUBJECT_PATTERN = Pattern.compile("\"sub\"\\s*:\\s*\"?([^\",}]+)\"?");
+    private static final Pattern PERFORMANCE_ID_PATTERN = Pattern.compile("\"performanceId\"\\s*:\\s*\"?([^\",}]+)\"?");
 
     private LoadTestTokens() {
     }
@@ -57,17 +58,33 @@ public final class LoadTestTokens {
     }
 
     public static Long readSubjectAsLong(final String token) {
-        final String[] parts = token.split("\\.");
-        if (parts.length < 2) {
-            throw new IllegalArgumentException("JWT must contain header and payload");
-        }
-
-        final String payload = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+        final String payload = readPayload(token);
         final Matcher matcher = SUBJECT_PATTERN.matcher(payload);
         if (!matcher.find()) {
             throw new IllegalArgumentException("JWT subject is missing");
         }
         return Long.parseLong(matcher.group(1));
+    }
+
+    public static Long readPerformanceIdAsLong(final String token) {
+        final String payload = readPayload(token);
+        final Matcher matcher = PERFORMANCE_ID_PATTERN.matcher(payload);
+        if (!matcher.find()) {
+            throw new IllegalArgumentException("JWT performanceId is missing");
+        }
+        return Long.parseLong(matcher.group(1));
+    }
+
+    private static String readPayload(final String token) {
+        try {
+            final String[] parts = token.split("\\.");
+            if (parts.length < 2) {
+                throw new IllegalArgumentException("JWT must contain header and payload");
+            }
+            return new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Invalid JWT payload", exception);
+        }
     }
 
     private static String createSignedToken(final String payload, final String secret) {

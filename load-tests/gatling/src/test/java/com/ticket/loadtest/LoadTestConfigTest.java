@@ -41,4 +41,17 @@ class LoadTestConfigTest {
         assertTrue(source.contains("case ACCESS_TOKENS_FILE -> \"accessTokensFile\";"));
         assertTrue(source.contains("LoadTestTokenValues.fromCsvOrFile"));
     }
+
+    @Test
+    void exposesBookingFeederAndResultProperties() throws IOException {
+        final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("public static String bookingFeederFile()"));
+        assertTrue(source.contains("public static String bookingScenario()"));
+        assertTrue(source.contains("public static int nodeIndex()"));
+        assertTrue(source.contains("public static String resultFile()"));
+        assertTrue(source.contains("public static int pollingTimeoutSeconds()"));
+        assertTrue(source.contains("public static Iterator<Map<String, Object>> bookingFeeder()"));
+        assertTrue(source.contains("BookingFeeder.load"));
+    }
 }
