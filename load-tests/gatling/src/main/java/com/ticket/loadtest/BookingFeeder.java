@@ -28,6 +28,7 @@ public final class BookingFeeder {
     }
 
     static List<BookingRow> read(final Path file, final String scenario, final int expectedRows, final long performanceId) {
+        final BookingScenario bookingScenario = BookingScenario.parse(scenario);
         final List<String> lines;
         try {
             lines = Files.readAllLines(file, StandardCharsets.UTF_8);
@@ -38,8 +39,8 @@ public final class BookingFeeder {
             throw new IllegalArgumentException("Booking feeder must be BOM-free UTF-8 CSV with header: " + HEADER);
         }
 
-        final boolean admissionRequired = "capacity".equals(scenario) || "contention".equals(scenario);
-        final boolean uniqueSeats = "capacity".equals(scenario);
+        final boolean admissionRequired = bookingScenario != BookingScenario.TICKET_OPEN_END_TO_END;
+        final boolean uniqueSeats = bookingScenario != BookingScenario.SEAT_CONTENTION;
         final Set<Long> memberIds = new HashSet<>();
         final Set<Long> seatIds = new HashSet<>();
         final List<BookingRow> rows = new ArrayList<>();
@@ -62,7 +63,7 @@ public final class BookingFeeder {
                 throw invalidRow(index, "memberId must be unique");
             }
             if (uniqueSeats && !seatIds.add(seatId)) {
-                throw invalidRow(index, "seatId must be unique for capacity scenario");
+                throw invalidRow(index, "seatId must be unique unless scenario is SEAT_CONTENTION");
             }
             try {
                 if (LoadTestTokens.readSubjectAsLong(accessToken) != memberId) {
@@ -107,5 +108,19 @@ public final class BookingFeeder {
     }
 
     public record BookingRow(long memberId, String accessToken, long seatId, String admissionToken) {
+    }
+
+    private enum BookingScenario {
+        BOOKING_CAPACITY,
+        TICKET_OPEN_END_TO_END,
+        SEAT_CONTENTION;
+
+        private static BookingScenario parse(final String value) {
+            try {
+                return BookingScenario.valueOf(value);
+            } catch (IllegalArgumentException | NullPointerException exception) {
+                throw new IllegalArgumentException("Unsupported booking scenario: " + value, exception);
+            }
+        }
     }
 }

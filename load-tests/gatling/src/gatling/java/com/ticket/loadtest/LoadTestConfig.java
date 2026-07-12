@@ -88,7 +88,7 @@ public final class LoadTestConfig {
     }
 
     public static String bookingScenario() {
-        return property(ConfigKey.BOOKING_SCENARIO).toLowerCase(Locale.ROOT);
+        return property(ConfigKey.BOOKING_SCENARIO);
     }
 
     public static int nodeIndex() {
@@ -534,7 +534,7 @@ public final class LoadTestConfig {
                 case DUMP_FAILURE_BODY_LIMIT -> "1";
                 case FAILURE_BODY_DIR -> "build/reports/failure-bodies";
                 case BOOKING_FEEDER_FILE -> "build/booking-feeder.csv";
-                case BOOKING_SCENARIO -> "e2e";
+                case BOOKING_SCENARIO -> "TICKET_OPEN_END_TO_END";
                 case NODE_INDEX -> "0";
                 case RESULT_FILE -> "build/reports/booking-results.csv";
                 case POLLING_TIMEOUT_SECONDS -> "30";
