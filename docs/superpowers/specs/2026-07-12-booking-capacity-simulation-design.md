@@ -289,3 +289,118 @@ Queue 단독·CDN·Legacy 실행기와 Ticket/Queue 서버 코드는 변경하�
 - UTF-8 BOM 없는 파일과 `git diff --check`
 
 실제 smoke와 단계별 부하는 사용자가 대상 URL, performanceId, feeder, VM별 RPS를 확인한 뒤 별도 실행한다.
+
+## 11. 시나리오별 입력·토큰·상태 계약
+
+세 시나리오의 토큰 출처를 명확히 분리한다.
+
+| 시나리오 | 필수 feeder 열 | admission token 출처 | Queue 호출 |
+|---|---|---|---|
+| `booking-capacity` | memberId, accessToken, seatId, admissionToken | feeder에 사전 발급된 값 | 없음 |
+| `ticket-open-end-to-end` | memberId, accessToken, seatId | Queue `enter` 응답의 `data.admissionToken` | join/state/enter |
+| `seat-contention` | memberId, accessToken, seatId, admissionToken | feeder에 사전 발급된 값 | 없음 |
+
+Gatling에서 admission secret으로 토큰을 생성하지 않는다. 단독 Ticket/경합 시험은 실행 전에 테스트 회차와 회원에 맞는 단기 admission token을 feeder에 준비한다. 전체 흐름은 Queue enter 응답에서 받은 토큰만 사용하며 feeder의 admissionToken 열은 비워도 된다.
+
+전체 흐름의 API 계약은 다음과 같다.
+
+- join `200`: `queueToken`, `shardId`, `localSeq`를 저장한다. 하나라도 없으면 사용자를 실패 처리한다.
+- state `200`: `serving` 객체에서 저장한 `shardId`의 값을 읽는다. 값이 `localSeq`보다 크거나 같을 때만 입장 가능으로 판정한다. 키가 없거나 값이 감소하면 해당 응답은 무효로 기록하고 다음 polling을 수행한다.
+- state polling: `refreshAfterMs`를 기본 간격으로 사용하되 설정된 최소/최대 간격과 jitter 범위를 적용한다. 기본 최대 대기 시간은 300초이며, `pollingTimeoutSeconds`로 조정한다. timeout이면 `queue-timeout`으로 종료하고 Ticket API는 호출하지 않는다.
+- enter `200`: `data.admissionToken`을 저장한다. 토큰이 없으면 사용자를 실패 처리한다.
+- seat status/select: access token과 admission token을 모두 보낸다. 정상 응답은 각각 `200`이다.
+- create order `201`: `X-Order-Key`와 응답의 `data.orderKey` 중 하나를 저장하며 둘이 모두 존재하면 값이 일치해야 한다.
+- get order `200`: `data.status=PENDING`가 될 때까지 최대 5초 동안 200ms 간격으로 재조회한다. 시간 내에 PENDING이 되지 않으면 `order-state-timeout`으로 기록한다.
+
+## 12. feeder 형식과 분산 manifest
+
+feeder 파일은 UTF-8 BOM 없는 CSV이며 첫 줄은 정확히 헤더다.
+
+```csv
+memberId,accessToken,seatId,admissionToken
+```
+
+모든 열은 필수 열이다. 전체 흐름에서는 admissionToken 값만 빈 문자열을 허용한다. 쉼표·개행이 포함된 값은 허용하지 않는다. 실행 전 검증에서 다음을 확인한다.
+
+- 헤더와 열 개수가 정확함
+- memberId/seatId가 양의 정수임
+- accessToken이 비어 있지 않음
+- 단독 Ticket/경합 시 admissionToken이 비어 있지 않음
+- 토큰 파일 행 수가 예상 사용자 수 이상임
+- 최대 용량 시나리오의 seatId 중복 없음
+- 경합 시나리오의 중복 seatId는 허용하되 memberId는 중복 없음
+
+feeder는 순환하지 않는다. 마지막 행에 도달하면 해당 VM은 `feeder-exhausted`로 종료한다.
+
+분산 실행 전 생성하는 manifest에는 다음 값을 기록한다.
+
+```text
+nodeIndex,totalNodes,globalRps,nodeRps,rowStart,rowEnd
+0,3,900,300,1,30000
+1,3,900,300,30001,60000
+2,3,900,300,60001,90000
+```
+
+전체 RPS는 노드별 `nodeRps`의 합이며, feeder의 row 범위와 일치해야 한다. 실행기와 Gatling 로그에는 manifest 경로와 run id만 기록하고 token 원문은 기록하지 않는다.
+
+## 13. 분산 결과 집계와 오류율 정의
+
+각 VM은 token을 제외한 다음 결과 파일을 생성한다.
+
+```csv
+scenario,nodeIndex,memberId,seatId,orderKey,httpStatus,result,timestamp
+```
+
+통합 단계에서 세 파일을 합쳐 `seatId`별 `httpStatus=201` 성공 건수를 계산한다. 동일 seatId의 성공 건수가 2건 이상이면 통합 실행 exit code를 1로 설정한다. 같은 검증을 orderKey 중복에도 적용한다.
+
+기술 오류율의 분모는 해당 단계에서 시도한 전체 HTTP 요청 수다. 다음은 기술 오류다.
+
+- timeout, connection error
+- `5xx`
+- 예상하지 않은 `4xx`
+- 응답 JSON/필수 필드 누락
+
+좌석 경합 시나리오에서 정의된 좌석 점유 `4xx`만 기술 오류율에서 제외하고 `business-rejected`로 별도 집계한다. 최대 용량 시나리오에서 같은 `4xx`가 발생하면 데이터 중복 또는 사전 정리 실패로 기술 오류 처리한다. Queue timeout은 전체 흐름의 별도 퍼널 결과이며 Ticket API 오류율의 분모에 넣지 않는다.
+
+p99는 warm-up 종료 후 측정 구간의 Gatling 요청별 분포로 계산한다. Queue p99는 join/state/enter를 각각 보고하며 Ticket p99는 seat status/select/create order/get order를 각각 보고한다. 요청별 성공 표본이 100건 미만인 단계는 `insufficient-sample`로 표시하고 안전 용량 통과로 판정하지 않는다.
+
+## 14. 원격 실행과 보안 경계
+
+`run-distributed-booking.ps1`은 기존 분산 실행기와 동일하게 SSH batch 모드와 SCP를 사용한다. 다만 새 시나리오에서는 JWT/admission secret을 PowerShell 인자, SSH 명령, 원격 Gradle 명령으로 전달하지 않는다.
+
+- 로컬에서 준비한 feeder만 SCP로 전송한다.
+- 원격 feeder 권한은 소유자 읽기 전용으로 설정한다.
+- 실행 종료 후 원격 feeder와 결과 원문을 삭제하거나 사용자가 지정한 보관 디렉터리로 이동한다.
+- 콘솔 로그에는 URL, run id, node index, 행 범위만 기록한다.
+- 실패 응답 본문 수집을 켜도 Authorization과 token 값은 마스킹한다.
+- 실행 시작·종료 시각은 UTC epoch와 로컬 표시를 함께 기록한다.
+- Queue URL과 Ticket URL은 빈 값 또는 `localhost` 기본값으로 실행할 수 없고 사용자가 명시해야 한다.
+
+## 15. 삭제 및 유지 파일 경계
+
+완전 교체 대상은 다음 세 클래스와 이 클래스만을 대상으로 한 테스트·콘솔 분기다.
+
+- `TicketOpenFlowSimulation.java`
+- `HoldRaceSimulation.java`
+- `TicketServerCapacitySimulation.java`
+- 위 세 클래스의 Gatling source test
+- `SimulationType`의 기존 세 enum 상수와 해당 UI/API preview 분기
+
+`QueueJoinOnlySimulation`, `QueueEnterSimulation`, `LegacyQueueStatusSimulation`, `CdnPublicStateSimulation`과 해당 실행기·콘솔 계약은 유지한다. 유지 시나리오의 기본 URL과 token mode를 새 계약 때문에 변경하지 않는다.
+
+## 16. 검증과 exit code
+
+구현 후 다음 명령으로 실제 부하 없이 검증한다.
+
+```powershell
+.\gradlew.bat -p load-tests/gatling compileJava
+.\console\gradlew.bat -p console compileJava
+```
+
+정적 검증은 시나리오 클래스·실행 키·명령 인자·feeder 검사·PowerShell 문법·`git diff --check`를 포함한다. 실제 Gatling `gatlingRun`과 운영 대상 smoke는 실행하지 않는다.
+
+통합 실행기는 다음 exit code를 사용한다.
+
+- `0`: 오류율·p99·중복 성공·feeder 검증을 모두 통과
+- `1`: SLO 위반, 중복 성공, feeder 오류, 원격 노드 실패 중 하나 이상
+- `2`: 실행 전 입력·URL·manifest 검증 실패
