@@ -41,4 +41,13 @@ class LoadTestConfigTest {
         assertTrue(source.contains("case ACCESS_TOKENS_FILE -> \"accessTokensFile\";"));
         assertTrue(source.contains("LoadTestTokenValues.fromCsvOrFile"));
     }
+
+    @Test
+    void defaultsHttp2ToDisabledForComparableLoadTests() throws IOException {
+        final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("public static boolean http2Enabled()"));
+        assertTrue(source.contains("case HTTP2_ENABLED -> \"http2Enabled\";"));
+        assertTrue(source.contains("case HTTP2_ENABLED -> \"false\";"));
+    }
 }

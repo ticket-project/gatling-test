@@ -82,6 +82,10 @@ public final class LoadTestConfig {
         return intProperty(ConfigKey.USERS);
     }
 
+    public static boolean http2Enabled() {
+        return booleanProperty(ConfigKey.HTTP2_ENABLED);
+    }
+
     public static OpenInjectionStep injection() {
         final int users = intProperty(ConfigKey.USERS);
         final int durationSeconds = intProperty(ConfigKey.DURATION_SECONDS);
@@ -400,6 +404,7 @@ public final class LoadTestConfig {
         STATUS_POLLS,
         STATUS_POLL_PAUSE_SECONDS,
         STATUS_POLL_PAUSE_JITTER_SECONDS,
+        HTTP2_ENABLED,
         USERS,
         DURATION_SECONDS,
         INJECTION_MODE,
@@ -437,6 +442,7 @@ public final class LoadTestConfig {
                 case STATUS_POLLS -> "statusPolls";
                 case STATUS_POLL_PAUSE_SECONDS -> "statusPollPauseSeconds";
                 case STATUS_POLL_PAUSE_JITTER_SECONDS -> "statusPollPauseJitterSeconds";
+                case HTTP2_ENABLED -> "http2Enabled";
                 case USERS -> "users";
                 case DURATION_SECONDS -> "durationSeconds";
                 case INJECTION_MODE -> "injectionMode";
@@ -475,6 +481,7 @@ public final class LoadTestConfig {
                 case STATUS_POLLS -> "3";
                 case STATUS_POLL_PAUSE_SECONDS -> "1";
                 case STATUS_POLL_PAUSE_JITTER_SECONDS -> "0";
+                case HTTP2_ENABLED -> "false";
                 case USERS -> "10";
                 case DURATION_SECONDS -> "10";
                 case INJECTION_MODE -> "ramp-users";
