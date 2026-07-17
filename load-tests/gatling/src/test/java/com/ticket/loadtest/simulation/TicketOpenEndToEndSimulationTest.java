@@ -36,20 +36,50 @@ class TicketOpenEndToEndSimulationTest {
     }
 
     @Test
-    void recordsQueueTimeoutSeparatelyFromTechnicalFailuresAndStopsBeforeTicketCalls() throws IOException {
+    void recordsQueueTimeoutOutsideGatlingRequestMetricsAndStopsBeforeTicketCalls() throws IOException {
         final String source = source();
 
         assertTrue(source.contains("Duration.ofSeconds(LoadTestConfig.pollingTimeoutSeconds())"));
-        assertTrue(source.contains("dummy(\"QUEUE_TIMEOUT\", 0)"));
-        final int timeout = source.indexOf("dummy(\"QUEUE_TIMEOUT\", 0)");
-        final int timeoutEnd = source.indexOf("))", timeout);
-        final String timeoutBlock = source.substring(timeout, timeoutEnd);
-        assertTrue(timeoutBlock.contains(".withSuccess(true)"));
-        assertFalse(timeoutBlock.contains(".withSuccess(false)"));
-        assertTrue(source.contains(".withSessionUpdate(session -> session.markAsFailed())"));
+        assertFalse(source.contains("dummy(\"QUEUE_TIMEOUT\""));
+        assertTrue(source.contains("recordQueueTimeout()"));
+        final int recorder = source.indexOf("private ChainBuilder recordQueueTimeout()");
+        final int recorderEnd = source.indexOf("        });", recorder);
+        final String recorderBlock = source.substring(recorder, recorderEnd);
+        assertTrue(recorderBlock.contains("null,"));
+        assertTrue(recorderBlock.contains("0,"));
+        assertTrue(recorderBlock.contains("\"QUEUE_TIMEOUT\""));
+        assertTrue(source.contains("return session.markAsFailed()"));
+        final int timeout = source.indexOf(".exec(doIf(session -> !session.getBoolean(\"admissionReady\"))");
         final int stop = source.indexOf(".exitHereIfFailed()", timeout);
         final int ticket = source.indexOf(".exec(fetchSeatStatus())", stop);
         assertTrue(timeout < stop && stop < ticket);
+    }
+
+    @Test
+    void clampsConditionalPausesToMonotonicDeadlines() throws IOException {
+        final String source = source();
+
+        assertTrue(source.contains("System.nanoTime() + timeout.toNanos()"));
+        assertTrue(source.contains("remainingNanos(session, \"queueDeadlineNanos\") > 0"));
+        assertTrue(source.contains("remainingNanos(session, \"orderDeadlineNanos\") > 0"));
+        assertTrue(source.contains("Math.min(requestedPause.toNanos(), remainingNanos)"));
+        assertTrue(source.contains(".doIf(session -> !session.getBoolean(\"admissionReady\")"));
+        assertTrue(source.contains(".doIf(session -> !session.getBoolean(\"orderPending\")"));
+        final int queueUpdate = source.indexOf(".exec(updateQueueState())");
+        final int queuePause = source.indexOf(
+                ".doIf(session -> !session.getBoolean(\"admissionReady\")",
+                queueUpdate
+        );
+        final int orderUpdate = source.indexOf("\"PENDING\".equals(session.getString(\"orderStatus\"))");
+        final int orderPause = source.indexOf(
+                ".doIf(session -> !session.getBoolean(\"orderPending\")",
+                orderUpdate
+        );
+        assertTrue(queueUpdate < queuePause);
+        assertTrue(orderUpdate < orderPause);
+        assertFalse(source.contains(".asLongAsDuring("));
+        assertFalse(source.contains(".pause(ORDER_POLL_PAUSE)"));
+        assertFalse(source.contains(".pause(session -> Duration.ofMillis(session.getLong(\"queuePollDelayMs\")))"));
     }
 
     @Test

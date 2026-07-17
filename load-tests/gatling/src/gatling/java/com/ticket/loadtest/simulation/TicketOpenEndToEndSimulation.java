@@ -19,6 +19,7 @@ import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
+import static io.gatling.javaapi.core.CoreDsl.pause;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -45,17 +46,24 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                         .set("seatIdsJson", "[" + session.getLong("seatId") + "]"))
                 .exec(joinQueue())
                 .exitHereIfFailed()
-                .exec(session -> session.set("admissionReady", false))
-                .asLongAsDuring(session -> !session.getBoolean("admissionReady"), queuePollTimeout).on(
+                .exec(session -> session
+                        .set("admissionReady", false)
+                        .set("queueDeadlineNanos", deadlineAfter(queuePollTimeout)))
+                .asLongAs(session -> !session.getBoolean("admissionReady")
+                        && remainingNanos(session, "queueDeadlineNanos") > 0).on(
                         exec(pollQueueState())
                                 .exitHereIfFailed()
                                 .exec(updateQueueState())
-                                .pause(session -> Duration.ofMillis(session.getLong("queuePollDelayMs")))
+                                .doIf(session -> !session.getBoolean("admissionReady")
+                                        && remainingNanos(session, "queueDeadlineNanos") > 0).then(
+                                        pause(session -> clampedPause(
+                                                Duration.ofMillis(session.getLong("queuePollDelayMs")),
+                                                remainingNanos(session, "queueDeadlineNanos")
+                                        ))
+                                )
                 )
                 .exec(doIf(session -> !session.getBoolean("admissionReady")).then(
-                        dummy("QUEUE_TIMEOUT", 0)
-                                .withSuccess(true)
-                                .withSessionUpdate(session -> session.markAsFailed())
+                        recordQueueTimeout()
                 ))
                 .exitHereIfFailed()
                 .exec(enterQueue())
@@ -73,15 +81,24 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                                 .withSessionUpdate(session -> session.markAsFailed())
                 ))
                 .exitHereIfFailed()
-                .exec(session -> session.set("orderPending", false))
-                .asLongAsDuring(session -> !session.getBoolean("orderPending"), ORDER_POLL_TIMEOUT).on(
+                .exec(session -> session
+                        .set("orderPending", false)
+                        .set("orderDeadlineNanos", deadlineAfter(ORDER_POLL_TIMEOUT)))
+                .asLongAs(session -> !session.getBoolean("orderPending")
+                        && remainingNanos(session, "orderDeadlineNanos") > 0).on(
                         exec(fetchOrder())
                                 .exitHereIfFailed()
                                 .exec(session -> session.set(
                                         "orderPending",
                                         "PENDING".equals(session.getString("orderStatus"))
                                 ))
-                                .pause(ORDER_POLL_PAUSE)
+                                .doIf(session -> !session.getBoolean("orderPending")
+                                        && remainingNanos(session, "orderDeadlineNanos") > 0).then(
+                                        pause(session -> clampedPause(
+                                                ORDER_POLL_PAUSE,
+                                                remainingNanos(session, "orderDeadlineNanos")
+                                        ))
+                                )
                 )
                 .exec(doIf(session -> !session.getBoolean("orderPending")).then(
                         dummy("order state timeout", 0)
@@ -149,6 +166,22 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                 .headers(LoadTestConfig.queueTokenHeaders())
                 .check(status().is(200))
                 .check(jsonPath("$.data.admissionToken").saveAs("admissionToken")));
+    }
+
+    private ChainBuilder recordQueueTimeout() {
+        return exec(session -> {
+            BookingResultRecorder.append(
+                    Path.of(LoadTestConfig.resultFile()),
+                    SCENARIO,
+                    LoadTestConfig.nodeIndex(),
+                    session.getLong("memberId"),
+                    session.getLong("seatId"),
+                    null,
+                    0,
+                    "QUEUE_TIMEOUT"
+            );
+            return session.markAsFailed();
+        });
     }
 
     private ChainBuilder fetchSeatStatus() {
@@ -233,6 +266,18 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                 ? refreshAfterMs
                 : refreshAfterMs + ThreadLocalRandom.current().nextLong(-jitterMs, jitterMs + 1);
         return Math.max(minimumDelayMs, Math.min(maximumDelayMs, jitteredDelayMs));
+    }
+
+    private static long deadlineAfter(final Duration timeout) {
+        return System.nanoTime() + timeout.toNanos();
+    }
+
+    private static long remainingNanos(final Session session, final String deadlineKey) {
+        return Math.max(0L, session.getLong(deadlineKey) - System.nanoTime());
+    }
+
+    private static Duration clampedPause(final Duration requestedPause, final long remainingNanos) {
+        return Duration.ofNanos(Math.min(requestedPause.toNanos(), remainingNanos));
     }
 
     private static String optionalString(final Session session, final String key) {
