@@ -12,6 +12,8 @@ import java.time.Duration;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.details;
+import static io.gatling.javaapi.core.CoreDsl.doIf;
+import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
@@ -45,6 +47,11 @@ public class BookingCapacitySimulation extends Simulation {
                 .exec(createOrder())
                 .exitHereIfFailed()
                 .exec(resolveOrderKey())
+                .exec(doIf(session -> session.getBoolean("orderKeyContractFailure")).then(
+                        dummy("order key contract failure", 0)
+                                .withSuccess(false)
+                                .withSessionUpdate(session -> session.markAsFailed())
+                ))
                 .exitHereIfFailed()
                 .exec(session -> session.set("orderPending", false))
                 .asLongAsDuring(session -> !session.getBoolean("orderPending"), ORDER_POLL_TIMEOUT).on(
@@ -56,7 +63,11 @@ public class BookingCapacitySimulation extends Simulation {
                                 ))
                                 .pause(ORDER_POLL_PAUSE)
                 )
-                .exec(session -> session.getBoolean("orderPending") ? session : session.markAsFailed())
+                .exec(doIf(session -> !session.getBoolean("orderPending")).then(
+                        dummy("order state timeout", 0)
+                                .withSuccess(false)
+                                .withSessionUpdate(session -> session.markAsFailed())
+                ))
                 .exitHereIfFailed()
                 .exec(recordSuccess());
 
@@ -105,12 +116,14 @@ public class BookingCapacitySimulation extends Simulation {
             final String headerOrderKey = optionalString(session, "orderKeyHeader");
             final String bodyOrderKey = optionalString(session, "orderKeyBody");
             if (headerOrderKey.isBlank() && bodyOrderKey.isBlank()) {
-                return session.markAsFailed();
+                return session.set("orderKeyContractFailure", true);
             }
             if (!headerOrderKey.isBlank() && !bodyOrderKey.isBlank() && !headerOrderKey.equals(bodyOrderKey)) {
-                return session.markAsFailed();
+                return session.set("orderKeyContractFailure", true);
             }
-            return session.set("orderKey", headerOrderKey.isBlank() ? bodyOrderKey : headerOrderKey);
+            return session
+                    .set("orderKeyContractFailure", false)
+                    .set("orderKey", headerOrderKey.isBlank() ? bodyOrderKey : headerOrderKey);
         });
     }
 

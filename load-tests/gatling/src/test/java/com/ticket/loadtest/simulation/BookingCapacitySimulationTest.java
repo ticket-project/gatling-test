@@ -39,9 +39,16 @@ class BookingCapacitySimulationTest {
         assertTrue(source.contains("header(\"X-Order-Key\").optional().saveAs(\"orderKeyHeader\")"));
         assertTrue(source.contains("jsonPath(\"$.data.orderKey\").optional().saveAs(\"orderKeyBody\")"));
         assertTrue(source.contains("!headerOrderKey.equals(bodyOrderKey)"));
+        assertTrue(source.contains("session.set(\"orderKeyContractFailure\", true)"));
+        assertTrue(source.contains("doIf(session -> session.getBoolean(\"orderKeyContractFailure\"))"));
         assertTrue(source.contains("Duration.ofSeconds(5)"));
         assertTrue(source.contains("Duration.ofMillis(200)"));
         assertTrue(source.contains("\"PENDING\".equals(session.getString(\"orderStatus\"))"));
+        assertTrue(source.contains("doIf(session -> !session.getBoolean(\"orderPending\"))"));
+        assertTrue(source.contains("dummy(\"order key contract failure\", 0)"));
+        assertTrue(source.contains("dummy(\"order state timeout\", 0)"));
+        assertEquals(2, count(source, ".withSuccess(false)"));
+        assertEquals(2, count(source, ".withSessionUpdate(session -> session.markAsFailed())"));
         assertTrue(source.contains("BookingResultRecorder.append("));
     }
 
