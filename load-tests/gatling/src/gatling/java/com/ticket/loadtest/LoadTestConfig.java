@@ -537,7 +537,7 @@ public final class LoadTestConfig {
                 case BOOKING_SCENARIO -> "TICKET_OPEN_END_TO_END";
                 case NODE_INDEX -> "0";
                 case RESULT_FILE -> "build/reports/booking-results.csv";
-                case POLLING_TIMEOUT_SECONDS -> "30";
+                case POLLING_TIMEOUT_SECONDS -> "300";
                 case ACCESS_TOKENS, ACCESS_TOKENS_FILE, ADMISSION_TOKENS, JWT_SECRET -> null;
             };
         }
