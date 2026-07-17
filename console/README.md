@@ -76,9 +76,9 @@ http://localhost:9090
 | `queue-enter` | `http://52.237.82.8:18090/legacy-queue` |
 | `legacy-queue-status` | `http://52.237.82.8:18090/legacy-queue` |
 | `cdn-public-state` | `https://queue.oneticket.site` |
-| `ticket-open-flow` | `http://localhost:8080` |
-| `hold-race` | `http://localhost:8080` |
-| `ticket-server-capacity` | `http://localhost:8080` |
+| `booking-capacity` | 사용자가 입력한 Ticket/Core URL |
+| `ticket-open-end-to-end` | 사용자가 입력한 Ticket/Core URL + Queue URL |
+| `seat-contention` | 사용자가 입력한 Ticket/Core URL |
 
 ## EC2 분산 실행
 
@@ -153,9 +153,9 @@ com.ticket.loadtest.simulation.QueueJoinOnlySimulation
 com.ticket.loadtest.simulation.QueueEnterSimulation
 com.ticket.loadtest.simulation.LegacyQueueStatusSimulation
 com.ticket.loadtest.simulation.CdnPublicStateSimulation
-com.ticket.loadtest.simulation.TicketOpenFlowSimulation
-com.ticket.loadtest.simulation.HoldRaceSimulation
-com.ticket.loadtest.simulation.TicketServerCapacitySimulation
+com.ticket.loadtest.simulation.BookingCapacitySimulation
+com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation
+com.ticket.loadtest.simulation.SeatContentionSimulation
 ```
 
 `CdnPublicStateSimulation`은 `https://queue.oneticket.site`를 기본 대상 API로 사용하고, 아래 public state API만 반복 조회한다.
@@ -180,3 +180,39 @@ rg -n "찾을_문구" .
 - 부하 테스트 관련 변경은 이 저장소의 `load-tests/gatling` simulation과 함께 읽는다.
 - 기본 Gatling 저장소 경로가 현재 작업 공간과 다를 수 있으므로 실행 전 UI 입력값을 확인한다.
 - 리포트는 이 저장소의 `load-tests/gatling/build/reports/gatling` 아래에 생성된다.
+
+## Booking 예매 부하 콘솔 사용
+
+콘솔의 새 booking 시나리오는 다음 세 가지다.
+
+| 선택값 | 의미 |
+| --- | --- |
+| `booking-capacity` | Queue를 거치지 않고 Ticket/Core 좌석 조회, 선택, 주문, PENDING 조회까지 측정 |
+| `ticket-open-end-to-end` | Queue join, state polling, enter, 좌석 선택, 주문까지 전체 오픈 흐름 측정 |
+| `seat-contention` | 여러 사용자가 같은 좌석을 선택/주문할 때 성공, 비즈니스 거절, 기술 오류를 분리 측정 |
+
+필수 입력:
+
+- `Ticket/Core URL`: 좌석/주문 API 대상 운영 URL. localhost는 booking 운영 테스트에서 거부된다.
+- `Queue URL`: `ticket-open-end-to-end`에서만 필수다.
+- `Booking Feeder CSV`: `memberId,accessToken,seatId,admissionToken` 4컬럼 UTF-8 no BOM 파일.
+- `초당 사용자 수`: EC2 분산에서는 VM 1대당 RPS로 사용된다.
+- `투입 시간`: feeder 필요 행 수 계산에 사용된다.
+- `운영 환경에서 booking 분산 부하 실행을 확인함`: EC2 분산 booking 실행 전 필수 확인이다.
+
+예상 feeder 행 수는 분산 실행에서 `ceil(초당 사용자 수 * 투입 시간) * VM 수` 이상이어야 한다. 콘솔과 스크립트는 부족한 feeder를 실행 전에 거부한다.
+
+### 리포트 해석
+
+분산 booking 결과는 `distributed-results-booking` 아래에 생성된다.
+
+- `manifest.csv`: VM별 rowStart/rowEnd, nodeRps, globalRps.
+- `booking-results-merged.csv`: 모든 VM의 성공/거절/타임아웃 결과 병합본.
+- `booking-summary.json`: 성공 수, 비즈니스 거절 수, 기술 실패율, 중복 좌석 성공, 중복 orderKey.
+- Gatling HTML report: 노드별 HTTP latency와 KO 비율.
+
+좌석 경합에서 `BUSINESS_REJECTED_*`와 `SELECT_BUSINESS_REJECTED_E4001`은 기대 가능한 비즈니스 결과로 분리한다. SLO 판단에서 핵심은 기술 실패율, p99, 중복 성공 좌석/orderKey다.
+
+### 운영 주의
+
+Booking 시나리오는 실제 좌석 선택과 주문 생성을 호출한다. 운영 환경에 실사용자가 없더라도 테스트 전에는 performanceId, 좌석 범위, feeder token 만료 시간, Queue/Ticket 배포 버전을 확인한다. Datadog 대시보드나 로그 확인은 부하 실행과 별도 절차로 진행한다.
