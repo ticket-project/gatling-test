@@ -25,4 +25,20 @@ class SimulationTypeTest {
         assertFalse(type.usesAdmissionTokens());
         assertFalse(type.usesStatusPolling());
     }
+    @Test
+    void exposesBookingSimulationsForConsoleSelection() {
+        final SimulationType capacity = SimulationType.fromKey("booking-capacity");
+        final SimulationType endToEnd = SimulationType.fromKey("ticket-open-end-to-end");
+        final SimulationType contention = SimulationType.fromKey("seat-contention");
+
+        assertEquals("com.ticket.loadtest.simulation.BookingCapacitySimulation", capacity.className());
+        assertEquals("BOOKING_CAPACITY", capacity.bookingScenario());
+        assertEquals("com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation", endToEnd.className());
+        assertEquals("TICKET_OPEN_END_TO_END", endToEnd.bookingScenario());
+        assertEquals("com.ticket.loadtest.simulation.SeatContentionSimulation", contention.className());
+        assertEquals("SEAT_CONTENTION", contention.bookingScenario());
+        assertTrue(capacity.usesBookingFeeder());
+        assertTrue(endToEnd.usesQueueBaseUrl());
+        assertFalse(contention.usesAccessTokens());
+    }
 }

@@ -152,4 +152,29 @@ class LoadTestRequestTest {
 
         assertEquals(600, request.estimatedVirtualUsers());
     }
+    @Test
+    void readsBookingExecutionOptionsFromForm() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "simulation", List.of("ticket-open-end-to-end"),
+                "coreBaseUrl", List.of("https://api.example.com"),
+                "queueBaseUrl", List.of("https://queue.example.com"),
+                "bookingFeederFile", List.of("C:/feeders/booking.csv"),
+                "bookingScenario", List.of("TICKET_OPEN_END_TO_END"),
+                "nodeIndex", List.of("2"),
+                "resultFile", List.of("build/results/node-2.csv"),
+                "pollingTimeoutSeconds", List.of("240"),
+                "distributedRemoteProjectDir", List.of("~/gatling-booking"),
+                "operationalConfirmation", List.of("on")
+        ));
+
+        assertEquals("https://api.example.com", request.coreBaseUrl());
+        assertEquals("https://queue.example.com", request.queueBaseUrl());
+        assertEquals("C:/feeders/booking.csv", request.bookingFeederFile());
+        assertEquals("TICKET_OPEN_END_TO_END", request.bookingScenario());
+        assertEquals(2, request.nodeIndex());
+        assertEquals("build/results/node-2.csv", request.resultFile());
+        assertEquals(240, request.pollingTimeoutSeconds());
+        assertEquals("~/gatling-booking", request.distributedRemoteProjectDir());
+        assertEquals(true, request.operationalConfirmation());
+    }
 }

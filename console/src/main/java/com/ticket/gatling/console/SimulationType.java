@@ -11,27 +11,36 @@ public enum SimulationType {
             false,
             false,
             false,
-            true
+            true,
+            false,
+            false,
+            ""
     ),
     QUEUE_ENTER(
             "queue-enter",
-            "대기열 진입",
+            "Queue Enter",
             "com.ticket.loadtest.simulation.QueueEnterSimulation",
             "http://52.237.82.8:18090/legacy-queue",
             false,
             false,
             false,
-            true
+            true,
+            false,
+            false,
+            ""
     ),
     LEGACY_QUEUE_STATUS(
             "legacy-queue-status",
-            "레거시 대기열 상태",
+            "Legacy Queue Status",
             "com.ticket.loadtest.simulation.LegacyQueueStatusSimulation",
             "http://52.237.82.8:18090/legacy-queue",
             false,
             false,
             true,
-            false
+            false,
+            false,
+            false,
+            ""
     ),
     CDN_PUBLIC_STATE(
             "cdn-public-state",
@@ -41,37 +50,49 @@ public enum SimulationType {
             false,
             false,
             true,
-            false
+            false,
+            false,
+            false,
+            ""
     ),
-    TICKET_OPEN_FLOW(
-            "ticket-open-flow",
-            "예매 오픈 흐름",
-            "com.ticket.loadtest.simulation.TicketOpenFlowSimulation",
-            "http://localhost:8080",
+    BOOKING_CAPACITY(
+            "booking-capacity",
+            "Booking Capacity",
+            "com.ticket.loadtest.simulation.BookingCapacitySimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "BOOKING_CAPACITY"
+    ),
+    TICKET_OPEN_END_TO_END(
+            "ticket-open-end-to-end",
+            "Ticket Open End to End",
+            "com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation",
+            "",
+            false,
+            false,
             true,
             false,
             true,
-            true
-    ),
-    HOLD_RACE(
-            "hold-race",
-            "좌석 경합",
-            "com.ticket.loadtest.simulation.HoldRaceSimulation",
-            "http://localhost:8080",
             true,
+            "TICKET_OPEN_END_TO_END"
+    ),
+    SEAT_CONTENTION(
+            "seat-contention",
+            "Seat Contention",
+            "com.ticket.loadtest.simulation.SeatContentionSimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
             true,
             false,
-            true
-    ),
-    TICKET_SERVER_CAPACITY(
-            "ticket-server-capacity",
-            "티켓 서버 용량",
-            "com.ticket.loadtest.simulation.TicketServerCapacitySimulation",
-            "http://localhost:8080",
-            true,
-            true,
-            false,
-            true
+            "SEAT_CONTENTION"
     );
 
     private final String key;
@@ -82,6 +103,9 @@ public enum SimulationType {
     private final boolean usesAdmissionTokens;
     private final boolean usesStatusPolling;
     private final boolean usesAccessTokens;
+    private final boolean usesBookingFeeder;
+    private final boolean usesQueueBaseUrl;
+    private final String bookingScenario;
 
     SimulationType(
             final String key,
@@ -91,7 +115,10 @@ public enum SimulationType {
             final boolean usesSeatIds,
             final boolean usesAdmissionTokens,
             final boolean usesStatusPolling,
-            final boolean usesAccessTokens
+            final boolean usesAccessTokens,
+            final boolean usesBookingFeeder,
+            final boolean usesQueueBaseUrl,
+            final String bookingScenario
     ) {
         this.key = key;
         this.label = label;
@@ -101,6 +128,9 @@ public enum SimulationType {
         this.usesAdmissionTokens = usesAdmissionTokens;
         this.usesStatusPolling = usesStatusPolling;
         this.usesAccessTokens = usesAccessTokens;
+        this.usesBookingFeeder = usesBookingFeeder;
+        this.usesQueueBaseUrl = usesQueueBaseUrl;
+        this.bookingScenario = bookingScenario;
     }
 
     public String key() {
@@ -133,6 +163,18 @@ public enum SimulationType {
 
     public boolean usesAccessTokens() {
         return usesAccessTokens;
+    }
+
+    public boolean usesBookingFeeder() {
+        return usesBookingFeeder;
+    }
+
+    public boolean usesQueueBaseUrl() {
+        return usesQueueBaseUrl;
+    }
+
+    public String bookingScenario() {
+        return bookingScenario;
     }
 
     public static SimulationType fromKey(final String key) {

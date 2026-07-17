@@ -30,8 +30,8 @@ class ReportDirectoryNameFormatterTest {
     @Test
     void formatsExplicitUrlPortWithoutWindowsInvalidCharacters() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "simulation", List.of("ticket-server-capacity"),
-                "baseUrl", List.of("http://localhost:8080/api"),
+                "simulation", List.of("booking-capacity"),
+                "coreBaseUrl", List.of("https://api.example.com/api"),
                 "users", List.of("1250"),
                 "durationSeconds", List.of("30")
         ));

@@ -97,4 +97,37 @@ class DistributedGatlingCommandBuilderTest {
         assertTrue(command.contains("18000"));
         assertTrue(command.contains("-JwtSecret"));
     }
+    @Test
+    void buildsBookingDistributedScriptCommandWithoutSecrets() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
+                Map.entry("ticketProjectPath", List.of("C:/ticket-workspace/gatling-test")),
+                Map.entry("executionMode", List.of("distributed")),
+                Map.entry("simulation", List.of("ticket-open-end-to-end")),
+                Map.entry("coreBaseUrl", List.of("https://api.example.com")),
+                Map.entry("queueBaseUrl", List.of("https://queue.example.com")),
+                Map.entry("bookingFeederFile", List.of("C:/feeders/booking.csv")),
+                Map.entry("usersPerSecond", List.of("300")),
+                Map.entry("durationSeconds", List.of("60")),
+                Map.entry("pollingTimeoutSeconds", List.of("300")),
+                Map.entry("distributedRemoteProjectDir", List.of("~/gatling-test-booking")),
+                Map.entry("distributedHosts", List.of("43.203.155.15\nubuntu@15.165.40.25")),
+                Map.entry("operationalConfirmation", List.of("on"))
+        ));
+
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request);
+
+        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-booking.ps1")));
+        assertTrue(command.contains("-Simulation"));
+        assertTrue(command.contains("com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation"));
+        assertTrue(command.contains("-CoreBaseUrl"));
+        assertTrue(command.contains("https://api.example.com"));
+        assertTrue(command.contains("-QueueBaseUrl"));
+        assertTrue(command.contains("https://queue.example.com"));
+        assertTrue(command.contains("-FeederFile"));
+        assertTrue(command.contains("C:/feeders/booking.csv"));
+        assertTrue(command.contains("-RemoteProjectDir"));
+        assertTrue(command.contains("~/gatling-test-booking"));
+        assertFalse(command.contains("-JwtSecret"));
+        assertFalse(command.contains("-AdmissionTokenSecret"));
+    }
 }

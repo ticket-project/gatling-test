@@ -20,14 +20,58 @@ public class DistributedGatlingCommandBuilder {
         command.add(request.sshKeyPath().toString());
         command.add("-Hosts");
         command.add(String.join(",", request.distributedHostList()));
+        command.add("-RemoteProjectDir");
+        command.add(request.distributedRemoteProjectDir());
         command.add("-RpsPerNode");
         command.add(String.valueOf((int) Math.ceil(request.usersPerSecond())));
         command.add("-DurationSeconds");
         command.add(String.valueOf(request.durationSeconds()));
-        command.add("-BaseUrl");
-        command.add(request.baseUrl());
         command.add("-PerformanceId");
         command.add(request.performanceId());
+
+        if (request.simulationType().usesBookingFeeder()) {
+            addBookingArguments(command, request);
+        } else {
+            addLegacyDistributedArguments(command, request);
+        }
+
+        if (request.distributedIncludeLocal() && !request.simulationType().usesBookingFeeder()) {
+            command.add("-IncludeLocal");
+        }
+        if (request.distributedDumpFailureBody() && !request.simulationType().usesBookingFeeder()) {
+            command.add("-DumpFailureBody");
+            command.add("-DumpFailureBodyLimit");
+            command.add(String.valueOf(request.distributedDumpFailureBodyLimit()));
+        }
+        if (request.distributedCollectReports() || request.distributedDumpFailureBody()) {
+            command.add("-CollectReports");
+        }
+
+        return List.copyOf(command);
+    }
+
+    private void addBookingArguments(final List<String> command, final LoadTestRequest request) {
+        command.add("-Simulation");
+        command.add(request.simulationType().className());
+        command.add("-CoreBaseUrl");
+        command.add(request.coreBaseUrl());
+        command.add("-QueueBaseUrl");
+        command.add(request.queueBaseUrl());
+        command.add("-FeederFile");
+        command.add(request.bookingFeederFile());
+        command.add("-InjectionMode");
+        command.add(request.injectionMode());
+        command.add("-PollingTimeoutSeconds");
+        command.add(String.valueOf(request.pollingTimeoutSeconds()));
+        command.add("-StatusPollPauseSeconds");
+        command.add(String.valueOf(request.statusPollPauseSeconds()));
+        command.add("-StatusPollPauseJitterSeconds");
+        command.add(String.valueOf(request.statusPollPauseJitterSeconds()));
+    }
+
+    private void addLegacyDistributedArguments(final List<String> command, final LoadTestRequest request) {
+        command.add("-BaseUrl");
+        command.add(request.baseUrl());
         command.add("-StatusPolls");
         command.add(String.valueOf(request.statusPolls()));
         command.add("-StatusPollPauseSeconds");
@@ -59,20 +103,6 @@ public class DistributedGatlingCommandBuilder {
                 command.add(request.accessTokensFile());
             }
         }
-
-        if (request.distributedIncludeLocal()) {
-            command.add("-IncludeLocal");
-        }
-        if (request.distributedDumpFailureBody()) {
-            command.add("-DumpFailureBody");
-            command.add("-DumpFailureBodyLimit");
-            command.add(String.valueOf(request.distributedDumpFailureBodyLimit()));
-        }
-        if (request.distributedCollectReports() || request.distributedDumpFailureBody()) {
-            command.add("-CollectReports");
-        }
-
-        return List.copyOf(command);
     }
 
     Path scriptPath(final LoadTestRequest request) {
@@ -81,11 +111,12 @@ public class DistributedGatlingCommandBuilder {
 
     private String scriptName(final SimulationType simulationType) {
         return switch (simulationType) {
+            case BOOKING_CAPACITY, TICKET_OPEN_END_TO_END, SEAT_CONTENTION -> "run-distributed-booking.ps1";
             case QUEUE_JOIN_ONLY -> "run-distributed-gatling-join.ps1";
             case CDN_PUBLIC_STATE -> "run-distributed-gatling-cdn.ps1";
             case LEGACY_QUEUE_STATUS -> "run-distributed-gatling-legacy.ps1";
             default -> throw new IllegalArgumentException(
-                    "Distributed execution supports only Queue Join Only, CDN Public State and Legacy Queue Status"
+                    "Distributed execution supports only booking, Queue Join Only, CDN Public State and Legacy Queue Status"
             );
         };
     }
