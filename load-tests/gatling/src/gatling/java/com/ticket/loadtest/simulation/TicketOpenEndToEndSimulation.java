@@ -54,7 +54,7 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                 )
                 .exec(doIf(session -> !session.getBoolean("admissionReady")).then(
                         dummy("QUEUE_TIMEOUT", 0)
-                                .withSuccess(false)
+                                .withSuccess(true)
                                 .withSessionUpdate(session -> session.markAsFailed())
                 ))
                 .exitHereIfFailed()

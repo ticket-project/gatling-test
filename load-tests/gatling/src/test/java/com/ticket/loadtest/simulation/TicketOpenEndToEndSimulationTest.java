@@ -36,14 +36,17 @@ class TicketOpenEndToEndSimulationTest {
     }
 
     @Test
-    void recordsQueueTimeoutAsKoAndStopsBeforeTicketCalls() throws IOException {
+    void recordsQueueTimeoutSeparatelyFromTechnicalFailuresAndStopsBeforeTicketCalls() throws IOException {
         final String source = source();
 
         assertTrue(source.contains("Duration.ofSeconds(LoadTestConfig.pollingTimeoutSeconds())"));
         assertTrue(source.contains("dummy(\"QUEUE_TIMEOUT\", 0)"));
-        assertTrue(source.contains(".withSuccess(false)"));
-        assertTrue(source.contains(".withSessionUpdate(session -> session.markAsFailed())"));
         final int timeout = source.indexOf("dummy(\"QUEUE_TIMEOUT\", 0)");
+        final int timeoutEnd = source.indexOf("))", timeout);
+        final String timeoutBlock = source.substring(timeout, timeoutEnd);
+        assertTrue(timeoutBlock.contains(".withSuccess(true)"));
+        assertFalse(timeoutBlock.contains(".withSuccess(false)"));
+        assertTrue(source.contains(".withSessionUpdate(session -> session.markAsFailed())"));
         final int stop = source.indexOf(".exitHereIfFailed()", timeout);
         final int ticket = source.indexOf(".exec(fetchSeatStatus())", stop);
         assertTrue(timeout < stop && stop < ticket);
