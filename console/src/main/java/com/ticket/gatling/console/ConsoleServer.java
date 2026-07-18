@@ -76,7 +76,10 @@ public class ConsoleServer {
                         + "\"usesSeatIds\":" + type.usesSeatIds() + ","
                         + "\"usesAdmissionTokens\":" + type.usesAdmissionTokens() + ","
                         + "\"usesStatusPolling\":" + type.usesStatusPolling() + ","
-                        + "\"usesAccessTokens\":" + type.usesAccessTokens()
+                        + "\"usesAccessTokens\":" + type.usesAccessTokens() + ","
+                        + "\"usesBookingFeeder\":" + type.usesBookingFeeder() + ","
+                        + "\"usesQueueBaseUrl\":" + type.usesQueueBaseUrl() + ","
+                        + "\"bookingScenario\":\"" + Json.escape(type.bookingScenario()) + "\""
                         + "}")
                 .reduce((left, right) -> left + "," + right)
                 .map(value -> "[" + value + "]")

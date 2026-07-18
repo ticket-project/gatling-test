@@ -35,15 +35,18 @@ class SimulationConnectionPolicyTest {
     }
 
     @Test
-    void ticketOpenFlowUsesQueueTokenContract() throws IOException {
-        final String source = readSimulation("TicketOpenFlowSimulation.java");
+    void ticketOpenEndToEndUsesQueueTokenContract() throws IOException {
+        final String source = readSimulation("TicketOpenEndToEndSimulation.java");
 
         assertTrue(source.contains("queue join"), "full flow should join before enter");
         assertTrue(source.contains(".post(LoadTestConfig.queueBaseUrl() + \"/api/v1/queue/performances/#{performanceId}/join\")"));
         assertTrue(source.contains(".check(jsonPath(\"$.queueToken\").saveAs(\"queueToken\"))"));
+        assertTrue(source.contains(".check(jsonPath(\"$.shardId\").saveAs(\"shardId\"))"));
+        assertTrue(source.contains(".check(jsonPath(\"$.localSeq\").ofLong().saveAs(\"localSeq\"))"));
+        assertTrue(source.contains("$.serving['#{shardId}']"));
         assertTrue(source.contains(".headers(LoadTestConfig.queueTokenHeaders())"));
-        assertTrue(source.contains(".get(LoadTestConfig.coreBaseUrl() + \"/api/v1/performances/#{performanceId}/seats/status\")"));
-        assertTrue(source.contains(".post(LoadTestConfig.coreBaseUrl() + \"/api/v1/orders\")"));
+        assertTrue(source.contains(".get(\"/api/v1/performances/#{performanceId}/seats/status\")"));
+        assertTrue(source.contains(".post(\"/api/v1/orders\")"));
         assertFalse(source.contains("queueSessionId"), "queue session polling contract must not be used");
         assertFalse(source.contains("X-Queue-Session"), "queue session header must not be used");
         assertFalse(source.contains("/api/v1/queue/performances/#{performanceId}/status"), "queue status polling API must not be used");

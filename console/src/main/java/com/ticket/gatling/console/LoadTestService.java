@@ -3,6 +3,8 @@ package com.ticket.gatling.console;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,6 +47,7 @@ public class LoadTestService {
         validateSyntheticJwt(request);
         validateSyntheticAdmissionToken(request);
         validateAutomaticLoginCapacity(request);
+        validateBookingExecution(request);
         validateDistributedExecution(request);
         final UUID runId = UUID.randomUUID();
         final LoadTestRun run = new LoadTestRun(runId, request);
@@ -137,12 +140,16 @@ public class LoadTestService {
         if (!request.distributedExecution()) {
             return;
         }
-        if (request.simulationType() != SimulationType.CDN_PUBLIC_STATE
+        if (!request.simulationType().usesBookingFeeder()
+                && request.simulationType() != SimulationType.CDN_PUBLIC_STATE
                 && request.simulationType() != SimulationType.LEGACY_QUEUE_STATUS
                 && request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
             throw new IllegalArgumentException(
-                    "Distributed execution supports only Queue Join Only, CDN Public State and Legacy Queue Status"
+                    "Distributed execution supports only booking, Queue Join Only, CDN Public State and Legacy Queue Status"
             );
+        }
+        if (request.simulationType().usesBookingFeeder()) {
+            return;
         }
         if (request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
             return;
@@ -153,6 +160,65 @@ public class LoadTestService {
         throw new IllegalArgumentException(
                 "Queue Join Only distributed execution requires synthetic JWT or generated access token file mode"
         );
+    }
+
+    private void validateBookingExecution(final LoadTestRequest request) {
+        if (!request.simulationType().usesBookingFeeder()) {
+            return;
+        }
+        validateRemoteUrl("Core URL", request.coreBaseUrl());
+        if (request.simulationType().usesQueueBaseUrl()) {
+            validateRemoteUrl("Queue URL", request.queueBaseUrl());
+        }
+        if (request.distributedExecution() && !request.operationalConfirmation()) {
+            throw new IllegalArgumentException("Operational confirmation is required for distributed booking execution");
+        }
+        final Path feederPath = resolveInputPath(request.ticketProjectPath(), request.bookingFeederFile());
+        if (!Files.isRegularFile(feederPath)) {
+            throw new IllegalArgumentException("Booking feeder file not found: " + request.bookingFeederFile());
+        }
+        final int requiredRows = request.distributedExecution()
+                ? (int) Math.ceil(request.usersPerSecond()) * request.durationSeconds() * request.distributedHostList().size()
+                : request.estimatedVirtualUsers();
+        final int actualRows = countBookingFeederRows(feederPath);
+        if (actualRows < requiredRows) {
+            throw new IllegalArgumentException("Booking feeder has fewer rows than required: required="
+                    + requiredRows + ", actual=" + actualRows);
+        }
+    }
+
+    private void validateRemoteUrl(final String name, final String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " is required");
+        }
+        try {
+            final URI uri = new URI(value);
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                throw new IllegalArgumentException(name + " must be an absolute URL: " + value);
+            }
+            final String host = uri.getHost().toLowerCase(Locale.ROOT);
+            if (host.equals("localhost") || host.equals("127.0.0.1") || host.equals("::1")) {
+                throw new IllegalArgumentException(name + " must not point to localhost: " + value);
+            }
+        } catch (URISyntaxException exception) {
+            throw new IllegalArgumentException(name + " must be an absolute URL: " + value, exception);
+        }
+    }
+
+    private int countBookingFeederRows(final Path feederPath) {
+        try {
+            final byte[] bytes = Files.readAllBytes(feederPath);
+            if (bytes.length >= 3 && bytes[0] == (byte) 0xEF && bytes[1] == (byte) 0xBB && bytes[2] == (byte) 0xBF) {
+                throw new IllegalArgumentException("Booking feeder must be UTF-8 without BOM: " + feederPath);
+            }
+            final List<String> lines = Files.readAllLines(feederPath, StandardCharsets.UTF_8);
+            if (lines.isEmpty() || !"memberId,accessToken,seatId,admissionToken".equals(lines.getFirst())) {
+                throw new IllegalArgumentException("Booking feeder header must be memberId,accessToken,seatId,admissionToken");
+            }
+            return (int) lines.stream().skip(1).filter(line -> !line.isBlank()).count();
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Booking feeder file cannot be read: " + feederPath, exception);
+        }
     }
 
     public synchronized List<LoadTestRun> runs() {
@@ -405,6 +471,7 @@ public class LoadTestService {
         final String directoryName = switch (request.simulationType()) {
             case CDN_PUBLIC_STATE -> "distributed-results";
             case QUEUE_JOIN_ONLY -> "distributed-results-join";
+            case BOOKING_CAPACITY, TICKET_OPEN_END_TO_END, SEAT_CONTENTION -> "distributed-results-booking";
             default -> "distributed-results-legacy";
         };
         return request.ticketProjectPath().resolve(directoryName).toAbsolutePath().normalize();

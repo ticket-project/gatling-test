@@ -41,4 +41,12 @@ class LoadTestConfigTest {
         assertTrue(source.contains("case ACCESS_TOKENS_FILE -> \"accessTokensFile\";"));
         assertTrue(source.contains("LoadTestTokenValues.fromCsvOrFile"));
     }
+
+    @Test
+    void defaultsPollingTimeoutToFiveMinutes() throws IOException {
+        final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("case POLLING_TIMEOUT_SECONDS -> \"300\";"));
+    }
+
 }
