@@ -76,6 +76,7 @@ class SimulationConnectionPolicyTest {
         assertTrue(source.contains(".check(jsonPath(\"$.queueToken\").saveAs(\"queueToken\"))"));
         assertTrue(source.contains(".check(jsonPath(\"$.seq\").ofLong().optional().saveAs(\"queueSeq\"))"));
         assertTrue(source.contains(".check(jsonPath(\"$.localSeq\").ofLong().optional().saveAs(\"queueLocalSeq\"))"));
+        assertTrue(source.contains("LoadTestConfig.http2Enabled() ? protocol.enableHttp2() : protocol"));
         assertFalse(source.contains("queue enter"), "join-only simulation must not call enter");
         assertFalse(source.contains("/api/v1/queue/performances/#{performanceId}/enter"), "join-only simulation must not call enter");
         assertFalse(source.contains("queueTokenHeaders"), "join-only simulation must not need queue token headers");

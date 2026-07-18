@@ -43,6 +43,15 @@ class LoadTestConfigTest {
     }
 
     @Test
+    void defaultsHttp2ToDisabledForComparableLoadTests() throws IOException {
+        final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("public static boolean http2Enabled()"));
+        assertTrue(source.contains("case HTTP2_ENABLED -> \"http2Enabled\";"));
+        assertTrue(source.contains("case HTTP2_ENABLED -> \"false\";"));
+    }
+
+    @Test
     void defaultsPollingTimeoutToFiveMinutes() throws IOException {
         final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
 
