@@ -16,11 +16,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 
 public class QueueJoinOnlySimulation extends Simulation {
 
-    private final HttpProtocolBuilder httpProtocol = http
-            .baseUrl(LoadTestConfig.baseUrl())
-            .shareConnections()
-            .acceptHeader("application/json")
-            .contentTypeHeader("application/json");
+    private final HttpProtocolBuilder httpProtocol = buildHttpProtocol();
 
     public QueueJoinOnlySimulation() {
         HttpRequestActionBuilder queueJoin = http("queue join")
@@ -54,5 +50,14 @@ public class QueueJoinOnlySimulation extends Simulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(global().failedRequests().percent().lt(1.0));
+    }
+
+    private static HttpProtocolBuilder buildHttpProtocol() {
+        HttpProtocolBuilder protocol = http
+                .baseUrl(LoadTestConfig.baseUrl())
+                .shareConnections()
+                .acceptHeader("application/json")
+                .contentTypeHeader("application/json");
+        return LoadTestConfig.http2Enabled() ? protocol.enableHttp2() : protocol;
     }
 }

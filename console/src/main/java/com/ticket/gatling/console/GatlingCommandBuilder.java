@@ -22,13 +22,26 @@ public class GatlingCommandBuilder {
         }
         command.add("--simulation");
         command.add(request.simulationType().className());
-        command.add("-DbaseUrl=" + request.baseUrl());
+        if (request.simulationType().usesBookingFeeder()) {
+            command.add("-DcoreBaseUrl=" + request.coreBaseUrl());
+            command.add("-DqueueBaseUrl=" + request.queueBaseUrl());
+            command.add("-DbookingFeederFile=" + request.bookingFeederFile());
+            command.add("-DbookingScenario=" + request.bookingScenario());
+            command.add("-DnodeIndex=" + request.nodeIndex());
+            command.add("-DresultFile=" + request.resultFile());
+            command.add("-DpollingTimeoutSeconds=" + request.pollingTimeoutSeconds());
+        } else {
+            command.add("-DbaseUrl=" + request.baseUrl());
+        }
         command.add("-DperformanceId=" + request.performanceId());
         command.add("-Dusers=" + request.users());
         command.add("-DdurationSeconds=" + request.durationSeconds());
         command.add("-DinjectionMode=" + request.injectionMode());
         command.add("-DusersPerSecond=" + request.usersPerSecond());
         command.add("-DtargetUsersPerSecond=" + request.targetUsersPerSecond());
+        if (request.http2Enabled()) {
+            command.add("-Dhttp2Enabled=true");
+        }
         if (request.simulationType().usesAccessTokens()) {
             command.add("-DaccessTokenMode=" + request.accessTokenMode());
             command.add("-DloginEmailPrefix=" + request.loginEmailPrefix());

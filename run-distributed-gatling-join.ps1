@@ -14,6 +14,7 @@ param(
     [int]$StatusPolls = 1,
     [int]$StatusPollPauseSeconds = 0,
     [int]$StatusPollPauseJitterSeconds = 0,
+    [switch]$EnableHttp2,
     [string]$AccessTokenMode = "tokens",
     [string]$AccessTokensFile = "",
     [switch]$GenerateAccessTokens,
@@ -72,6 +73,9 @@ if ($AccessTokenMode -eq "tokens" -and ($GenerateAccessTokens -or [string]::IsNu
 }
 if ($IncludeLocal) {
     $arguments.IncludeLocal = $true
+}
+if ($EnableHttp2) {
+    $arguments.EnableHttp2 = $true
 }
 if ($DumpFailureBody) {
     $arguments.DumpFailureBody = $true

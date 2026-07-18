@@ -10,6 +10,8 @@ public record LoadTestRequest(
         Path ticketProjectPath,
         SimulationType simulationType,
         String baseUrl,
+        String coreBaseUrl,
+        String queueBaseUrl,
         String performanceId,
         String seatIds,
         int users,
@@ -18,15 +20,18 @@ public record LoadTestRequest(
         double usersPerSecond,
         double targetUsersPerSecond,
         String executionMode,
+        boolean http2Enabled,
         boolean distributedIncludeLocal,
         boolean distributedCollectReports,
         boolean distributedDumpFailureBody,
         int distributedDumpFailureBodyLimit,
         String distributedHosts,
         Path sshKeyPath,
+        String distributedRemoteProjectDir,
         int statusPolls,
         int statusPollPauseSeconds,
         int statusPollPauseJitterSeconds,
+        int pollingTimeoutSeconds,
         String accessTokenMode,
         String loginEmailPrefix,
         String loginEmailDomain,
@@ -48,7 +53,12 @@ public record LoadTestRequest(
         String accessTokenSource,
         String accessTokensFile,
         int generatedAccessTokenCount,
-        String admissionTokens
+        String admissionTokens,
+        String bookingFeederFile,
+        String bookingScenario,
+        int nodeIndex,
+        String resultFile,
+        boolean operationalConfirmation
 ) {
     private static final String DEFAULT_LOAD_TESTS_PATH =
             "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test";
@@ -84,17 +94,27 @@ public record LoadTestRequest(
         if (statusPollPauseJitterSeconds < 0) {
             throw new IllegalArgumentException("statusPollPauseJitterSeconds must be non-negative");
         }
+        if (pollingTimeoutSeconds < 0) {
+            throw new IllegalArgumentException("pollingTimeoutSeconds must be non-negative");
+        }
+        if (nodeIndex < 0) {
+            throw new IllegalArgumentException("nodeIndex must be non-negative");
+        }
         if (distributedDumpFailureBodyLimit <= 0) {
             throw new IllegalArgumentException("distributedDumpFailureBodyLimit must be positive");
         }
         ticketProjectPath = ticketProjectPath.toAbsolutePath().normalize();
         sshKeyPath = sshKeyPath.toAbsolutePath().normalize();
         baseUrl = defaultIfBlank(baseUrl, simulationType.defaultBaseUrl());
+        coreBaseUrl = defaultIfBlank(coreBaseUrl, baseUrl);
+        queueBaseUrl = defaultIfBlank(queueBaseUrl, baseUrl);
         performanceId = defaultIfBlank(performanceId, "1");
         seatIds = defaultIfBlank(seatIds, "1");
         injectionMode = defaultIfBlank(injectionMode, "ramp-users");
         executionMode = normalizeExecutionMode(executionMode);
+        http2Enabled = simulationType == SimulationType.QUEUE_JOIN_ONLY && http2Enabled;
         distributedHosts = defaultIfBlank(distributedHosts, defaultDistributedHosts());
+        distributedRemoteProjectDir = defaultIfBlank(distributedRemoteProjectDir, "~/gatling-test");
         accessTokenMode = normalizeAccessTokenMode(accessTokenMode);
         loginEmailPrefix = defaultIfBlank(loginEmailPrefix, "loadtest");
         loginEmailDomain = defaultIfBlank(loginEmailDomain, "test.com");
@@ -118,6 +138,9 @@ public record LoadTestRequest(
                 ? estimateVirtualUsers(users, durationSeconds, injectionMode, usersPerSecond, targetUsersPerSecond)
                 : generatedAccessTokenCount;
         admissionTokens = admissionTokens == null ? "" : admissionTokens.trim();
+        bookingFeederFile = defaultIfBlank(bookingFeederFile, "build/booking-feeder.csv");
+        bookingScenario = defaultIfBlank(bookingScenario, simulationType.bookingScenario());
+        resultFile = defaultIfBlank(resultFile, "build/reports/booking-results.csv");
     }
 
     public static LoadTestRequest fromForm(final Map<String, List<String>> form) {
@@ -129,6 +152,8 @@ public record LoadTestRequest(
                 ticketProjectPath,
                 SimulationType.fromKey(value(form, "simulation", SimulationType.QUEUE_ENTER.key())),
                 value(form, "baseUrl", ""),
+                value(form, "coreBaseUrl", ""),
+                value(form, "queueBaseUrl", ""),
                 value(form, "performanceId", "1"),
                 value(form, "seatIds", "1"),
                 intValue(form, "users", 10),
@@ -137,15 +162,18 @@ public record LoadTestRequest(
                 doubleValue(form, "usersPerSecond", 1.0),
                 doubleValue(form, "targetUsersPerSecond", 10.0),
                 value(form, "executionMode", "local"),
+                booleanValue(form, "http2Enabled", false),
                 booleanValue(form, "distributedIncludeLocal", false),
                 booleanValue(form, "distributedCollectReports", true),
                 booleanValue(form, "distributedDumpFailureBody", false),
                 intValue(form, "distributedDumpFailureBodyLimit", 1),
                 value(form, "distributedHosts", defaultDistributedHosts()),
                 sshKeyPath,
+                value(form, "distributedRemoteProjectDir", "~/gatling-test"),
                 intValue(form, "statusPolls", 3),
                 intValue(form, "statusPollPauseSeconds", 1),
                 intValue(form, "statusPollPauseJitterSeconds", 0),
+                intValue(form, "pollingTimeoutSeconds", 300),
                 value(form, "accessTokenMode", "login"),
                 value(form, "loginEmailPrefix", "loadtest"),
                 value(form, "loginEmailDomain", "test.com"),
@@ -167,7 +195,12 @@ public record LoadTestRequest(
                 value(form, "accessTokenSource", defaultAccessTokenSource(accessTokens, accessTokensFile)),
                 accessTokensFile,
                 intValue(form, "generatedAccessTokenCount", 0),
-                value(form, "admissionTokens", "")
+                value(form, "admissionTokens", ""),
+                value(form, "bookingFeederFile", ""),
+                value(form, "bookingScenario", ""),
+                intValue(form, "nodeIndex", 0),
+                value(form, "resultFile", ""),
+                booleanValue(form, "operationalConfirmation", false)
         );
     }
 

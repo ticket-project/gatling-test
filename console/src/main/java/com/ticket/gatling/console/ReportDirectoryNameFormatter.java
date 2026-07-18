@@ -13,7 +13,7 @@ final class ReportDirectoryNameFormatter {
 
     static String format(final LoadTestRequest request) {
         final String name = shortSimulationName(request.simulationType())
-                + "(" + targetName(request.baseUrl()) + ") "
+                + "(" + targetName(targetUrl(request)) + ") "
                 + formatCount(displayExecutionCount(request))
                 + "(" + executionDetail(request) + ")";
         return name.replaceAll(INVALID_FILENAME_CHARS, ".")
@@ -27,9 +27,9 @@ final class ReportDirectoryNameFormatter {
             case QUEUE_ENTER -> "queue";
             case LEGACY_QUEUE_STATUS -> "legacy-queue";
             case CDN_PUBLIC_STATE -> "cdn";
-            case TICKET_OPEN_FLOW -> "ticket-open";
-            case HOLD_RACE -> "hold-race";
-            case TICKET_SERVER_CAPACITY -> "ticket-server";
+            case BOOKING_CAPACITY -> "booking-capacity";
+            case TICKET_OPEN_END_TO_END -> "ticket-open-e2e";
+            case SEAT_CONTENTION -> "seat-contention";
         };
     }
 
@@ -55,6 +55,10 @@ final class ReportDirectoryNameFormatter {
                     + request.statusPollPauseSeconds() + "초 주기로";
         }
         return base;
+    }
+
+    private static String targetUrl(final LoadTestRequest request) {
+        return request.simulationType().usesBookingFeeder() ? request.coreBaseUrl() : request.baseUrl();
     }
 
     private static String targetName(final String baseUrl) {

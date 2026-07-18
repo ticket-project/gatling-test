@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -80,6 +81,35 @@ public final class LoadTestConfig {
 
     public static int users() {
         return intProperty(ConfigKey.USERS);
+    }
+
+    public static String bookingFeederFile() {
+        return property(ConfigKey.BOOKING_FEEDER_FILE);
+    }
+
+    public static String bookingScenario() {
+        return property(ConfigKey.BOOKING_SCENARIO);
+    }
+
+    public static int nodeIndex() {
+        return nonNegativeIntProperty(ConfigKey.NODE_INDEX);
+    }
+
+    public static String resultFile() {
+        return property(ConfigKey.RESULT_FILE);
+    }
+
+    public static int pollingTimeoutSeconds() {
+        return nonNegativeIntProperty(ConfigKey.POLLING_TIMEOUT_SECONDS);
+    }
+
+    public static Iterator<Map<String, Object>> bookingFeeder() {
+        return BookingFeeder.load(Path.of(bookingFeederFile()), bookingScenario(), users(), Long.parseLong(performanceId()));
+    }
+
+    public static boolean http2Enabled() {
+        return booleanProperty(ConfigKey.HTTP2_ENABLED);
+    }
     }
 
     public static OpenInjectionStep injection() {
@@ -400,6 +430,7 @@ public final class LoadTestConfig {
         STATUS_POLLS,
         STATUS_POLL_PAUSE_SECONDS,
         STATUS_POLL_PAUSE_JITTER_SECONDS,
+        HTTP2_ENABLED,
         USERS,
         DURATION_SECONDS,
         INJECTION_MODE,
@@ -426,7 +457,12 @@ public final class LoadTestConfig {
         JWT_SECRET,
         DUMP_FAILURE_BODY,
         DUMP_FAILURE_BODY_LIMIT,
-        FAILURE_BODY_DIR;
+        FAILURE_BODY_DIR,
+        BOOKING_FEEDER_FILE,
+        BOOKING_SCENARIO,
+        NODE_INDEX,
+        RESULT_FILE,
+        POLLING_TIMEOUT_SECONDS;
 
         private String propertyName() {
             return switch (this) {
@@ -437,6 +473,7 @@ public final class LoadTestConfig {
                 case STATUS_POLLS -> "statusPolls";
                 case STATUS_POLL_PAUSE_SECONDS -> "statusPollPauseSeconds";
                 case STATUS_POLL_PAUSE_JITTER_SECONDS -> "statusPollPauseJitterSeconds";
+                case HTTP2_ENABLED -> "http2Enabled";
                 case USERS -> "users";
                 case DURATION_SECONDS -> "durationSeconds";
                 case INJECTION_MODE -> "injectionMode";
@@ -464,6 +501,11 @@ public final class LoadTestConfig {
                 case DUMP_FAILURE_BODY -> "dumpFailureBody";
                 case DUMP_FAILURE_BODY_LIMIT -> "dumpFailureBodyLimit";
                 case FAILURE_BODY_DIR -> "failureBodyDir";
+                case BOOKING_FEEDER_FILE -> "bookingFeederFile";
+                case BOOKING_SCENARIO -> "bookingScenario";
+                case NODE_INDEX -> "nodeIndex";
+                case RESULT_FILE -> "resultFile";
+                case POLLING_TIMEOUT_SECONDS -> "pollingTimeoutSeconds";
             };
         }
 
@@ -475,6 +517,7 @@ public final class LoadTestConfig {
                 case STATUS_POLLS -> "3";
                 case STATUS_POLL_PAUSE_SECONDS -> "1";
                 case STATUS_POLL_PAUSE_JITTER_SECONDS -> "0";
+                case HTTP2_ENABLED -> "false";
                 case USERS -> "10";
                 case DURATION_SECONDS -> "10";
                 case INJECTION_MODE -> "ramp-users";
@@ -498,6 +541,11 @@ public final class LoadTestConfig {
                 case DUMP_FAILURE_BODY -> "false";
                 case DUMP_FAILURE_BODY_LIMIT -> "1";
                 case FAILURE_BODY_DIR -> "build/reports/failure-bodies";
+                case BOOKING_FEEDER_FILE -> "build/booking-feeder.csv";
+                case BOOKING_SCENARIO -> "TICKET_OPEN_END_TO_END";
+                case NODE_INDEX -> "0";
+                case RESULT_FILE -> "build/reports/booking-results.csv";
+                case POLLING_TIMEOUT_SECONDS -> "300";
                 case ACCESS_TOKENS, ACCESS_TOKENS_FILE, ADMISSION_TOKENS, JWT_SECRET -> null;
             };
         }

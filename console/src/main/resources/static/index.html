@@ -565,6 +565,13 @@
           <option value="distributed">EC2 분산</option>
         </select>
 
+        <label class="inline-check" data-option="http2">
+          <input id="http2Enabled" name="http2Enabled" type="checkbox" checked>
+          HTTP/2 사용
+          <span class="help-chip" tabindex="0" data-help="Queue Join 요청에서 Gatling과 Nginx 사이의 HTTP/2를 활성화합니다. HTTP/1.1 비교 테스트가 필요하면 체크를 해제합니다.">?</span>
+        </label>
+        <input name="http2Enabled" type="hidden" value="false">
+
         <div data-execution="distributed" class="hidden">
           <label for="distributedHosts">EC2 Public IP / SSH 대상 <span class="help-chip" tabindex="0" data-help="부하를 발생시킬 EC2 목록입니다. 한 줄에 하나씩 입력합니다. Public IP만 적으면 ubuntu@IP로 자동 처리되고, 다른 계정이면 user@IP 형식으로 입력합니다.">?</span></label>
           <textarea id="distributedHosts" name="distributedHosts">ubuntu@43.203.155.15
@@ -573,6 +580,9 @@ ubuntu@43.203.136.184</textarea>
 
           <label for="sshKeyPath">SSH key 경로 <span class="help-chip" tabindex="0" data-help="비워두면 현재 PC에서 C:\Users\mn040\OneDrive\바탕 화면\ticket\ticket-test-key-01.pem, C:\Users\mn040\Desktop\ticket\ticket-test-key-01.pem 순서로 자동 선택합니다.">?</span></label>
           <input id="sshKeyPath" name="sshKeyPath" value="">
+
+          <label for="distributedRemoteProjectDir">원격 프로젝트 경로 <span class="help-chip" tabindex="0" data-help="각 VM에서 Gatling 프로젝트가 배치될 경로입니다. booking 분산 실행도 이 경로를 사용합니다.">?</span></label>
+          <input id="distributedRemoteProjectDir" name="distributedRemoteProjectDir" value="~/gatling-test">
 
           <label class="inline-check">
             <input id="distributedIncludeLocal" name="distributedIncludeLocal" type="checkbox">
@@ -592,6 +602,11 @@ ubuntu@43.203.136.184</textarea>
 
           <label for="distributedDumpFailureBodyLimit">노드당 저장할 실패 응답 수 <span class="help-chip" tabindex="0" data-help="503 같은 실패 응답의 HTML body와 Cloudflare 관련 헤더를 결과 리포트에 저장합니다. 부하 수치 왜곡을 줄이기 위해 보통 1개만 저장합니다.">?</span></label>
           <input id="distributedDumpFailureBodyLimit" name="distributedDumpFailureBodyLimit" type="number" min="1" value="1">
+
+          <label class="inline-check" data-option="booking">
+            <input id="operationalConfirmation" name="operationalConfirmation" type="checkbox">
+            운영 환경에서 booking 분산 부하 실행을 확인함
+          </label>
         </div>
       </fieldset>
 
@@ -602,6 +617,39 @@ ubuntu@43.203.136.184</textarea>
 
         <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 대상 base URL입니다. legacy-queue-status는 http://52.237.82.8:18090/legacy-queue, cdn-public-state는 https://queue.oneticket.site 를 사용합니다.">?</span></label>
         <input id="baseUrl" name="baseUrl" value="http://52.237.82.8:18090/legacy-queue">
+
+        <div data-option="booking" class="hidden">
+          <div class="grid-2">
+            <div>
+              <label for="coreBaseUrl">Ticket/Core URL <span class="help-chip" tabindex="0" data-help="좌석 상태, 좌석 선택, 주문 API를 받을 운영 Ticket/Core base URL입니다. localhost는 분산 실행에서 허용하지 않습니다.">?</span></label>
+              <input id="coreBaseUrl" name="coreBaseUrl" value="">
+            </div>
+            <div>
+              <label for="queueBaseUrl">Queue URL <span class="help-chip" tabindex="0" data-help="Ticket Open E2E에서 join/state/enter를 호출할 Queue base URL입니다.">?</span></label>
+              <input id="queueBaseUrl" name="queueBaseUrl" value="">
+            </div>
+          </div>
+          <div class="grid-2">
+            <div>
+              <label for="bookingFeederFile">Booking Feeder CSV <span class="help-chip" tabindex="0" data-help="memberId,accessToken,seatId,admissionToken 4컬럼 UTF-8 no BOM CSV입니다. 분산 실행에서는 노드별로 자동 분할됩니다.">?</span></label>
+              <input id="bookingFeederFile" name="bookingFeederFile" value="build/booking-feeder.csv">
+            </div>
+            <div>
+              <label for="resultFile">결과 CSV <span class="help-chip" tabindex="0" data-help="각 Gatling JVM이 성공/비즈니스 거절/타임아웃 결과를 기록할 CSV 경로입니다.">?</span></label>
+              <input id="resultFile" name="resultFile" value="build/reports/booking-results.csv">
+            </div>
+          </div>
+          <div class="grid-2">
+            <div>
+              <label for="nodeIndex">노드 인덱스 <span class="help-chip" tabindex="0" data-help="로컬 단일 실행에서 결과 CSV에 남길 nodeIndex입니다. 분산 실행에서는 스크립트가 노드별로 지정합니다.">?</span></label>
+              <input id="nodeIndex" name="nodeIndex" type="number" min="0" value="0">
+            </div>
+            <div>
+              <label for="pollingTimeoutSeconds">Queue 대기 최대 시간(초) <span class="help-chip" tabindex="0" data-help="Ticket Open E2E에서 queue state polling을 최대 몇 초까지 기다릴지 정합니다.">?</span></label>
+              <input id="pollingTimeoutSeconds" name="pollingTimeoutSeconds" type="number" min="0" value="300">
+            </div>
+          </div>
+        </div>
 
         <div class="grid-2">
           <div>
@@ -884,6 +932,9 @@ const copyReportPathButton = document.querySelector('#copyReportPath');
 const openReportButton = document.querySelector('#openReport');
 const apiPreview = document.querySelector('#apiPreview');
 const baseUrlInput = document.querySelector('#baseUrl');
+const coreBaseUrlInput = document.querySelector('#coreBaseUrl');
+const queueBaseUrlInput = document.querySelector('#queueBaseUrl');
+const bookingFeederFileInput = document.querySelector('#bookingFeederFile');
 const ticketProjectPathInput = document.querySelector('#ticketProjectPath');
 const accessTokensFileInput = document.querySelector('#accessTokensFile');
 const tooltip = document.querySelector('#tooltip');
@@ -1005,7 +1056,9 @@ function updateVisibility() {
   const tokenSource = accessTokenSource?.value || 'generate-file';
 
   setVisible('[data-execution="distributed"]', distributed);
+  setVisible('[data-option="http2"]', selected?.key === 'queue-join-only');
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
+  setVisible('[data-option="booking"]', selected?.usesBookingFeeder);
   setVisible('[data-option="poll"]', selected?.usesStatusPolling);
   setVisible('[data-option="poll-jitter"]', selected?.usesStatusPolling);
   setVisible('[data-option="access-token"]', selected?.usesAccessTokens);
@@ -1066,9 +1119,22 @@ function validateBeforeRun(body) {
   const admissionMode = String(body.get('admissionTokenMode') || 'synthetic');
   const admissionTokens = String(body.get('admissionTokens') || '').trim();
 
+  if (selected?.usesBookingFeeder) {
+    const coreBaseUrl = String(body.get('coreBaseUrl') || '').trim();
+    const queueBaseUrl = String(body.get('queueBaseUrl') || '').trim();
+    const feederFile = String(body.get('bookingFeederFile') || '').trim();
+    if (!coreBaseUrl) return 'Booking 시나리오는 Ticket/Core URL을 입력해야 합니다.';
+    if (isLocalhostUrl(coreBaseUrl)) return 'Booking 운영 부하 테스트의 Ticket/Core URL은 localhost를 사용할 수 없습니다.';
+    if (selected.usesQueueBaseUrl && !queueBaseUrl) return 'Ticket Open E2E는 Queue URL을 입력해야 합니다.';
+    if (queueBaseUrl && isLocalhostUrl(queueBaseUrl)) return 'Booking 운영 부하 테스트의 Queue URL은 localhost를 사용할 수 없습니다.';
+    if (!feederFile) return 'Booking Feeder CSV 경로를 입력해야 합니다.';
+    if (distributed && body.get('operationalConfirmation') !== 'on') return '운영 환경 booking 분산 실행 확인 체크가 필요합니다.';
+    if (distributed && distributedHostCount(body) === 0) return 'Booking 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
+  }
+
   if (distributed) {
-    if (!['cdn-public-state', 'legacy-queue-status', 'queue-join-only'].includes(selected?.key)) {
-      return 'EC2 분산 실행은 Queue Join Only, CDN Public State, Legacy Queue Status 시나리오에서만 지원합니다.';
+    if (!selected?.usesBookingFeeder && !['cdn-public-state', 'legacy-queue-status', 'queue-join-only'].includes(selected?.key)) {
+      return 'EC2 분산 실행은 Booking, Queue Join Only, CDN Public State, Legacy Queue Status 시나리오에서 지원합니다.';
     }
     if (distributedHostCount(body) === 0) {
       return 'EC2 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
@@ -1208,6 +1274,8 @@ function defaultAccessTokensFilePath() {
 }
 
 function distributedNodeCount(body) {
+  const selected = selectedSimulation();
+  if (selected?.usesBookingFeeder) return distributedHostCount(body);
   return distributedHostCount(body) + (body.get('distributedIncludeLocal') === 'on' ? 1 : 0);
 }
 
@@ -1220,11 +1288,14 @@ function distributedHostCount(body) {
 }
 
 function updateApiPreview() {
-  const baseUrl = trimTrailingSlash(baseUrlInput.value || selectedSimulation()?.defaultBaseUrl || 'http://52.237.82.8:18090/legacy-queue');
+  const selected = selectedSimulation();
+  const baseUrl = trimTrailingSlash(baseUrlInput.value || selected?.defaultBaseUrl || 'http://52.237.82.8:18090/legacy-queue');
+  const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || baseUrl);
+  const queueUrl = trimTrailingSlash(queueBaseUrlInput?.value || baseUrl);
   const performanceId = document.querySelector('#performanceId').value || '1';
   const simulation = simulationSelect.value;
-  const queueBase = `${baseUrl}/api/v1/queue/performances/${performanceId}`;
-  const performanceBase = `${baseUrl}/api/v1/performances/${performanceId}`;
+  const queueBase = `${queueUrl}/api/v1/queue/performances/${performanceId}`;
+  const performanceBase = `${coreBaseUrl}/api/v1/performances/${performanceId}`;
   const apis = {
     'queue-join-only': [
       ['POST', `${queueBase}/join`]
@@ -1238,19 +1309,26 @@ function updateApiPreview() {
     'cdn-public-state': [
       ['GET', `${queueBase}/state`]
     ],
-    'ticket-open-flow': [
-      ['POST', `${queueBase}/enter`],
-      ['GET', `${queueBase}/status`],
-      ['GET', `${performanceBase}/seats/status`],
-      ['POST', `${baseUrl}/api/v1/orders`]
-    ],
-    'hold-race': [
-      ['POST', `${baseUrl}/api/v1/orders`]
-    ],
-    'ticket-server-capacity': [
+    'booking-capacity': [
       ['GET', `${performanceBase}/seats/status`],
       ['POST', `${performanceBase}/seats/{seatId}/select`],
-      ['POST', `${baseUrl}/api/v1/orders`]
+      ['POST', `${coreBaseUrl}/api/v1/orders`],
+      ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
+    ],
+    'ticket-open-end-to-end': [
+      ['POST', `${queueBase}/join`],
+      ['GET', `${queueBase}/state`],
+      ['POST', `${queueBase}/enter`],
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${coreBaseUrl}/api/v1/orders`],
+      ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
+    ],
+    'seat-contention': [
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${coreBaseUrl}/api/v1/orders`],
+      ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
     ]
   }[simulation] || [];
 
@@ -1261,7 +1339,6 @@ function updateApiPreview() {
     </li>
   `).join('');
 }
-
 function applyPreset(name) {
   const preset = presets[name];
   Object.entries(preset).forEach(([key, value]) => {
@@ -1289,6 +1366,15 @@ function applySimulationDefaultBaseUrl() {
   const selected = selectedSimulation();
   if (selected?.defaultBaseUrl) {
     baseUrlInput.value = selected.defaultBaseUrl;
+  }
+}
+
+function isLocalhostUrl(value) {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return ['localhost', '127.0.0.1', '::1'].includes(host);
+  } catch (error) {
+    return false;
   }
 }
 
