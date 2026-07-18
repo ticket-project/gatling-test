@@ -14,6 +14,7 @@ param(
     [int]$StatusPolls = 1,
     [int]$StatusPollPauseSeconds = 0,
     [int]$StatusPollPauseJitterSeconds = 0,
+    [switch]$EnableHttp2,
     [string]$AccessTokenMode = "",
     [string]$AccessTokensFile = "",
     [switch]$GenerateAccessTokens,
@@ -126,6 +127,9 @@ function New-RunDirectoryName {
     }
     if ($IncludeLocal) {
         $parts += "local"
+    }
+    if ($EnableHttp2) {
+        $parts += "h2"
     }
     if ($DumpFailureBody) {
         $parts += "dumpbody"
@@ -285,6 +289,10 @@ function New-GatlingArgs {
         "-DstatusPollPauseSeconds=$StatusPollPauseSeconds",
         "-DstatusPollPauseJitterSeconds=$StatusPollPauseJitterSeconds"
     )
+
+    if ($EnableHttp2) {
+        $args += "-Dhttp2Enabled=true"
+    }
 
     if (-not [string]::IsNullOrWhiteSpace($AccessTokenMode)) {
         $args += "-DaccessTokenMode=$AccessTokenMode"
@@ -663,6 +671,7 @@ Write-Host "Include local: $IncludeLocal"
 Write-Host "RPS per node: $RpsPerNode"
 Write-Host "Expected total RPS: $($RpsPerNode * ($Hosts.Count + [int]$IncludeLocal.IsPresent))"
 Write-Host "Duration seconds: $DurationSeconds"
+Write-Host "HTTP/2 enabled: $($EnableHttp2.IsPresent)"
 if (-not [string]::IsNullOrWhiteSpace($AccessTokenMode)) {
     Write-Host "Access token mode: $AccessTokenMode"
 }
@@ -779,7 +788,7 @@ if ($CollectReports) {
         $targetDir = Join-Path (Join-Path $runDir $safeName) "gatling"
         New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
         $remoteReportRoot = $remoteReportRoots[$safeName]
-        $source = "${hostName}:$RemoteProjectDir/$remoteReportRoot"
+        $source = "${hostName}:$RemoteProjectDir/$remoteReportRoot/*"
         & $ScpCommand @ScpOptions -r $source $targetDir
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Could not collect Gatling report from ${hostName}: $RemoteProjectDir/$remoteReportRoot"

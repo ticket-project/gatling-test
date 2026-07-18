@@ -29,6 +29,9 @@ public class GatlingCommandBuilder {
         command.add("-DinjectionMode=" + request.injectionMode());
         command.add("-DusersPerSecond=" + request.usersPerSecond());
         command.add("-DtargetUsersPerSecond=" + request.targetUsersPerSecond());
+        if (request.http2Enabled()) {
+            command.add("-Dhttp2Enabled=true");
+        }
         if (request.simulationType().usesAccessTokens()) {
             command.add("-DaccessTokenMode=" + request.accessTokenMode());
             command.add("-DloginEmailPrefix=" + request.loginEmailPrefix());

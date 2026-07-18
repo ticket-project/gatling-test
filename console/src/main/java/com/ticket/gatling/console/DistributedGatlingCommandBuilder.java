@@ -35,6 +35,10 @@ public class DistributedGatlingCommandBuilder {
         command.add("-StatusPollPauseJitterSeconds");
         command.add(String.valueOf(request.statusPollPauseJitterSeconds()));
 
+        if (request.http2Enabled()) {
+            command.add("-EnableHttp2");
+        }
+
         if (request.simulationType().usesAccessTokens()) {
             command.add("-AccessTokenMode");
             command.add(request.accessTokenMode());

@@ -10,3 +10,7 @@ out/
 **/.idea/
 **/*.iml
 
+# Gatling test results
+/distributed-results/
+/distributed-results-join/
+/distributed-results-legacy/

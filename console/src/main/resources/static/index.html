@@ -565,6 +565,13 @@
           <option value="distributed">EC2 분산</option>
         </select>
 
+        <label class="inline-check" data-option="http2">
+          <input id="http2Enabled" name="http2Enabled" type="checkbox" checked>
+          HTTP/2 사용
+          <span class="help-chip" tabindex="0" data-help="Queue Join 요청에서 Gatling과 Nginx 사이의 HTTP/2를 활성화합니다. HTTP/1.1 비교 테스트가 필요하면 체크를 해제합니다.">?</span>
+        </label>
+        <input name="http2Enabled" type="hidden" value="false">
+
         <div data-execution="distributed" class="hidden">
           <label for="distributedHosts">EC2 Public IP / SSH 대상 <span class="help-chip" tabindex="0" data-help="부하를 발생시킬 EC2 목록입니다. 한 줄에 하나씩 입력합니다. Public IP만 적으면 ubuntu@IP로 자동 처리되고, 다른 계정이면 user@IP 형식으로 입력합니다.">?</span></label>
           <textarea id="distributedHosts" name="distributedHosts">ubuntu@43.203.155.15
@@ -1005,6 +1012,7 @@ function updateVisibility() {
   const tokenSource = accessTokenSource?.value || 'generate-file';
 
   setVisible('[data-execution="distributed"]', distributed);
+  setVisible('[data-option="http2"]', selected?.key === 'queue-join-only');
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
   setVisible('[data-option="poll"]', selected?.usesStatusPolling);
   setVisible('[data-option="poll-jitter"]', selected?.usesStatusPolling);

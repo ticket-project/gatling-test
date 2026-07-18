@@ -18,6 +18,7 @@ public record LoadTestRequest(
         double usersPerSecond,
         double targetUsersPerSecond,
         String executionMode,
+        boolean http2Enabled,
         boolean distributedIncludeLocal,
         boolean distributedCollectReports,
         boolean distributedDumpFailureBody,
@@ -94,6 +95,7 @@ public record LoadTestRequest(
         seatIds = defaultIfBlank(seatIds, "1");
         injectionMode = defaultIfBlank(injectionMode, "ramp-users");
         executionMode = normalizeExecutionMode(executionMode);
+        http2Enabled = simulationType == SimulationType.QUEUE_JOIN_ONLY && http2Enabled;
         distributedHosts = defaultIfBlank(distributedHosts, defaultDistributedHosts());
         accessTokenMode = normalizeAccessTokenMode(accessTokenMode);
         loginEmailPrefix = defaultIfBlank(loginEmailPrefix, "loadtest");
@@ -137,6 +139,7 @@ public record LoadTestRequest(
                 doubleValue(form, "usersPerSecond", 1.0),
                 doubleValue(form, "targetUsersPerSecond", 10.0),
                 value(form, "executionMode", "local"),
+                booleanValue(form, "http2Enabled", false),
                 booleanValue(form, "distributedIncludeLocal", false),
                 booleanValue(form, "distributedCollectReports", true),
                 booleanValue(form, "distributedDumpFailureBody", false),

@@ -60,6 +60,7 @@ http://localhost:9090
 | 테스트 종류 | 대기열 진입, 예매 오픈 흐름, hold 경합, 티켓 서버 용량 |
 | 대상 | Gatling 저장소 경로, 대상 API URL, 회차 ID, 좌석 ID |
 | 부하 | 사용자 수, 투입 시간, 주입 방식 |
+| 프로토콜 | Queue Join의 HTTP/2 사용 여부 |
 | 인증 | 자동 로그인, 직접 token 입력, 테스트 JWT 생성 |
 | 자동 로그인 | 계정 prefix, domain, password, start index, timeout |
 | 테스트 JWT | issuer, member 시작 ID, role, TTL, secret |
