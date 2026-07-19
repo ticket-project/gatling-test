@@ -18,13 +18,15 @@ GET /api/v1/queue/performances/{performanceId}/status
 Header: X-Queue-Session
 ```
 
-CDN public state:
+CDN public state 확인용 경로:
 
 ```text
-Base URL: https://queue.oneticket.site
+Base URL: Cloudflare가 프록시하는 state endpoint
 GET /api/v1/queue/performances/{performanceId}/state
 Header/cookie/auth 없음
 ```
+
+`/join` 부하 테스트의 `https://queue.oneticket.site`는 Cloudflare를 거치지 않고 Queue origin Nginx로 직접 요청한다. `cdn-public-state` 테스트는 별도의 Cloudflare state endpoint가 구성된 경우에만 CDN 캐시를 검증하며, 실행 전 `CF-Ray`와 `CF-Cache-Status` 응답 헤더를 확인한다.
 
 ## Access token 파일 생성
 

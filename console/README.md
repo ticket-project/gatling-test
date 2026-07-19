@@ -16,7 +16,7 @@
 - 실행 방식: Gradle `application` plugin
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
-- 대상 API 기본값: legacy 계열은 `http://52.237.82.8:18090/legacy-queue`, CDN public state는 `https://queue.oneticket.site`
+- 대상 API 기본값: Queue join은 Cloudflare를 거치지 않는 `https://queue.oneticket.site`, legacy 계열은 `http://52.237.82.8:18090/legacy-queue`, CDN public state는 실행 시 별도 Cloudflare state endpoint 확인 필요
 - 기본 Gatling 저장소 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`
 - 실제 Gatling 프로젝트 위치: 이 저장소의 `load-tests/gatling`
 
@@ -80,6 +80,8 @@ http://localhost:9090
 | `booking-capacity` | 사용자가 입력한 Ticket/Core URL |
 | `ticket-open-end-to-end` | 사용자가 입력한 Ticket/Core URL + Queue URL |
 | `seat-contention` | 사용자가 입력한 Ticket/Core URL |
+
+`queue-join-only`의 `https://queue.oneticket.site`는 Queue origin Nginx를 직접 호출하며 Cloudflare를 거치지 않는다. `cdn-public-state`의 기본 URL은 입력 편의를 위한 값일 뿐이다. 현재 hostname이 DNS-only이면 CDN 테스트가 아니므로, 실행 전에 Cloudflare가 프록시하는 state endpoint로 바꾸고 `CF-Ray`, `CF-Cache-Status` 헤더를 확인한다.
 
 ## EC2 분산 실행
 
@@ -159,7 +161,7 @@ com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation
 com.ticket.loadtest.simulation.SeatContentionSimulation
 ```
 
-`CdnPublicStateSimulation`은 `https://queue.oneticket.site`를 기본 대상 API로 사용하고, 아래 public state API만 반복 조회한다.
+`CdnPublicStateSimulation`은 `https://queue.oneticket.site`를 기본 입력값으로 사용하고, 아래 public state API만 반복 조회한다. 기본 hostname이 DNS-only인 현재 구성에서는 origin 조회가 되므로, CDN 캐시를 검증할 때는 Cloudflare가 프록시하는 state endpoint를 명시해야 한다.
 
 ```text
 GET /api/v1/queue/performances/{performanceId}/state

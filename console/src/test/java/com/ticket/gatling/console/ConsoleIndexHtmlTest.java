@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConsoleIndexHtmlTest {
@@ -38,5 +39,7 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("${performanceBase}/seats/{seatId}/select"));
         assertTrue(html.contains("${coreBaseUrl}/api/v1/orders"));
         assertTrue(html.contains("${coreBaseUrl}/api/v1/orders/{orderKey}"));
+        assertTrue(html.contains("id=\"jwtSecret\" name=\"jwtSecret\" type=\"password\" value=\"0123456789abcdef0123456789abcdef\" autocomplete=\"off\""));
+        assertFalse(html.contains("id=\"jwtSecret\" name=\"jwtSecret\" type=\"password\" value=\"0123456789abcdef0123456789abcdef\" readonly"));
     }
 }

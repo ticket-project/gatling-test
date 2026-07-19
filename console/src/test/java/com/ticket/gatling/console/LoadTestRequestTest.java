@@ -91,6 +91,15 @@ class LoadTestRequestTest {
     }
 
     @Test
+    void readsJwtSecretFromFormForSyntheticJwtMode() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "accessTokenMode", List.of("synthetic-jwt"),
+                "jwtSecret", List.of("local-queue-jwt-secret-1234567890")
+        ));
+
+        assertEquals("local-queue-jwt-secret-1234567890", request.jwtSecret());
+    }
+    @Test
     void readsDistributedExecutionOptionsFromForm() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "executionMode", List.of("distributed"),
