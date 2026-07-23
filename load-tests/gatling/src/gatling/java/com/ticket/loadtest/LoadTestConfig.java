@@ -110,7 +110,6 @@ public final class LoadTestConfig {
     public static boolean http2Enabled() {
         return booleanProperty(ConfigKey.HTTP2_ENABLED);
     }
-    }
 
     public static OpenInjectionStep injection() {
         final int users = intProperty(ConfigKey.USERS);

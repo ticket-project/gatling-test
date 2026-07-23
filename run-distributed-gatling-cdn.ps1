@@ -419,19 +419,18 @@ if [ `$token_status -ne 0 ]; then exit `$token_status; fi
 "@
     }
 
-    $gradleArgs = (New-GatlingArgs -NodeAccessTokensFile $NodeAccessTokensFile -FailureBodyDir $FailureBodyDir) -join " "
+    $gatlingReportDir = $CollectReportDir -replace "^load-tests/gatling/", ""
+    $gradleArgs = (New-GatlingArgs -ReportDir $gatlingReportDir -NodeAccessTokensFile $NodeAccessTokensFile -FailureBodyDir $FailureBodyDir) -join " "
     $command = @"
 cd $RemoteProjectDir
 chmod +x gradlew
 $prepareTokens
-./gradlew --console=plain $gradleArgs
-status=`$?
-latest=`$(ls -td load-tests/gatling/build/reports/gatling/*/ 2>/dev/null | head -1)
 collect_dir="$CollectReportDir"
 failure_body_dir="$CollectFailureBodyDir"
 rm -rf "`$collect_dir"
 mkdir -p "`$collect_dir"
-if [ -n "`$latest" ]; then cp -R "`$latest" "`$collect_dir/"; fi
+./gradlew --console=plain $gradleArgs
+status=`$?
 if [ -n "`$failure_body_dir" ] && [ -d "`$failure_body_dir" ]; then cp -R "`$failure_body_dir" "`$collect_dir/failure-bodies"; fi
 exit `$status
 "@
@@ -548,7 +547,7 @@ function Write-RunSummary {
     foreach ($log in Get-ChildItem -Path $RunDir -Filter "*.log" -File | Sort-Object Name) {
         $node = [System.IO.Path]::GetFileNameWithoutExtension($log.Name)
         $content = Get-Content -Path $log.FullName -Raw -ErrorAction SilentlyContinue
-        $status = if ($content -match "BUILD SUCCESSFUL") { "SUCCESS" } elseif ($content -match "BUILD FAILED|ERROR|Exception") { "FAILED" } else { "UNKNOWN" }
+        $status = if ($content -match "BUILD FAILED|ERROR|Exception") { "FAILED" } elseif ($content -match "BUILD SUCCESSFUL") { "SUCCESS" } else { "UNKNOWN" }
         $report = Get-ChildItem -Path (Join-Path $RunDir $node) -Recurse -Filter index.html -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
@@ -810,6 +809,10 @@ if ($CollectReports) {
 }
 
 Write-RunSummary -RunDir $runDir
+
+if ($failedJobs.Count -gt 0) {
+    exit 1
+}
 
 Write-Host "Done"
 Write-Host "Logs and collected reports: $runDir"
