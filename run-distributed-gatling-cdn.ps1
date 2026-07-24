@@ -6,6 +6,7 @@ param(
         "ubuntu@43.203.136.184"
     ),
     [string]$RemoteProjectDir = "~/gatling-test",
+    [string]$ConsoleRunId = "",
     [string]$BaseUrl = "https://queue.oneticket.site",
     [string]$Simulation = "com.ticket.loadtest.simulation.CdnPublicStateSimulation",
     [int]$PerformanceId = 1,
@@ -278,6 +279,7 @@ function New-GatlingArgs {
         "-p", "load-tests/gatling",
         "gatlingRun",
         "--simulation", $Simulation,
+        "-DconsoleRunId=$ConsoleRunId",
         "-DbaseUrl=$BaseUrl",
         "-DperformanceId=$PerformanceId",
         "-Dusers=1",
@@ -334,6 +336,7 @@ function New-AccessTokenGenerationArgs {
     return @(
         "-p", "load-tests/gatling",
         "generateAccessTokens",
+        "-DconsoleRunId=$ConsoleRunId",
         "-Doutput=$Output",
         "-DtokenCount=$EffectiveTokenCountPerNode",
         "-DjwtSecret=$JwtSecret",

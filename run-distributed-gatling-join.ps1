@@ -6,6 +6,7 @@ param(
         "ubuntu@43.203.136.184"
     ),
     [string]$RemoteProjectDir = "~/gatling-test",
+    [string]$ConsoleRunId = "",
     [string]$BaseUrl = "https://queue.oneticket.site",
     [string]$Simulation = "com.ticket.loadtest.simulation.QueueJoinOnlySimulation",
     [int]$PerformanceId = 1,
@@ -43,6 +44,7 @@ $arguments = @{
     KeyPath = $KeyPath
     Hosts = $Hosts
     RemoteProjectDir = $RemoteProjectDir
+    ConsoleRunId = $ConsoleRunId
     BaseUrl = $BaseUrl
     Simulation = $Simulation
     PerformanceId = $PerformanceId

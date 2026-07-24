@@ -5,10 +5,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 public class DistributedGatlingCommandBuilder {
 
-    public List<String> build(final LoadTestRequest request) {
+    public List<String> build(final LoadTestRequest request, final UUID runId) {
         final List<String> command = new ArrayList<>();
         command.add(powershellExecutable());
         command.add("-NoProfile");
@@ -16,6 +17,8 @@ public class DistributedGatlingCommandBuilder {
         command.add("Bypass");
         command.add("-File");
         command.add(scriptPath(request).toString());
+        command.add("-ConsoleRunId");
+        command.add(runId.toString());
         command.add("-KeyPath");
         command.add(request.sshKeyPath().toString());
         command.add("-Hosts");

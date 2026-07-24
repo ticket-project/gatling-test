@@ -36,6 +36,10 @@ public class LoadTestRun {
         return id;
     }
 
+    LoadTestRequest request() {
+        return request;
+    }
+
     public Status status() {
         return status;
     }
