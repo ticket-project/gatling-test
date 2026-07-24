@@ -272,6 +272,13 @@
       font-weight: 650;
     }
 
+    .danger-button {
+      border-color: var(--red);
+      background: var(--red);
+      color: #fff;
+      font-weight: 750;
+    }
+
     .run-button {
       width: 100%;
       min-height: 42px;
@@ -445,6 +452,11 @@
       color: var(--red);
     }
 
+    .badge-STOPPED {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
     .report-link {
       display: inline-flex;
       align-items: center;
@@ -476,6 +488,13 @@
       color: var(--muted);
       font-size: 12px;
       font-weight: 720;
+    }
+
+    .log-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .empty-link {
@@ -904,7 +923,10 @@ ubuntu@43.203.136.184</textarea>
       </table>
       <div class="log-toolbar">
         <span>Gatling 콘솔 출력</span>
-        <button id="copyLog" class="secondary-button" type="button">전체 복사</button>
+        <div class="log-actions">
+          <button id="stopRun" class="danger-button hidden" type="button">실행 중지</button>
+          <button id="copyLog" class="secondary-button" type="button">전체 복사</button>
+        </div>
       </div>
       <pre id="log">아직 실행된 테스트가 없습니다.</pre>
     </div>
@@ -939,12 +961,14 @@ const ticketProjectPathInput = document.querySelector('#ticketProjectPath');
 const accessTokensFileInput = document.querySelector('#accessTokensFile');
 const tooltip = document.querySelector('#tooltip');
 const copyLogButton = document.querySelector('#copyLog');
+const stopRunButton = document.querySelector('#stopRun');
 const admissionTokenMode = document.querySelector('#admissionTokenMode');
 let selectedRunId = null;
 let polling = null;
 let simulationMeta = [];
 let generatedAccessTokenCountTouched = false;
 let accessTokensFileTouched = false;
+let stopRequestInFlight = false;
 
 const presets = {
   smoke: { users: 5, durationSeconds: 10, injectionMode: 'ramp-users', usersPerSecond: 1, targetUsersPerSecond: 5 },
@@ -968,6 +992,8 @@ function restoreIdleState(message) {
     clearInterval(polling);
     polling = null;
   }
+  stopRequestInFlight = false;
+  setStopButtonState(null);
   runButton.disabled = false;
   serverState.textContent = '대기 중';
   if (message) {
@@ -975,9 +1001,17 @@ function restoreIdleState(message) {
   }
 }
 
+function setStopButtonState(run) {
+  const running = run?.status === 'RUNNING';
+  stopRunButton.classList.toggle('hidden', !running);
+  stopRunButton.disabled = !running || stopRequestInFlight;
+}
+
 async function startRun(event) {
   event.preventDefault();
   runButton.disabled = true;
+  stopRequestInFlight = false;
+  setStopButtonState(null);
   serverState.textContent = '실행 중';
   const body = new URLSearchParams(new FormData(form));
   normalizeAccessTokenSourceForRun(body);
@@ -1036,6 +1070,10 @@ async function refreshRunDetail() {
     logView.textContent = run.log || '';
     logView.scrollTop = logView.scrollHeight;
     document.querySelector('#summaryStatus').textContent = run.status;
+    if (run.status !== 'RUNNING') {
+      stopRequestInFlight = false;
+    }
+    setStopButtonState(run);
     reportUrlInput.value = run.reportUrl ? `${location.origin}${run.reportUrl}` : '-';
     reportPathInput.value = run.reportPath || '-';
     await refreshRuns();
@@ -1454,6 +1492,27 @@ openReportButton.addEventListener('click', async () => {
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     logView.textContent = data.error || '로컬 리포트 폴더 열기에 실패했습니다.';
+  }
+});
+stopRunButton.addEventListener('click', async () => {
+  if (!selectedRunId || stopRunButton.disabled) return;
+  stopRequestInFlight = true;
+  setStopButtonState({ status: 'RUNNING' });
+  try {
+    const response = await fetch(`/api/runs/${selectedRunId}/stop`, { method: 'POST' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      stopRequestInFlight = false;
+      logView.textContent = data.error || '실행 중지에 실패했습니다.';
+      await refreshRunDetail();
+      return;
+    }
+    logView.textContent = data.log || logView.textContent;
+    await refreshRunDetail();
+  } catch (error) {
+    stopRequestInFlight = false;
+    logView.textContent = error.message || '실행 중지에 실패했습니다.';
+    await refreshRunDetail();
   }
 });
 copyLogButton.addEventListener('click', async () => {
