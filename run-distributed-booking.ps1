@@ -6,6 +6,7 @@ param(
         "ubuntu@43.203.136.184"
     ),
     [string]$RemoteProjectDir = "~/gatling-test",
+    [string]$ConsoleRunId = "",
     [string]$Simulation = "com.ticket.loadtest.simulation.BookingCapacitySimulation",
     [string]$CoreBaseUrl = "",
     [string]$QueueBaseUrl = "",
@@ -228,6 +229,7 @@ function New-GatlingArgs {
         "-p", "load-tests/gatling",
         "gatlingRun",
         "--simulation", $Simulation,
+        "-DconsoleRunId=$ConsoleRunId",
         "-DcoreBaseUrl=$CoreBaseUrl",
         "-DqueueBaseUrl=$QueueBaseUrl",
         "-DperformanceId=$PerformanceId",

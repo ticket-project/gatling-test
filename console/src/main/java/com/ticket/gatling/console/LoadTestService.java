@@ -29,6 +29,7 @@ public class LoadTestService {
 
     private final GatlingCommandBuilder commandBuilder = new GatlingCommandBuilder();
     private final DistributedGatlingCommandBuilder distributedCommandBuilder = new DistributedGatlingCommandBuilder();
+    private final DistributedRunStopper distributedRunStopper = new DistributedRunStopper();
     private final ReportRegistry reportRegistry;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Map<UUID, LoadTestRun> runs = new LinkedHashMap<>();
@@ -235,6 +236,9 @@ public class LoadTestService {
         if (!run.requestStop()) {
             throw new IllegalStateException("Run is not running: " + runId);
         }
+        if (run.request().distributedExecution()) {
+            distributedRunStopper.stop(run.request(), runId, run::appendLog);
+        }
         return run;
     }
 
@@ -255,7 +259,7 @@ public class LoadTestService {
             if (!request.distributedExecution()) {
                 Files.createDirectories(executionReportsRoot);
             }
-            final List<String> command = buildCommand(request, executionReportsRoot);
+            final List<String> command = buildCommand(run, request, executionReportsRoot);
             run.appendLog("$ " + String.join(" ", redactSensitiveArguments(command)));
 
             final Process process = new ProcessBuilder(command)
@@ -356,9 +360,13 @@ public class LoadTestService {
                 + "</main></body></html>";
     }
 
-    private List<String> buildCommand(final LoadTestRequest request, final Path executionReportsRoot) {
+    private List<String> buildCommand(
+            final LoadTestRun run,
+            final LoadTestRequest request,
+            final Path executionReportsRoot
+    ) {
         if (request.distributedExecution()) {
-            return distributedCommandBuilder.build(request);
+            return distributedCommandBuilder.build(request, run.id());
         }
         return commandBuilder.build(request, executionReportsRoot);
     }

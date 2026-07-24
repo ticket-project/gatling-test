@@ -6,6 +6,7 @@ param(
         "ubuntu@43.203.136.184"
     ),
     [string]$RemoteProjectDir = "~/gatling-test",
+    [string]$ConsoleRunId = "",
     [string]$BaseUrl = "http://52.237.82.8:18090/legacy-queue",
     [string]$Simulation = "com.ticket.loadtest.simulation.LegacyQueueStatusSimulation",
     [int]$PerformanceId = 1,
@@ -31,6 +32,7 @@ $arguments = @{
     KeyPath = $KeyPath
     Hosts = $Hosts
     RemoteProjectDir = $RemoteProjectDir
+    ConsoleRunId = $ConsoleRunId
     BaseUrl = $BaseUrl
     Simulation = $Simulation
     PerformanceId = $PerformanceId
