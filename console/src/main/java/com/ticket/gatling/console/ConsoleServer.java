@@ -102,8 +102,13 @@ public class ConsoleServer {
     private void handleRunApi(final HttpExchange exchange, final String path) throws IOException {
         final String remaining = path.substring("/api/runs/".length());
         final String openFolderSuffix = "/open-report-folder";
+        final String stopSuffix = "/stop";
         if (remaining.endsWith(openFolderSuffix)) {
             handleOpenReportFolder(exchange, remaining.substring(0, remaining.length() - openFolderSuffix.length()));
+            return;
+        }
+        if (remaining.endsWith(stopSuffix)) {
+            handleStopRun(exchange, remaining.substring(0, remaining.length() - stopSuffix.length()));
             return;
         }
         handleRunDetail(exchange, remaining);
@@ -115,6 +120,13 @@ public class ConsoleServer {
         final LoadTestRun run = loadTestService.find(runId)
                 .orElseThrow(() -> new IllegalArgumentException("Run not found: " + runId));
         writeJson(exchange, 200, run.toJson());
+    }
+
+    private void handleStopRun(final HttpExchange exchange, final String runIdValue) throws IOException {
+        requireMethod(exchange, "POST");
+        final UUID runId = UUID.fromString(runIdValue);
+        final LoadTestRun run = loadTestService.stop(runId);
+        writeJson(exchange, 202, run.toJson());
     }
 
     private void handleOpenReportFolder(final HttpExchange exchange, final String runIdValue) throws IOException {

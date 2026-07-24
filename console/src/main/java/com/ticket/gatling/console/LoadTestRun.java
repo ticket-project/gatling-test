@@ -2,12 +2,15 @@ package com.ticket.gatling.console;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 public class LoadTestRun {
     public enum Status {
         RUNNING,
+        STOPPED,
         SUCCEEDED,
         FAILED
     }
@@ -20,6 +23,8 @@ public class LoadTestRun {
     private volatile int exitCode = -1;
     private volatile Path reportDirectory;
     private volatile Instant finishedAt;
+    private volatile boolean stopRequested;
+    private Process currentProcess;
 
     public LoadTestRun(final UUID id, final LoadTestRequest request) {
         this.id = id;
@@ -47,11 +52,65 @@ public class LoadTestRun {
         return log.toString();
     }
 
+    synchronized void attachProcess(final Process process) {
+        currentProcess = process;
+        if (stopRequested) {
+            terminateProcessTree(process);
+        }
+    }
+
+    synchronized void clearProcess(final Process process) {
+        if (currentProcess == process) {
+            currentProcess = null;
+        }
+    }
+
+    synchronized boolean requestStop() {
+        if (status != Status.RUNNING) {
+            return false;
+        }
+        if (!stopRequested) {
+            stopRequested = true;
+            appendLog("Stop requested by console.");
+        }
+        if (currentProcess != null) {
+            terminateProcessTree(currentProcess);
+        }
+        return true;
+    }
+
+    boolean stopRequested() {
+        return stopRequested;
+    }
+
     public void complete(final int exitCode, final Path reportDirectory) {
         this.exitCode = exitCode;
         this.reportDirectory = reportDirectory;
         this.finishedAt = Instant.now();
-        this.status = exitCode == 0 ? Status.SUCCEEDED : Status.FAILED;
+        this.status = stopRequested ? Status.STOPPED : (exitCode == 0 ? Status.SUCCEEDED : Status.FAILED);
+    }
+
+    private void terminateProcessTree(final Process process) {
+        final List<ProcessHandle> handles = new ArrayList<>(process.toHandle().descendants().toList());
+        handles.reversed().forEach(ProcessHandle::destroy);
+        process.destroy();
+        waitForExit(process.toHandle());
+        handles.reversed().forEach(handle -> {
+            if (handle.isAlive()) {
+                handle.destroyForcibly();
+            }
+        });
+        if (process.isAlive()) {
+            process.destroyForcibly();
+        }
+    }
+
+    private void waitForExit(final ProcessHandle handle) {
+        try {
+            handle.onExit().get(1, TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+            // Forced termination below handles stubborn processes.
+        }
     }
 
     public String toJson() {

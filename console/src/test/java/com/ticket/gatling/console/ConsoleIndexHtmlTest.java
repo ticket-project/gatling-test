@@ -41,5 +41,8 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("${coreBaseUrl}/api/v1/orders/{orderKey}"));
         assertTrue(html.contains("id=\"jwtSecret\" name=\"jwtSecret\" type=\"password\" value=\"0123456789abcdef0123456789abcdef\" autocomplete=\"off\""));
         assertFalse(html.contains("id=\"jwtSecret\" name=\"jwtSecret\" type=\"password\" value=\"0123456789abcdef0123456789abcdef\" readonly"));
+        assertTrue(html.contains("id=\"stopRun\""));
+        assertTrue(html.contains("/api/runs/${selectedRunId}/stop"));
+        assertTrue(html.contains("badge-STOPPED"));
     }
 }

@@ -229,6 +229,15 @@ public class LoadTestService {
         return Optional.ofNullable(runs.get(runId));
     }
 
+    public LoadTestRun stop(final UUID runId) {
+        final LoadTestRun run = find(runId)
+                .orElseThrow(() -> new IllegalArgumentException("Run not found: " + runId));
+        if (!run.requestStop()) {
+            throw new IllegalStateException("Run is not running: " + runId);
+        }
+        return run;
+    }
+
     private void execute(final LoadTestRun run, final LoadTestRequest request) {
         final Path executionReportsRoot = executionReportsRoot(request, run.id());
         final Set<Path> beforeReports = listReportDirectories(executionReportsRoot);
@@ -236,7 +245,13 @@ public class LoadTestService {
         int exitCode = -1;
         try {
             validateRunnableProject(request);
+            if (run.stopRequested()) {
+                return;
+            }
             prepareGeneratedAccessTokens(run, request);
+            if (run.stopRequested()) {
+                return;
+            }
             if (!request.distributedExecution()) {
                 Files.createDirectories(executionReportsRoot);
             }
@@ -247,19 +262,23 @@ public class LoadTestService {
                     .directory(request.ticketProjectPath().toFile())
                     .redirectErrorStream(true)
                     .start();
-
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
-            )) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    run.appendLog(line);
-                    if (request.distributedExecution()) {
-                        distributedRunDirectory = parseDistributedRunDirectory(line).orElse(distributedRunDirectory);
+            run.attachProcess(process);
+            try {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
+                )) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        run.appendLog(line);
+                        if (request.distributedExecution()) {
+                            distributedRunDirectory = parseDistributedRunDirectory(line).orElse(distributedRunDirectory);
+                        }
                     }
                 }
+                exitCode = process.waitFor();
+            } finally {
+                run.clearProcess(process);
             }
-            exitCode = process.waitFor();
         } catch (Exception exception) {
             run.appendLog("ERROR: " + exception.getMessage());
         } finally {
@@ -267,7 +286,7 @@ public class LoadTestService {
             Path reportDirectory = request.distributedExecution()
                     ? resolveDistributedReportDirectory(request, distributedRunDirectory).orElse(null)
                     : detectReportDirectory(executionReportsRoot, beforeReports).orElse(null);
-            if (reportDirectory == null && exitCode != 0) {
+            if (reportDirectory == null && exitCode != 0 && !run.stopRequested()) {
                 reportDirectory = createFailureReportDirectory(request, run, exitCode);
                 createdFailureReport = reportDirectory != null;
             }
@@ -359,17 +378,26 @@ public class LoadTestService {
                 .directory(request.ticketProjectPath().toFile())
                 .redirectErrorStream(true)
                 .start();
+        run.attachProcess(process);
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
-        )) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                run.appendLog(line);
+        final int exitCode;
+        try {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
+            )) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    run.appendLog(line);
+                }
             }
-        }
 
-        final int exitCode = process.waitFor();
+            exitCode = process.waitFor();
+        } finally {
+            run.clearProcess(process);
+        }
+        if (run.stopRequested()) {
+            return;
+        }
         if (exitCode != 0) {
             throw new IllegalStateException("Access token generation failed with exit code " + exitCode);
         }
