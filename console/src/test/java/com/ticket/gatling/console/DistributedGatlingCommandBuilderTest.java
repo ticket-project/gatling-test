@@ -95,6 +95,7 @@ class DistributedGatlingCommandBuilderTest {
 
         assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-gatling-join.ps1")));
         assertTrue(command.contains("-AccessTokenMode"));
+        assertTrue(command.contains("-InjectionMode"));
         assertTrue(command.contains("tokens"));
         assertTrue(command.contains("-GenerateAccessTokens"));
         assertTrue(command.contains("-TokenCountPerNode"));

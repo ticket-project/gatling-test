@@ -10,10 +10,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -25,12 +28,20 @@ import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
 import static io.gatling.javaapi.core.CoreDsl.constantUsersPerSec;
 import static io.gatling.javaapi.core.CoreDsl.exec;
+import static io.gatling.javaapi.core.CoreDsl.nothingFor;
 import static io.gatling.javaapi.core.CoreDsl.rampUsers;
 import static io.gatling.javaapi.core.CoreDsl.rampUsersPerSec;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 
 public final class LoadTestConfig {
+    private static final int TICKET_OPEN_PEAK_SECONDS = 10;
+    private static final int TICKET_OPEN_FIRST_DECAY_SECONDS = 20;
+    private static final int TICKET_OPEN_SECOND_DECAY_SECONDS = 60;
+    private static final int TICKET_OPEN_TAIL_SECONDS = 180;
+    private static final int TICKET_OPEN_RECOVERY_DELAY_SECONDS = 30;
+    private static final int TICKET_OPEN_RECOVERY_SECONDS = 60;
+    private static final double TICKET_OPEN_RECOVERY_USERS_PER_SECOND = 1.0;
     private static final ConcurrentMap<ConfigKey, CsvValues> CSV_VALUES = new ConcurrentHashMap<>();
     private static final AtomicInteger LOGIN_COUNTER = new AtomicInteger(intProperty(ConfigKey.LOGIN_START_INDEX));
     private static final AtomicInteger TOKEN_COUNTER = new AtomicInteger();
@@ -111,18 +122,52 @@ public final class LoadTestConfig {
         return booleanProperty(ConfigKey.HTTP2_ENABLED);
     }
 
-    public static OpenInjectionStep injection() {
+    public static OpenInjectionStep[] injection() {
         final int users = intProperty(ConfigKey.USERS);
         final int durationSeconds = intProperty(ConfigKey.DURATION_SECONDS);
         final String mode = property(ConfigKey.INJECTION_MODE).toLowerCase(Locale.ROOT);
-        return switch (mode) {
-            case "at-once-users" -> atOnceUsers(users);
-            case "constant-users-per-sec" -> constantUsersPerSec(doubleProperty(ConfigKey.USERS_PER_SECOND))
-                    .during(Duration.ofSeconds(durationSeconds));
-            case "ramp-users-per-sec" -> rampUsersPerSec(doubleProperty(ConfigKey.USERS_PER_SECOND))
+        final List<OpenInjectionStep> steps = new ArrayList<>();
+        addScheduledStartDelay(steps);
+        switch (mode) {
+            case "at-once-users" -> steps.add(atOnceUsers(users));
+            case "constant-users-per-sec" -> steps.add(constantUsersPerSec(doubleProperty(ConfigKey.USERS_PER_SECOND))
+                    .during(Duration.ofSeconds(durationSeconds)));
+            case "ramp-users-per-sec" -> steps.add(rampUsersPerSec(doubleProperty(ConfigKey.USERS_PER_SECOND))
                     .to(doubleProperty(ConfigKey.TARGET_USERS_PER_SECOND))
-                    .during(Duration.ofSeconds(durationSeconds));
-            default -> rampUsers(users).during(Duration.ofSeconds(durationSeconds));
+                    .during(Duration.ofSeconds(durationSeconds)));
+            case "ticket-open" -> addTicketOpenSteps(steps, doubleProperty(ConfigKey.USERS_PER_SECOND));
+            default -> steps.add(rampUsers(users).during(Duration.ofSeconds(durationSeconds)));
+        }
+        return steps.toArray(OpenInjectionStep[]::new);
+    }
+
+    public static OpenInjectionStep[] ticketOpenRecoveryInjection() {
+        if (!ticketOpenEnabled()) {
+            throw new IllegalStateException("Ticket-open recovery injection requires -DinjectionMode=ticket-open");
+        }
+        final List<OpenInjectionStep> steps = new ArrayList<>();
+        addScheduledStartDelay(steps);
+        steps.add(nothingFor(ticketOpenDuration().plusSeconds(TICKET_OPEN_RECOVERY_DELAY_SECONDS)));
+        steps.add(constantUsersPerSec(TICKET_OPEN_RECOVERY_USERS_PER_SECOND)
+                .during(Duration.ofSeconds(TICKET_OPEN_RECOVERY_SECONDS)));
+        return steps.toArray(OpenInjectionStep[]::new);
+    }
+
+    public static boolean ticketOpenEnabled() {
+        return "ticket-open".equalsIgnoreCase(property(ConfigKey.INJECTION_MODE));
+    }
+
+    public static int expectedUsers() {
+        final int users = intProperty(ConfigKey.USERS);
+        final int durationSeconds = intProperty(ConfigKey.DURATION_SECONDS);
+        final double usersPerSecond = doubleProperty(ConfigKey.USERS_PER_SECOND);
+        return switch (property(ConfigKey.INJECTION_MODE).toLowerCase(Locale.ROOT)) {
+            case "at-once-users" -> users;
+            case "constant-users-per-sec" -> estimateConstantUsers(usersPerSecond, durationSeconds);
+            case "ramp-users-per-sec" -> estimateRampUsers(usersPerSecond,
+                    doubleProperty(ConfigKey.TARGET_USERS_PER_SECOND), durationSeconds);
+            case "ticket-open" -> ticketOpenExpectedUsers(usersPerSecond);
+            default -> users;
         };
     }
 
@@ -303,7 +348,11 @@ public final class LoadTestConfig {
 
     private static String nextAccessToken() {
         final CsvValues csvValues = CSV_VALUES.computeIfAbsent(ConfigKey.ACCESS_TOKENS, ignored -> parseAccessTokens());
-        return csvValues.values().get(Math.floorMod(TOKEN_COUNTER.getAndIncrement(), csvValues.values().size()));
+        final int index = TOKEN_COUNTER.getAndIncrement();
+        if (index >= csvValues.values().size()) {
+            throw new IllegalStateException("Access token values exhausted");
+        }
+        return csvValues.values().get(index);
     }
 
     private static CsvValues parseCsv(final ConfigKey key) {
@@ -318,11 +367,78 @@ public final class LoadTestConfig {
     }
 
     private static CsvValues parseAccessTokens() {
-        return new CsvValues(LoadTestTokenValues.fromCsvOrFile(
+        final List<String> values = LoadTestTokenValues.fromCsvOrFile(
                 System.getProperty(ConfigKey.ACCESS_TOKENS.propertyName()),
                 optionalProperty(ConfigKey.ACCESS_TOKENS_FILE, ""),
                 ConfigKey.ACCESS_TOKENS.propertyName()
-        ));
+        );
+        if (values.size() < expectedUsers()) {
+            throw new IllegalStateException("Access token values are fewer than expected users: required="
+                    + expectedUsers() + ", available=" + values.size());
+        }
+        final Set<Long> memberIds = new HashSet<>();
+        for (String value : values) {
+            if (!memberIds.add(LoadTestTokens.readSubjectAsLong(value))) {
+                throw new IllegalStateException("Access token values must have unique member subjects");
+            }
+        }
+        return new CsvValues(values);
+    }
+
+    private static void addScheduledStartDelay(final List<OpenInjectionStep> steps) {
+        final long startAtEpochMillis = longProperty(ConfigKey.START_AT_EPOCH_MILLIS);
+        if (startAtEpochMillis <= 0L) {
+            return;
+        }
+        final long delayMillis = startAtEpochMillis - System.currentTimeMillis();
+        if (delayMillis <= 0L) {
+            throw new IllegalStateException("Scheduled load-test start time has already passed");
+        }
+        steps.add(nothingFor(Duration.ofMillis(delayMillis)));
+    }
+
+    private static void addTicketOpenSteps(final List<OpenInjectionStep> steps, final double peakUsersPerSecond) {
+        final double firstDecayUsersPerSecond = peakUsersPerSecond * 0.5;
+        final double secondDecayUsersPerSecond = peakUsersPerSecond * 0.2;
+        final double tailUsersPerSecond = peakUsersPerSecond * 0.1;
+        steps.add(constantUsersPerSec(peakUsersPerSecond)
+                .during(Duration.ofSeconds(TICKET_OPEN_PEAK_SECONDS)));
+        steps.add(rampUsersPerSec(peakUsersPerSecond).to(firstDecayUsersPerSecond)
+                .during(Duration.ofSeconds(TICKET_OPEN_FIRST_DECAY_SECONDS)));
+        steps.add(rampUsersPerSec(firstDecayUsersPerSecond).to(secondDecayUsersPerSecond)
+                .during(Duration.ofSeconds(TICKET_OPEN_SECOND_DECAY_SECONDS)));
+        steps.add(rampUsersPerSec(secondDecayUsersPerSecond).to(tailUsersPerSecond)
+                .during(Duration.ofSeconds(TICKET_OPEN_TAIL_SECONDS)));
+    }
+
+    private static int ticketOpenExpectedUsers(final double peakUsersPerSecond) {
+        final double firstDecayUsersPerSecond = peakUsersPerSecond * 0.5;
+        final double secondDecayUsersPerSecond = peakUsersPerSecond * 0.2;
+        final double tailUsersPerSecond = peakUsersPerSecond * 0.1;
+        return estimateConstantUsers(peakUsersPerSecond, TICKET_OPEN_PEAK_SECONDS)
+                + estimateRampUsers(peakUsersPerSecond, firstDecayUsersPerSecond, TICKET_OPEN_FIRST_DECAY_SECONDS)
+                + estimateRampUsers(firstDecayUsersPerSecond, secondDecayUsersPerSecond, TICKET_OPEN_SECOND_DECAY_SECONDS)
+                + estimateRampUsers(secondDecayUsersPerSecond, tailUsersPerSecond, TICKET_OPEN_TAIL_SECONDS)
+                + estimateConstantUsers(TICKET_OPEN_RECOVERY_USERS_PER_SECOND, TICKET_OPEN_RECOVERY_SECONDS);
+    }
+
+    private static int estimateConstantUsers(final double usersPerSecond, final int durationSeconds) {
+        return (int) Math.ceil(usersPerSecond * durationSeconds);
+    }
+
+    private static int estimateRampUsers(
+            final double startUsersPerSecond,
+            final double endUsersPerSecond,
+            final int durationSeconds
+    ) {
+        return (int) Math.ceil(((startUsersPerSecond + endUsersPerSecond) / 2.0) * durationSeconds);
+    }
+
+    private static Duration ticketOpenDuration() {
+        return Duration.ofSeconds(TICKET_OPEN_PEAK_SECONDS
+                + TICKET_OPEN_FIRST_DECAY_SECONDS
+                + TICKET_OPEN_SECOND_DECAY_SECONDS
+                + TICKET_OPEN_TAIL_SECONDS);
     }
 
     private static String seatIdsJsonArray() {
@@ -461,7 +577,8 @@ public final class LoadTestConfig {
         BOOKING_SCENARIO,
         NODE_INDEX,
         RESULT_FILE,
-        POLLING_TIMEOUT_SECONDS;
+        POLLING_TIMEOUT_SECONDS,
+        START_AT_EPOCH_MILLIS;
 
         private String propertyName() {
             return switch (this) {
@@ -505,6 +622,7 @@ public final class LoadTestConfig {
                 case NODE_INDEX -> "nodeIndex";
                 case RESULT_FILE -> "resultFile";
                 case POLLING_TIMEOUT_SECONDS -> "pollingTimeoutSeconds";
+                case START_AT_EPOCH_MILLIS -> "startAtEpochMillis";
             };
         }
 
@@ -545,6 +663,7 @@ public final class LoadTestConfig {
                 case NODE_INDEX -> "0";
                 case RESULT_FILE -> "build/reports/booking-results.csv";
                 case POLLING_TIMEOUT_SECONDS -> "300";
+                case START_AT_EPOCH_MILLIS -> "0";
                 case ACCESS_TOKENS, ACCESS_TOKENS_FILE, ADMISSION_TOKENS, JWT_SECRET -> null;
             };
         }

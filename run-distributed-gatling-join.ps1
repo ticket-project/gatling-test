@@ -12,6 +12,8 @@ param(
     [int]$PerformanceId = 1,
     [int]$RpsPerNode = 100,
     [int]$DurationSeconds = 300,
+    [string]$InjectionMode = "constant-users-per-sec",
+    [long]$StartAtEpochMillis = 0,
     [int]$StatusPolls = 1,
     [int]$StatusPollPauseSeconds = 0,
     [int]$StatusPollPauseJitterSeconds = 0,
@@ -50,6 +52,8 @@ $arguments = @{
     PerformanceId = $PerformanceId
     RpsPerNode = $RpsPerNode
     DurationSeconds = $DurationSeconds
+    InjectionMode = $InjectionMode
+    StartAtEpochMillis = $StartAtEpochMillis
     StatusPolls = $StatusPolls
     StatusPollPauseSeconds = $StatusPollPauseSeconds
     StatusPollPauseJitterSeconds = $StatusPollPauseJitterSeconds

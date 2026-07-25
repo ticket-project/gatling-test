@@ -91,6 +91,10 @@ EC2 분산 실행은 `queue-join-only`, `legacy-queue-status`, `cdn-public-state
 
 join 분산 스크립트는 기본적으로 로컬 `gatling-test` 프로젝트를 각 EC2의 `~/gatling-test`로 압축 동기화한 뒤 실행한다. 따라서 콘솔에서 방금 수정한 simulation이나 token generator가 EC2에도 반영된다. 수동 실행에서 동기화를 건너뛰려면 `run-distributed-gatling-join.ps1`에 `-SkipSyncProject`를 지정한다.
 
+`queue-join-only`에서는 `예매 오픈` 빠른 설정 또는 `예매 오픈 패턴` 주입 방식을 선택할 수 있다. 입력하는 `초당 사용자 수 / 최고 RPS`는 분산 실행 시 **노드 1대당 최고 RPS**다. 콘솔은 단계별 부하와 회복 확인까지 포함한 노드별 토큰 수를 자동 계산한다.
+
+예를 들어 최고 RPS를 10으로 지정하면 노드마다 본 부하 730명과 회복 확인 60명, 총 790개의 고유 access token이 필요하다. 분산 실행은 프로젝트 동기화와 사전 확인을 마친 뒤 약 2분 후의 동일한 예매 오픈 시각에 모든 노드를 최고 RPS로 시작시킨다.
+
 ## Token mode
 
 | Mode | 동작 | 사용 조건 |

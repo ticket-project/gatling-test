@@ -298,8 +298,32 @@ public record LoadTestRequest(
         return switch (injectionMode) {
             case "constant-users-per-sec" -> (int) Math.ceil(usersPerSecond * durationSeconds);
             case "ramp-users-per-sec" -> (int) Math.ceil(((usersPerSecond + targetUsersPerSecond) / 2.0) * durationSeconds);
+            case "ticket-open" -> ticketOpenExpectedUsers(usersPerSecond);
             default -> users;
         };
+    }
+
+    private static int ticketOpenExpectedUsers(final double peakUsersPerSecond) {
+        final double firstDecay = peakUsersPerSecond * 0.5;
+        final double secondDecay = peakUsersPerSecond * 0.2;
+        final double tail = peakUsersPerSecond * 0.1;
+        return constantUsers(peakUsersPerSecond, 10)
+                + rampUsers(peakUsersPerSecond, firstDecay, 20)
+                + rampUsers(firstDecay, secondDecay, 60)
+                + rampUsers(secondDecay, tail, 180)
+                + constantUsers(1.0, 60);
+    }
+
+    private static int constantUsers(final double usersPerSecond, final int durationSeconds) {
+        return (int) Math.ceil(usersPerSecond * durationSeconds);
+    }
+
+    private static int rampUsers(
+            final double startUsersPerSecond,
+            final double endUsersPerSecond,
+            final int durationSeconds
+    ) {
+        return (int) Math.ceil(((startUsersPerSecond + endUsersPerSecond) / 2.0) * durationSeconds);
     }
 
     private static String defaultIfBlank(final String value, final String defaultValue) {

@@ -28,6 +28,18 @@ Header/cookie/auth 없음
 
 `/join` 부하 테스트의 `https://queue.oneticket.site`는 Cloudflare를 거치지 않고 Queue origin Nginx로 직접 요청한다. `cdn-public-state` 테스트는 별도의 Cloudflare state endpoint가 구성된 경우에만 CDN 캐시를 검증하며, 실행 전 `CF-Ray`와 `CF-Cache-Status` 응답 헤더를 확인한다.
 
+## `/join` 예매 오픈 패턴
+
+`QueueJoinOnlySimulation`은 `-DinjectionMode=ticket-open`에서 실제 예매 오픈에 가까운 형태로 사용자를 투입한다.
+
+- 예매 오픈 시각부터 최고 RPS로 10초 유지
+- 20초 동안 50%, 다음 60초 동안 20%, 다음 180초 동안 10%까지 감소
+- 본 부하 종료 30초 후 60초 동안 1 RPS로 회복 상태 확인(총 360초)
+
+분산 실행은 모든 노드에 동일한 UTC 예매 오픈 시각을 전달하고 그 시각부터 최고 RPS로 시작한다. 준비가 늦어 시작 시각을 놓친 노드는 늦게 합류하지 않고 실패한다. 토큰 파일은 본 부하와 회복 확인에 필요한 사용자 수 이상이어야 하며, member subject가 중복되면 실행을 거부한다.
+
+성공 조건은 전체 실패율 1% 미만, 본 부하와 회복 구간 각각의 `/join` p99 2초 미만이다. 응답의 `queueToken`, `shardId`, `localSeq`, `pollAfterMs`도 함께 검증한다.
+
 ## Access token 파일 생성
 
 큰 `/join` 부하 테스트에서는 실행 중 synthetic JWT를 만들지 말고 토큰 파일을 미리 만들어 `-DaccessTokenMode=tokens -DaccessTokensFile=...`로 사용한다.

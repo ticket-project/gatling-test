@@ -43,6 +43,7 @@ public class LoadTestService {
         if (runningRunId.get() != null) {
             throw new IllegalStateException("A load test is already running");
         }
+        validateInjectionMode(request);
         validateConfiguredTokens(request);
         validateConfiguredAdmissionTokens(request);
         validateSyntheticJwt(request);
@@ -56,6 +57,13 @@ public class LoadTestService {
         runningRunId.set(runId);
         executor.submit(() -> execute(run, request));
         return run;
+    }
+
+    private void validateInjectionMode(final LoadTestRequest request) {
+        if ("ticket-open".equalsIgnoreCase(request.injectionMode())
+                && request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
+            throw new IllegalArgumentException("예매 오픈 패턴은 Queue Join Only 테스트에서만 사용할 수 있습니다.");
+        }
     }
 
     private void validateConfiguredTokens(final LoadTestRequest request) {

@@ -12,6 +12,8 @@ param(
     [int]$PerformanceId = 1,
     [int]$RpsPerNode = 100,
     [int]$DurationSeconds = 300,
+    [string]$InjectionMode = "constant-users-per-sec",
+    [long]$StartAtEpochMillis = 0,
     [int]$StatusPolls = 1,
     [int]$StatusPollPauseSeconds = 0,
     [int]$StatusPollPauseJitterSeconds = 0,
@@ -112,6 +114,9 @@ function New-RunDirectoryName {
         "nodes$nodeCount",
         "dur${DurationSeconds}s"
     )
+    if ($InjectionMode -ne "constant-users-per-sec") {
+        $parts += "profile$InjectionMode"
+    }
 
     if ($GenerateAccessTokens) {
         $parts += "tokens$EffectiveTokenCountPerNode"
@@ -140,6 +145,19 @@ function New-RunDirectoryName {
     return $name.Trim("._-")
 }
 
+
+function Get-ExpectedUsersPerNode {
+    if ($InjectionMode -ne "ticket-open") {
+        return [Math]::Max(1, [int][Math]::Ceiling($RpsPerNode * $DurationSeconds))
+    }
+    $firstDecay = $RpsPerNode * 0.5
+    $secondDecay = $RpsPerNode * 0.2
+    $tail = $RpsPerNode * 0.1
+    return [int]([Math]::Ceiling($RpsPerNode * 10) +
+        [Math]::Ceiling((($RpsPerNode + $firstDecay) / 2.0) * 20) +
+        [Math]::Ceiling((($firstDecay + $secondDecay) / 2.0) * 60) +
+        [Math]::Ceiling((($secondDecay + $tail) / 2.0) * 180) + 60)
+}
 function New-UniqueRunDirectoryPath {
     param(
         [string]$Root,
@@ -284,7 +302,8 @@ function New-GatlingArgs {
         "-DperformanceId=$PerformanceId",
         "-Dusers=1",
         "-DdurationSeconds=$DurationSeconds",
-        "-DinjectionMode=constant-users-per-sec",
+        "-DinjectionMode=$InjectionMode",
+        "-DstartAtEpochMillis=$StartAtEpochMillis",
         "-DusersPerSecond=$RpsPerNode",
         "-DtargetUsersPerSecond=$RpsPerNode",
         "-DstatusPolls=$StatusPolls",
@@ -651,11 +670,20 @@ if ($Hosts.Count -eq 0) {
 if ($GenerateAccessTokens -and [string]::IsNullOrWhiteSpace($JwtSecret)) {
     throw "JwtSecret is required when GenerateAccessTokens is enabled"
 }
-
+if ($InjectionMode -notin @("constant-users-per-sec", "ticket-open")) {
+    throw "Distributed Queue/CDN runner supports constant-users-per-sec or ticket-open: $InjectionMode"
+}
+if ($InjectionMode -eq "ticket-open" -and $Simulation -notlike "*QueueJoinOnlySimulation") {
+    throw "ticket-open injection is supported only for QueueJoinOnlySimulation"
+}
+$requiredTokenCountPerNode = Get-ExpectedUsersPerNode
 $EffectiveTokenCountPerNode = if ($TokenCountPerNode -gt 0) {
     $TokenCountPerNode
 } else {
-    [Math]::Max(1, [int][Math]::Ceiling($RpsPerNode * $DurationSeconds))
+    $requiredTokenCountPerNode
+}
+if ($GenerateAccessTokens -and $EffectiveTokenCountPerNode -lt $requiredTokenCountPerNode) {
+    throw "TokenCountPerNode is too small: required=$requiredTokenCountPerNode, configured=$EffectiveTokenCountPerNode"
 }
 
 $startedAt = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -677,6 +705,7 @@ Write-Host "HTTP/2 enabled: $($EnableHttp2.IsPresent)"
 if (-not [string]::IsNullOrWhiteSpace($AccessTokenMode)) {
     Write-Host "Access token mode: $AccessTokenMode"
 }
+Write-Host "Injection mode: $InjectionMode"
 if ($GenerateAccessTokens) {
     Write-Host "Generated tokens per node: $EffectiveTokenCountPerNode"
 }
@@ -704,6 +733,13 @@ if (-not $SkipPreflight) {
 $jobs = @()
 $remoteReportRoots = @{}
 $nodeIndex = 0
+
+if ($InjectionMode -eq "ticket-open" -and $StartAtEpochMillis -le 0) {
+    $StartAtEpochMillis = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + 120000
+}
+if ($StartAtEpochMillis -gt 0) {
+    Write-Host "Scheduled start UTC: $([DateTimeOffset]::FromUnixTimeMilliseconds($StartAtEpochMillis).UtcDateTime.ToString('O'))"
+}
 
 foreach ($hostName in $Hosts) {
     $safeName = New-SafeNodeName $hostName

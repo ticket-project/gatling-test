@@ -75,6 +75,10 @@ public class DistributedGatlingCommandBuilder {
     private void addLegacyDistributedArguments(final List<String> command, final LoadTestRequest request) {
         command.add("-BaseUrl");
         command.add(request.baseUrl());
+        if (request.simulationType() == SimulationType.QUEUE_JOIN_ONLY) {
+            command.add("-InjectionMode");
+            command.add(request.injectionMode());
+        }
         command.add("-StatusPolls");
         command.add(String.valueOf(request.statusPolls()));
         command.add("-StatusPollPauseSeconds");

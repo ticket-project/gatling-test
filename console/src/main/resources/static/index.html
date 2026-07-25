@@ -573,6 +573,7 @@
           <button class="secondary-button" type="button" data-preset="smoke">Smoke</button>
           <button class="secondary-button" type="button" data-preset="spike">Spike</button>
           <button class="secondary-button" type="button" data-preset="ramp">Ramp</button>
+          <button class="secondary-button" type="button" data-preset="ticketOpen">예매 오픈</button>
         </div>
 
         <label for="simulation">테스트 종류 <span class="help-chip" tabindex="0" data-help="실행할 Gatling 시나리오입니다. 대기열 진입, 예매 오픈 흐름, 홀드 경합, 티켓 서버 용량 테스트를 선택합니다.">?</span></label>
@@ -684,12 +685,13 @@ ubuntu@43.203.136.184</textarea>
 
       <fieldset>
         <legend>부하 모델</legend>
-        <label for="injectionMode">주입 방식 <span class="help-chip" tabindex="0" data-help="가상 사용자를 어떤 패턴으로 투입할지 정합니다. 점진 투입은 users명을 duration 동안 나눠 넣고, 즉시 투입은 users명을 한 번에 시작합니다. 초당 고정/증가는 users per second 기준입니다.">?</span></label>
+        <label for="injectionMode">주입 방식 <span class="help-chip" tabindex="0" data-help="예매 오픈 패턴은 실행 즉시 최고 RPS → 단계적 감소 → 회복 확인 순서로 실행합니다. Queue Join Only에서만 사용할 수 있습니다.">?</span></label>
         <select id="injectionMode" name="injectionMode">
           <option value="ramp-users">점진 사용자 투입</option>
           <option value="at-once-users">즉시 동시 투입</option>
           <option value="constant-users-per-sec">초당 고정 투입</option>
           <option value="ramp-users-per-sec">초당 증가 투입</option>
+          <option value="ticket-open">예매 오픈 패턴</option>
         </select>
 
         <div class="grid-2">
@@ -705,7 +707,7 @@ ubuntu@43.203.136.184</textarea>
 
         <div class="grid-2" data-injection="rate">
           <div>
-            <label for="usersPerSecond">시작 초당 사용자 수 <span class="help-chip" tabindex="0" data-help="1초에 새로 시작시키는 사용자 수입니다. 3이면 매초 3명의 새 가상 사용자가 들어옵니다. constant 모드에서는 이 값으로 계속 유지합니다.">?</span></label>
+            <label for="usersPerSecond">초당 사용자 수 / 최고 RPS <span class="help-chip" tabindex="0" data-help="일반 모드에서는 초당 투입 수입니다. 예매 오픈 패턴에서는 오픈 직후 도달할 노드당 최고 RPS입니다.">?</span></label>
             <input id="usersPerSecond" name="usersPerSecond" type="number" min="0.1" step="0.1" value="1">
           </div>
           <div data-injection="target-rate">
@@ -973,7 +975,8 @@ let stopRequestInFlight = false;
 const presets = {
   smoke: { users: 5, durationSeconds: 10, injectionMode: 'ramp-users', usersPerSecond: 1, targetUsersPerSecond: 5 },
   spike: { users: 30, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 10 },
-  ramp: { users: 50, durationSeconds: 30, injectionMode: 'ramp-users-per-sec', usersPerSecond: 1, targetUsersPerSecond: 10 }
+  ramp: { users: 50, durationSeconds: 30, injectionMode: 'ramp-users-per-sec', usersPerSecond: 1, targetUsersPerSecond: 10 },
+  ticketOpen: { simulation: 'queue-join-only', users: 10, durationSeconds: 270, injectionMode: 'ticket-open', usersPerSecond: 10, targetUsersPerSecond: 10 }
 };
 
 async function loadSimulations() {
@@ -1101,8 +1104,8 @@ function updateVisibility() {
   setVisible('[data-option="poll-jitter"]', selected?.usesStatusPolling);
   setVisible('[data-option="access-token"]', selected?.usesAccessTokens);
   setVisible('[data-option="admission-token"]', selected?.usesAdmissionTokens);
-  setVisible('[data-injection="duration"]', mode !== 'at-once-users');
-  setVisible('[data-injection="rate"]', distributed || mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec');
+  setVisible('[data-injection="duration"]', mode !== 'at-once-users' && mode !== 'ticket-open');
+  setVisible('[data-injection="rate"]', distributed || mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec' || mode === 'ticket-open');
   setVisible('[data-injection="target-rate"]', !distributed && mode === 'ramp-users-per-sec');
   setVisible('[data-token-mode="login"]', tokenMode === 'login');
   setVisible('[data-token-mode="tokens"]', tokenMode === 'tokens');
@@ -1124,6 +1127,9 @@ function setVisible(selector, visible) {
 
 function applyDistributedQueueJoinDefaults() {
   const selected = selectedSimulation();
+  if (selected?.key !== 'queue-join-only' && injectionMode.value === 'ticket-open') {
+    injectionMode.value = 'constant-users-per-sec';
+  }
   if (executionMode.value !== 'distributed' || selected?.key !== 'queue-join-only') {
     return;
   }
@@ -1250,15 +1256,17 @@ function validateBeforeRun(body) {
 }
 
 function estimateVirtualUsers(body) {
+  const mode = String(body.get('injectionMode') || 'ramp-users');
+  const usersPerSecond = Number(body.get('usersPerSecond') || 0);
   if (String(body.get('executionMode') || 'local') === 'distributed') {
     const duration = Number(body.get('durationSeconds') || 0);
-    const usersPerSecond = Number(body.get('usersPerSecond') || 0);
+    if (mode === 'ticket-open') {
+      return ticketOpenExpectedUsers(usersPerSecond) * distributedNodeCount(body);
+    }
     return Math.ceil(duration * usersPerSecond * distributedNodeCount(body));
   }
-  const mode = String(body.get('injectionMode') || 'ramp-users');
   const users = Number(body.get('users') || 0);
   const duration = Number(body.get('durationSeconds') || 0);
-  const usersPerSecond = Number(body.get('usersPerSecond') || 0);
   const targetUsersPerSecond = Number(body.get('targetUsersPerSecond') || 0);
 
   if (mode === 'constant-users-per-sec') {
@@ -1267,7 +1275,23 @@ function estimateVirtualUsers(body) {
   if (mode === 'ramp-users-per-sec') {
     return Math.ceil(((usersPerSecond + targetUsersPerSecond) / 2) * duration);
   }
+  if (mode === 'ticket-open') {
+    return ticketOpenExpectedUsers(usersPerSecond);
+  }
   return users;
+}
+
+function ticketOpenExpectedUsers(peakRps) {
+  const firstDecay = peakRps * 0.5;
+  const secondDecay = peakRps * 0.2;
+  const tail = peakRps * 0.1;
+  const constant = (rps, seconds) => Math.ceil(rps * seconds);
+  const ramp = (start, end, seconds) => Math.ceil(((start + end) / 2) * seconds);
+  return constant(peakRps, 10)
+          + ramp(peakRps, firstDecay, 20)
+          + ramp(firstDecay, secondDecay, 60)
+          + ramp(secondDecay, tail, 180)
+          + constant(1, 60);
 }
 
 function syncGeneratedAccessTokenFields(estimatedUsers) {
@@ -1295,8 +1319,12 @@ function normalizeAccessTokenSourceForRun(body) {
 
 function estimateAccessTokensPerNode(body) {
   if (String(body.get('executionMode') || 'local') === 'distributed') {
+    const mode = String(body.get('injectionMode') || 'ramp-users');
     const duration = Number(body.get('durationSeconds') || 0);
     const usersPerSecond = Number(body.get('usersPerSecond') || 0);
+    if (mode === 'ticket-open') {
+      return ticketOpenExpectedUsers(usersPerSecond);
+    }
     return Math.ceil(duration * usersPerSecond);
   }
   return estimateVirtualUsers(body);
@@ -1383,6 +1411,7 @@ function applyPreset(name) {
     const input = document.querySelector(`[name="${key}"]`);
     if (input) input.value = value;
   });
+  applySimulationDefaultBaseUrl();
   updateVisibility();
   updateSummary();
 }
@@ -1464,7 +1493,7 @@ form.addEventListener('input', updateSummary);
 simulationSelect.addEventListener('change', () => { applySimulationDefaultBaseUrl(); updateVisibility(); updateSummary(); });
 injectionMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
 executionMode.addEventListener('change', () => {
-  if (executionMode.value === 'distributed') {
+  if (executionMode.value === 'distributed' && selectedSimulation()?.key !== 'queue-join-only') {
     injectionMode.value = 'constant-users-per-sec';
   }
   updateVisibility();

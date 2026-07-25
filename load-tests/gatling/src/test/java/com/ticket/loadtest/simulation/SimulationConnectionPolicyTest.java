@@ -68,14 +68,14 @@ class SimulationConnectionPolicyTest {
     void queueJoinOnlySimulationOnlyCallsJoin() throws IOException {
         final String source = readSimulation("QueueJoinOnlySimulation.java");
 
-        assertTrue(source.contains("scenario(\"queue-join-only\")"));
+        assertTrue(source.contains("buildScenario(\"queue-join-only\""));
         assertTrue(source.contains("queue join"));
         assertTrue(source.contains(".post(LoadTestConfig.queueBaseUrl() + \"/api/v1/queue/performances/#{performanceId}/join\")"));
         assertTrue(source.contains(".headers(LoadTestConfig.authHeaders())"));
         assertTrue(source.contains(".check(status().is(200))"));
         assertTrue(source.contains(".check(jsonPath(\"$.queueToken\").saveAs(\"queueToken\"))"));
         assertTrue(source.contains(".check(jsonPath(\"$.seq\").ofLong().optional().saveAs(\"queueSeq\"))"));
-        assertTrue(source.contains(".check(jsonPath(\"$.localSeq\").ofLong().optional().saveAs(\"queueLocalSeq\"))"));
+        assertTrue(source.contains(".check(jsonPath(\"$.localSeq\").ofLong().saveAs(\"queueLocalSeq\"))"));
         assertTrue(source.contains("LoadTestConfig.http2Enabled() ? protocol.enableHttp2() : protocol"));
         assertFalse(source.contains("queue enter"), "join-only simulation must not call enter");
         assertFalse(source.contains("/api/v1/queue/performances/#{performanceId}/enter"), "join-only simulation must not call enter");
