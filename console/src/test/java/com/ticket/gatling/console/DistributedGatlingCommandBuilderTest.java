@@ -135,4 +135,60 @@ class DistributedGatlingCommandBuilderTest {
         assertFalse(command.contains("-JwtSecret"));
         assertFalse(command.contains("-AdmissionTokenSecret"));
     }
+    @Test
+    void passesRunDescriptionToDistributedScript() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket-workspace/gatling-test"),
+                "executionMode", List.of("distributed"),
+                "simulation", List.of("cdn-public-state")
+        ));
+
+        final List<String> command = new DistributedGatlingCommandBuilder().build(
+                request,
+                RUN_ID,
+                "runId=f8290000,core=4vCPU/8GiB"
+        );
+
+        assertTrue(command.contains("-RunDescription"));
+        assertTrue(command.contains("runId=f8290000,core=4vCPU/8GiB"));
+    }
+    @Test
+    void buildsClosedCoreDistributedCommandWithConcurrencyAndFeederRows() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
+                Map.entry("ticketProjectPath", List.of("C:/ticket-workspace/gatling-test")),
+                Map.entry("executionMode", List.of("distributed")),
+                Map.entry("simulation", List.of("core-active-users-closed")),
+                Map.entry("coreBaseUrl", List.of("https://api.example.com")),
+                Map.entry("bookingFeederFile", List.of("C:/feeders/closed.csv")),
+                Map.entry("bookingFeederRows", List.of("10000")),
+                Map.entry("users", List.of("100")),
+                Map.entry("injectionMode", List.of("closed-core"))
+        ));
+
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+
+        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-booking.ps1")));
+        assertTrue(command.contains("-ConcurrentUsersPerNode"));
+        assertTrue(command.contains("100"));
+        assertTrue(command.contains("-FeederRowsPerNode"));
+        assertTrue(command.contains("10000"));
+    }
+
+    @Test
+    void passesSpikeTargetRpsToDistributedRunner() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket-workspace/gatling-test"),
+                "executionMode", List.of("distributed"),
+                "simulation", List.of("core-spike"),
+                "injectionMode", List.of("spike"),
+                "usersPerSecond", List.of("100"),
+                "targetUsersPerSecond", List.of("2000")
+        ));
+
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+
+        assertTrue(command.contains("-TargetRpsPerNode"));
+        assertTrue(command.contains("2000"));
+    }
+
 }

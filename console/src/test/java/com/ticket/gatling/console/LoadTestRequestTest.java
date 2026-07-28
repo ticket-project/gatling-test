@@ -162,6 +162,16 @@ class LoadTestRequestTest {
         assertEquals(600, request.estimatedVirtualUsers());
     }
     @Test
+    void doesNotReuseGenericQueueUrlAsBookingCoreUrl() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "simulation", List.of("core-admission-capacity"),
+                "baseUrl", List.of("https://queue.oneticket.site")
+        ));
+
+        assertEquals("", request.coreBaseUrl());
+        assertEquals("", request.queueBaseUrl());
+    }
+    @Test
     void readsBookingExecutionOptionsFromForm() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "simulation", List.of("ticket-open-end-to-end"),
@@ -186,4 +196,28 @@ class LoadTestRequestTest {
         assertEquals("~/gatling-booking", request.distributedRemoteProjectDir());
         assertEquals(true, request.operationalConfirmation());
     }
+    @Test
+    void usesExplicitFeederRowsForClosedCoreModel() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "simulation", List.of("core-active-users-closed"),
+                "injectionMode", List.of("closed-core"),
+                "users", List.of("300"),
+                "bookingFeederRows", List.of("12000")
+        ));
+
+        assertEquals(300, request.estimatedVirtualUsers());
+        assertEquals(12000, request.expectedBookingRowsPerNode());
+    }
+
+    @Test
+    void estimatesAllFiveCoreSpikeSegments() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "injectionMode", List.of("spike"),
+                "usersPerSecond", List.of("100"),
+                "targetUsersPerSecond", List.of("2000"),
+                "durationSeconds", List.of("60")
+        ));
+
+        assertEquals(136500, request.estimatedVirtualUsers());
+}
 }

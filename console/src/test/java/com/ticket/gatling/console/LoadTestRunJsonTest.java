@@ -41,4 +41,18 @@ class LoadTestRunJsonTest {
         assertTrue(json.contains("\"log\""));
         assertTrue(json.contains("detail log line"));
     }
+
+    @Test
+    void detailLogRedactsBearerTokens() {
+        final LoadTestRun run = new LoadTestRun(
+                UUID.fromString("00000000-0000-0000-0000-000000000003"),
+                LoadTestRequest.fromForm(Map.of())
+        );
+
+        run.appendLog("{Authorization: Bearer header.payload.signature}, next");
+
+        assertTrue(run.log().contains("Authorization: Bearer ****"));
+        assertFalse(run.log().contains("header.payload.signature"));
+        assertTrue(run.log().contains("{Authorization: Bearer ****}, next"));
+    }
 }

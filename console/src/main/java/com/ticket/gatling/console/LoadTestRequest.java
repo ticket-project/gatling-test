@@ -55,10 +55,16 @@ public record LoadTestRequest(
         int generatedAccessTokenCount,
         String admissionTokens,
         String bookingFeederFile,
+        int bookingFeederRows,
         String bookingScenario,
         int nodeIndex,
         String resultFile,
-        boolean operationalConfirmation
+        double queueTimeoutThresholdPercent,
+        int maxCoreAdmissionsPerSecond,
+        double admissionRateTolerancePercent,
+        boolean dbAuditEnabled,
+        boolean operationalConfirmation,
+        RunEnvironmentInput environment
 ) {
     private static final String DEFAULT_LOAD_TESTS_PATH =
             "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test";
@@ -69,6 +75,9 @@ public record LoadTestRequest(
     public LoadTestRequest {
         if (users <= 0) {
             throw new IllegalArgumentException("users must be positive");
+        }
+        if (bookingFeederRows <= 0) {
+            throw new IllegalArgumentException("bookingFeederRows must be positive");
         }
         if (durationSeconds <= 0) {
             throw new IllegalArgumentException("durationSeconds must be positive");
@@ -97,6 +106,15 @@ public record LoadTestRequest(
         if (pollingTimeoutSeconds < 0) {
             throw new IllegalArgumentException("pollingTimeoutSeconds must be non-negative");
         }
+        if (queueTimeoutThresholdPercent < 0) {
+            throw new IllegalArgumentException("queueTimeoutThresholdPercent must be non-negative");
+        }
+        if (maxCoreAdmissionsPerSecond < 0) {
+            throw new IllegalArgumentException("maxCoreAdmissionsPerSecond must be non-negative");
+        }
+        if (admissionRateTolerancePercent < 0) {
+            throw new IllegalArgumentException("admissionRateTolerancePercent must be non-negative");
+        }
         if (nodeIndex < 0) {
             throw new IllegalArgumentException("nodeIndex must be non-negative");
         }
@@ -106,8 +124,13 @@ public record LoadTestRequest(
         ticketProjectPath = ticketProjectPath.toAbsolutePath().normalize();
         sshKeyPath = sshKeyPath.toAbsolutePath().normalize();
         baseUrl = defaultIfBlank(baseUrl, simulationType.defaultBaseUrl());
-        coreBaseUrl = defaultIfBlank(coreBaseUrl, baseUrl);
-        queueBaseUrl = defaultIfBlank(queueBaseUrl, baseUrl);
+        if (simulationType.usesBookingFeeder()) {
+            coreBaseUrl = defaultIfBlank(coreBaseUrl, "");
+            queueBaseUrl = defaultIfBlank(queueBaseUrl, "");
+        } else {
+            coreBaseUrl = defaultIfBlank(coreBaseUrl, baseUrl);
+            queueBaseUrl = defaultIfBlank(queueBaseUrl, baseUrl);
+        }
         performanceId = defaultIfBlank(performanceId, "1");
         seatIds = defaultIfBlank(seatIds, "1");
         injectionMode = defaultIfBlank(injectionMode, "ramp-users");
@@ -119,9 +142,7 @@ public record LoadTestRequest(
         loginEmailPrefix = defaultIfBlank(loginEmailPrefix, "loadtest");
         loginEmailDomain = defaultIfBlank(loginEmailDomain, "test.com");
         loginPassword = defaultIfBlank(loginPassword, "password1234");
-        jwtSecret = "synthetic-jwt".equals(accessTokenMode)
-                ? SYNTHETIC_JWT_SECRET
-                : (jwtSecret == null ? "" : jwtSecret.trim());
+        jwtSecret = defaultIfBlank(jwtSecret, SYNTHETIC_JWT_SECRET);
         jwtIssuer = defaultIfBlank(jwtIssuer, "ticket");
         syntheticJwtRole = defaultIfBlank(syntheticJwtRole, "MEMBER");
         admissionTokenMode = normalizeAdmissionTokenMode(admissionTokenMode);
@@ -141,6 +162,9 @@ public record LoadTestRequest(
         bookingFeederFile = defaultIfBlank(bookingFeederFile, "build/booking-feeder.csv");
         bookingScenario = defaultIfBlank(bookingScenario, simulationType.bookingScenario());
         resultFile = defaultIfBlank(resultFile, "build/reports/booking-results.csv");
+        environment = environment == null
+                ? RunEnvironmentInput.automatic(simulationType, baseUrl, coreBaseUrl, queueBaseUrl)
+                : environment;
     }
 
     public static LoadTestRequest fromForm(final Map<String, List<String>> form) {
@@ -197,10 +221,16 @@ public record LoadTestRequest(
                 intValue(form, "generatedAccessTokenCount", 0),
                 value(form, "admissionTokens", ""),
                 value(form, "bookingFeederFile", ""),
+                intValue(form, "bookingFeederRows", 10000),
                 value(form, "bookingScenario", ""),
                 intValue(form, "nodeIndex", 0),
                 value(form, "resultFile", ""),
-                booleanValue(form, "operationalConfirmation", false)
+                doubleValue(form, "queueTimeoutThresholdPercent", 0.0),
+                intValue(form, "maxCoreAdmissionsPerSecond", 0),
+                doubleValue(form, "admissionRateTolerancePercent", 10.0),
+                booleanValue(form, "dbAuditEnabled", false),
+                booleanValue(form, "operationalConfirmation", false),
+                null
         );
     }
 
@@ -212,6 +242,14 @@ public record LoadTestRequest(
     public int estimatedVirtualUsers() {
         return estimateVirtualUsers(users, durationSeconds, injectionMode, usersPerSecond, targetUsersPerSecond);
     }
+    public boolean closedBookingModel() {
+        return simulationType == SimulationType.CORE_ACTIVE_USERS_CLOSED;
+    }
+
+    public int expectedBookingRowsPerNode() {
+        return closedBookingModel() ? bookingFeederRows : estimatedVirtualUsers();
+    }
+
 
     public boolean generatesAccessTokensFile() {
         return simulationType.usesAccessTokens()
@@ -299,8 +337,21 @@ public record LoadTestRequest(
             case "constant-users-per-sec" -> (int) Math.ceil(usersPerSecond * durationSeconds);
             case "ramp-users-per-sec" -> (int) Math.ceil(((usersPerSecond + targetUsersPerSecond) / 2.0) * durationSeconds);
             case "ticket-open" -> ticketOpenExpectedUsers(usersPerSecond);
+            case "spike" -> coreSpikeExpectedUsers(usersPerSecond, targetUsersPerSecond, durationSeconds);
             default -> users;
         };
+    }
+
+    private static int coreSpikeExpectedUsers(
+            final double baselineUsersPerSecond,
+            final double peakUsersPerSecond,
+            final int peakHoldSeconds
+    ) {
+        return constantUsers(baselineUsersPerSecond, 30)
+                + rampUsers(baselineUsersPerSecond, peakUsersPerSecond, 5)
+                + constantUsers(peakUsersPerSecond, peakHoldSeconds)
+                + rampUsers(peakUsersPerSecond, baselineUsersPerSecond, 5)
+                + constantUsers(baselineUsersPerSecond, 30);
     }
 
     private static int ticketOpenExpectedUsers(final double peakUsersPerSecond) {

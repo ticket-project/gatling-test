@@ -6,8 +6,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 public class LoadTestRun {
+    private static final Pattern BEARER_AUTHORIZATION = Pattern.compile(
+            "(?i)(Authorization\\s*:\\s*Bearer\\s+)[A-Za-z0-9._~+/=-]+"
+    );
+
     public enum Status {
         RUNNING,
         STOPPED,
@@ -23,6 +28,7 @@ public class LoadTestRun {
     private volatile int exitCode = -1;
     private volatile Path reportDirectory;
     private volatile Instant finishedAt;
+    private volatile RunEnvironmentMetadata environmentMetadata;
     private volatile boolean stopRequested;
     private Process currentProcess;
 
@@ -48,8 +54,17 @@ public class LoadTestRun {
         return reportDirectory;
     }
 
+    RunEnvironmentMetadata environmentMetadata() {
+        return environmentMetadata;
+    }
+
+    void environmentMetadata(final RunEnvironmentMetadata environmentMetadata) {
+        this.environmentMetadata = environmentMetadata;
+    }
+
     public synchronized void appendLog(final String line) {
-        log.append(line).append(System.lineSeparator());
+        final String redacted = BEARER_AUTHORIZATION.matcher(line).replaceAll("$1****");
+        log.append(redacted).append(System.lineSeparator());
     }
 
     public synchronized String log() {
@@ -129,6 +144,8 @@ public class LoadTestRun {
                 + "\"exitCode\":" + exitCode + ","
                 + "\"reportUrl\":" + Json.nullable(reportUrl) + ","
                 + "\"reportPath\":" + Json.nullable(reportPath) + ","
+                + "\"environment\":"
+                + (environmentMetadata == null ? "null" : environmentMetadata.toJson(id)) + ","
                 + "\"log\":\"" + Json.escape(log()) + "\""
                 + "}";
     }

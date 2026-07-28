@@ -7,6 +7,7 @@ param(
     ),
     [string]$RemoteProjectDir = "~/gatling-test",
     [string]$ConsoleRunId = "",
+    [string]$RunDescription = "",
     [string]$BaseUrl = "https://queue.oneticket.site",
     [string]$Simulation = "com.ticket.loadtest.simulation.CdnPublicStateSimulation",
     [int]$PerformanceId = 1,
@@ -310,6 +311,10 @@ function New-GatlingArgs {
         "-DstatusPollPauseSeconds=$StatusPollPauseSeconds",
         "-DstatusPollPauseJitterSeconds=$StatusPollPauseJitterSeconds"
     )
+
+    if (-not [string]::IsNullOrWhiteSpace($RunDescription)) {
+        $args += @("--run-description", $RunDescription)
+    }
 
     if ($EnableHttp2) {
         $args += "-Dhttp2Enabled=true"

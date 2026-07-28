@@ -80,6 +80,12 @@ http://localhost:9090
 | `booking-capacity` | 사용자가 입력한 Ticket/Core URL |
 | `ticket-open-end-to-end` | 사용자가 입력한 Ticket/Core URL + Queue URL |
 | `seat-contention` | 사용자가 입력한 Ticket/Core URL |
+| `smoke` | `https://api.oneticket.site` |
+| `hot-seat-concurrency` | `https://api.oneticket.site` |
+| `core-admission-capacity` | `https://api.oneticket.site` |
+| `core-active-users-closed` | `https://api.oneticket.site` |
+| `core-spike` | `https://api.oneticket.site` |
+| `queue-protects-core` | Core `https://api.oneticket.site` + Queue `https://queue.oneticket.site` |
 
 `queue-join-only`의 `https://queue.oneticket.site`는 Queue origin Nginx를 직접 호출하며 Cloudflare를 거치지 않는다. `cdn-public-state`의 기본 URL은 입력 편의를 위한 값일 뿐이다. 현재 hostname이 DNS-only이면 CDN 테스트가 아니므로, 실행 전에 Cloudflare가 프록시하는 state endpoint로 바꾸고 `CF-Ray`, `CF-Cache-Status` 헤더를 확인한다.
 
@@ -190,24 +196,45 @@ rg -n "찾을_문구" .
 
 ## Booking 예매 부하 콘솔 사용
 
-콘솔의 새 booking 시나리오는 다음 세 가지다.
+Console의 `테스트 종류`에서 다음 여섯 시나리오를 직접 선택할 수 있다.
 
-| 선택값 | 의미 |
-| --- | --- |
-| `booking-capacity` | Queue를 거치지 않고 Ticket/Core 좌석 조회, 선택, 주문, PENDING 조회까지 측정 |
-| `ticket-open-end-to-end` | Queue join, state polling, enter, 좌석 선택, 주문까지 전체 오픈 흐름 측정 |
-| `seat-contention` | 여러 사용자가 같은 좌석을 선택/주문할 때 성공, 비즈니스 거절, 기술 오류를 분리 측정 |
+| 번호 | Console 선택값 | 부하 모델 | 검증 목적 |
+| --- | --- | --- | --- |
+| 01 | `01 Smoke` | 1명 즉시 실행 | 좌석 조회 → 좌석 선점 → 주문 생성 → 주문 조회 계약 확인 |
+| 02 | `02 Hot Seat Concurrency` | N명 동시 시작 | 같은 좌석의 선점 성공 1건, 주문 성공 1건, 나머지 정상 거절, 중복 0건 확인 |
+| 03 | `03 Core Admission Capacity (Open)` | Open Model | 초당 신규 사용자 입장률을 단계별로 올려 Core의 안전 입장률 결정 |
+| 04 | `04 Core Active Users (Closed)` | Closed Model | Core 안에서 동시에 활동하는 사용자 수의 안전 상한 결정 |
+| 05 | `05 Core Spike` | Open Model Spike | 기준 RPS에서 5초 동안 최고 RPS로 급증한 뒤 회복하는지 확인 |
+| 06 | `06 Queue Protects Core` | Open Model | 외부 유입은 높게 유지하면서 Queue가 Core 입장률을 보호하는지 확인 |
 
-필수 입력:
+### 실행 순서
 
-- `Ticket/Core URL`: 좌석/주문 API 대상 운영 URL. localhost는 booking 운영 테스트에서 거부된다.
-- `Queue URL`: `ticket-open-end-to-end`에서만 필수다.
-- `Booking Feeder CSV`: `memberId,accessToken,seatId,admissionToken` 4컬럼 UTF-8 no BOM 파일.
-- `초당 사용자 수`: EC2 분산에서는 VM 1대당 RPS로 사용된다.
-- `투입 시간`: feeder 필요 행 수 계산에 사용된다.
-- `운영 환경에서 booking 분산 부하 실행을 확인함`: EC2 분산 booking 실행 전 필수 확인이다.
+1. `gatling-test/console`에서 `..\gradlew.bat run`을 실행한다.
+2. 브라우저에서 `http://localhost:9090`을 연다.
+3. `테스트 종류`에서 01~06 중 하나를 선택한다. 선택과 동시에 해당 시나리오의 권장 부하 모델과 기본값이 채워진다.
+4. `Ticket/Core URL`, 필요하면 `Queue URL`, `performanceId`, `Booking Feeder CSV`를 입력한다.
+5. 화면의 예상 사용자 수보다 많은 feeder 행이 준비됐는지 확인한다.
+6. 대상 서버와 Datadog 대시보드를 확인한 뒤 `실행`을 누른다.
+7. 완료 후 Console의 Gatling 리포트와 `booking-summary.json`을 함께 확인한다.
 
-예상 feeder 행 수는 분산 실행에서 `ceil(초당 사용자 수 * 투입 시간) * VM 수` 이상이어야 한다. 콘솔과 스크립트는 부족한 feeder를 실행 전에 거부한다.
+### 시나리오별 입력
+
+- `01 Smoke`: 기본값은 사용자 1명, `at-once-users`다. 기능 계약을 먼저 확인하는 용도이므로 이 단계에서 부하를 높이지 않는다.
+- `02 Hot Seat Concurrency`: `사용자 수`를 100 또는 1,000으로 지정하고, feeder의 모든 행에 같은 `seatId`를 넣는다. `rendezVous`가 한 JVM 안에서만 동기화되므로 반드시 로컬 실행을 사용한다. Console은 분산 실행을 거부한다.
+- `03 Core Admission Capacity`: `constant-users-per-sec` 또는 `ramp-users-per-sec`를 사용한다. 10 → 25 → 50 → 100 → 200 → 300처럼 실행을 나누고, 각 실행의 API p95/p99·5xx·timeout·DB/CPU 지표를 비교한다.
+- `04 Core Active Users (Closed)`: 주입 방식을 `동시 사용자 유지 (Closed Model)`로 사용한다. `사용자 수`는 동시에 유지할 Core 사용자 수이고, `Closed Model 피더 행 수`는 노드마다 소비할 수 있는 고유 CSV 행 수다. 피더는 순환하지 않으므로 이 값은 사용자 수 이상이어야 한다.
+- `05 Core Spike`: `초당 사용자 수`가 기준 RPS, `최고 RPS`가 spike RPS, `투입 시간`이 최고 RPS 유지 시간이다. 실행 패턴은 기준 30초 → 5초 ramp-up → 최고 RPS 유지 → 5초 ramp-down → 기준 30초다.
+- `06 Queue Protects Core`: `초당 사용자 수`는 Queue로 들어오는 외부 유입률이다. 사용자는 join → state polling → enter로 admission token을 얻은 뒤에만 Core 흐름을 실행한다. Queue/Core URL과 polling timeout을 모두 입력한다. 2,000명/초를 60초 동안 받고 Core를 300명/초로 제한하면 마지막 사용자는 약 340초 이상 기다릴 수 있으므로 기본 timeout은 600초로 설정한다.
+
+### Feeder 규칙
+
+`Booking Feeder CSV`는 `memberId,accessToken,seatId,admissionToken` 4컬럼의 UTF-8 no BOM 파일이다.
+
+- Smoke·Core Capacity·Closed·Spike는 사용자별로 고유한 `seatId`가 필요하다.
+- Hot Seat는 모든 행에 같은 `seatId`가 필요하다.
+- Queue Protects Core는 `enter` 응답에서 admission token을 받으므로 feeder의 `admissionToken`을 비워 둔다.
+- Open Model의 예상 행 수는 주입 패턴의 전체 사용자 수이며, 분산 실행에서는 모든 노드의 필요량을 합산한다.
+- Closed Model의 feeder 행 수는 `Closed Model 피더 행 수 × 노드 수`로 검증한다.
 
 ### 리포트 해석
 
@@ -216,10 +243,80 @@ rg -n "찾을_문구" .
 - `manifest.csv`: VM별 rowStart/rowEnd, nodeRps, globalRps.
 - `booking-results-merged.csv`: 모든 VM의 성공/거절/타임아웃 결과 병합본.
 - `booking-summary.json`: 성공 수, 비즈니스 거절 수, 기술 실패율, 중복 좌석 성공, 중복 orderKey.
-- Gatling HTML report: 노드별 HTTP latency와 KO 비율.
+- Gatling HTML report: API별 응답 시간, p95/p99, KO 비율.
 
-좌석 경합에서 `BUSINESS_REJECTED_*`와 `SELECT_BUSINESS_REJECTED_E4001`은 기대 가능한 비즈니스 결과로 분리한다. SLO 판단에서 핵심은 기술 실패율, p99, 중복 성공 좌석/orderKey다.
+Hot Seat에서 비즈니스 거절은 실패가 아니라 기대 결과다. 합격 조건은 선점 성공 1건, 주문 성공 1건, 나머지 비즈니스 거절, 기술 실패 0건, 중복 좌석 성공 0건, 중복 orderKey 0건이다.
 
 ### 운영 주의
 
 Booking 시나리오는 실제 좌석 선택과 주문 생성을 호출한다. 운영 환경에 실사용자가 없더라도 테스트 전에는 performanceId, 좌석 범위, feeder token 만료 시간, Queue/Ticket 배포 버전을 확인한다. Datadog 대시보드나 로그 확인은 부하 실행과 별도 절차로 진행한다.
+## 실행 환경 메타데이터
+
+콘솔은 부하 테스트 시작 직전에 Datadog을 조회하고, 그 시점의 실행 대상 환경 스냅샷을 결과에 고정합니다. 메타데이터 수집 실패는 부하 테스트 자체를 중단시키지 않습니다.
+
+- Gatling HTML run description: `runId`, Queue/Core별 활성 인스턴스 수, 커밋, CPU/RAM, Docker 제한, Xmx, admission 검증 여부의 짧은 요약
+- 결과 폴더의 `run-metadata.json`: Queue/Core 대상 아래 활성 호스트별 Docker, JVM, Tomcat, Hikari, Oracle, Redis, admission 검증 여부
+- 콘솔 실행 결과: 대상과 호스트별 환경정보 표, JSON 복사, JSON 다운로드
+
+Datadog 자격증명은 다음 순서로 자동 해석합니다.
+
+1. 콘솔 서버 프로세스의 `DATADOG_API_KEY`, `DATADOG_APP_KEY`, `DATADOG_SITE`
+2. 환경변수에 없는 항목은 Codex의 `~/.codex/config.toml`에 있는 `[mcp_servers.datadog.env]`
+
+`CODEX_HOME`이 설정돼 있으면 `~/.codex` 대신 그 디렉터리의 `config.toml`을 읽습니다. 따라서 Datadog MCP가 이미 설정된 개발 환경에서는 콘솔을 Gradle이나 IDE로 바로 실행해도 같은 API 키를 사용합니다. 명시적인 환경변수는 MCP 설정보다 우선합니다.
+
+```text
+DATADOG_API_KEY=<optional override>
+DATADOG_APP_KEY=<optional override>
+DATADOG_SITE=us5.datadoghq.com
+```
+
+키 값은 저장소로 복사하지 않으며 브라우저 폼, Gatling 인자, 결과 JSON에도 기록하지 않습니다. 콘솔 로그에 출력되는 `Authorization: Bearer ...` 값도 저장 전에 마스킹합니다.
+
+선택자는 화면에서 입력받지 않습니다. 테스트 종류에 따라 콘솔이 다음 대상을 자동 선택합니다.
+
+- Queue Join Only, Queue Enter, Legacy Queue Status, CDN Public State: Queue만 조회
+- Booking Capacity, Seat Contention: Core만 조회
+- Ticket Open End to End: Queue와 Core를 모두 조회
+
+현재 Datadog에서 확인된 자동 프로필은 다음과 같습니다.
+
+```text
+Queue: env=prod, service=ticket-queue, metric prefix=ticket_queue, container=ticket-queue
+Core:  env=prod, service=ticket-be,    metric prefix=ticket,       container=ticket-be
+```
+
+호스트 식별에는 모든 대상 애플리케이션에 공통으로 존재하는 `<prefix>.jvm_info`를 사용합니다. 조회 범위는 최근 30분이지만, 캡처 시각에서 5분 이내이고 가장 최신 호스트와의 관측 시각 차이가 90초 이내인 호스트만 활성 대상으로 판정합니다. 이 기준 때문에 롤링 배포나 scale-in 직후의 종료된 호스트는 결과에서 빠지고, 동시에 살아 있는 scale-out 호스트는 모두 `targets[].instances[]`에 보존됩니다. 일시적인 네트워크 오류, 429/5xx, 잘못된 응답, 빈 identity 응답은 최대 3번 재시도합니다.
+
+활성 호스트가 정해지면 아래 메트릭을 그 호스트들로 제한해 조회합니다.
+
+```text
+system.cpu.num_cores
+system.mem.total
+container.cpu.limit
+container.memory.limit
+<prefix>.jvm_gc_max_data_size_bytes
+fallback: <prefix>.jvm_memory_max_bytes
+<prefix>.tomcat_threads_config_max_threads
+<prefix>.tomcat_connections_config_max_connections
+Core only: ticket.hikaricp_connections_max
+redis.mem.maxmemory
+```
+
+`run-metadata.json`의 스키마 버전은 4입니다. 각 대상은 `targets[]`, 활성 호스트는 그 아래 `instances[]`로 분리되며 `replicaCountObserved`, 관측 시각, host, container ID, 이미지 ID와 설정을 각각 기록합니다. 호스트별 커밋이나 리소스 값이 다르면 `capture.warnings`와 run description의 `mixed` 값으로 표시합니다.
+
+값이 없는 경우 단순히 `null`로만 두지 않고 인스턴스의 `evidence`에 원인을 함께 기록합니다.
+
+- `observed`: Datadog에서 값 확인
+- `explicit_unlimited`: Redis `maxmemory=0`처럼 명시적인 무제한
+- `not_reported`: 현재 시계열이나 태그에 값이 없음
+- `not_explicit`: JVM Xms처럼 현재 telemetry에서 명시값을 얻을 수 없음
+- `unsupported_by_datadog`: Oracle 사양처럼 현재 연동에서 수집할 수 없음
+
+일부 필드가 제공되지 않아도 대상 host를 정상 식별했다면 상태는 `captured`입니다. Queue/Core 중 일부 대상만 실패하면 `partial`, 모든 대상의 identity 수집이 실패한 경우에만 `failed`입니다.
+
+커밋 자동 수집에는 배포 시 `DD_VERSION=<commit>` 또는 `git.commit.sha:<commit>` 태그가 필요합니다. Java 버전은 `java_version` 태그를 우선 사용하고 `jvm_info`의 버전 태그로 보완합니다. Admission 상태는 `admission_enforcement` 태그가 있으면 기록합니다.
+
+Oracle 인스턴스 사양과 네트워크 위치는 현재 Datadog에 식별 가능한 인프라 메트릭이 없어 `null`과 `unsupported_by_datadog`로 남깁니다. Redis 위치는 애플리케이션 host에서 private endpoint가 관측됐다는 수준으로만 기록하며, Redis가 같은 장비에 있다고 단정하지 않습니다. 비밀번호, 토큰, JDBC URL, 내부 IP는 메타데이터에서 제외합니다.
+
+현재 애플리케이션 메트릭에는 `container_id`나 pod 태그가 없으므로 인스턴스 구분 단위는 host입니다. 서로 다른 host로 scale-out하면 모두 정확히 기록되지만, 한 host 안에 여러 JVM 컨테이너를 띄우면 개별 JVM 값을 분리할 수 없습니다. 이 제한은 JSON의 `datadog.granularity=host`와 `granularityNote`에 명시됩니다. 부하 실행 중에 새로 생성되거나 제거되는 autoscaling 인스턴스까지 추적하려면 실행 전 스냅샷만으로는 부족하므로 추후 post-run 스냅샷과 실행 구간 합집합 수집이 필요합니다.

@@ -10,6 +10,14 @@ import java.util.UUID;
 public class DistributedGatlingCommandBuilder {
 
     public List<String> build(final LoadTestRequest request, final UUID runId) {
+        return build(request, runId, "");
+    }
+
+    public List<String> build(
+            final LoadTestRequest request,
+            final UUID runId,
+            final String runDescription
+    ) {
         final List<String> command = new ArrayList<>();
         command.add(powershellExecutable());
         command.add("-NoProfile");
@@ -19,6 +27,10 @@ public class DistributedGatlingCommandBuilder {
         command.add(scriptPath(request).toString());
         command.add("-ConsoleRunId");
         command.add(runId.toString());
+        if (runDescription != null && !runDescription.isBlank()) {
+            command.add("-RunDescription");
+            command.add(runDescription);
+        }
         command.add("-KeyPath");
         command.add(request.sshKeyPath().toString());
         command.add("-Hosts");
@@ -26,7 +38,9 @@ public class DistributedGatlingCommandBuilder {
         command.add("-RemoteProjectDir");
         command.add(request.distributedRemoteProjectDir());
         command.add("-RpsPerNode");
-        command.add(String.valueOf((int) Math.ceil(request.usersPerSecond())));
+        final int loadPerNode = "at-once-users".equals(request.injectionMode())
+                ? request.users() : (int) Math.ceil(request.usersPerSecond());
+        command.add(String.valueOf(loadPerNode));
         command.add("-DurationSeconds");
         command.add(String.valueOf(request.durationSeconds()));
         command.add("-PerformanceId");
@@ -66,10 +80,27 @@ public class DistributedGatlingCommandBuilder {
         command.add(request.injectionMode());
         command.add("-PollingTimeoutSeconds");
         command.add(String.valueOf(request.pollingTimeoutSeconds()));
+        command.add("-TargetRpsPerNode");
+        command.add(String.valueOf((int) Math.ceil(request.targetUsersPerSecond())));
+        if (request.closedBookingModel()) {
+            command.add("-ConcurrentUsersPerNode");
+            command.add(String.valueOf(request.users()));
+            command.add("-FeederRowsPerNode");
+            command.add(String.valueOf(request.bookingFeederRows()));
+        }
         command.add("-StatusPollPauseSeconds");
         command.add(String.valueOf(request.statusPollPauseSeconds()));
         command.add("-StatusPollPauseJitterSeconds");
         command.add(String.valueOf(request.statusPollPauseJitterSeconds()));
+        command.add("-QueueTimeoutThresholdPercent");
+        command.add(String.valueOf(request.queueTimeoutThresholdPercent()));
+        command.add("-MaxCoreAdmissionsPerSecond");
+        command.add(String.valueOf(request.maxCoreAdmissionsPerSecond()));
+        command.add("-AdmissionRateTolerancePercent");
+        command.add(String.valueOf(request.admissionRateTolerancePercent()));
+        if (request.dbAuditEnabled()) {
+            command.add("-DbAuditEnabled");
+        }
     }
 
     private void addLegacyDistributedArguments(final List<String> command, final LoadTestRequest request) {
@@ -122,7 +153,9 @@ public class DistributedGatlingCommandBuilder {
 
     private String scriptName(final SimulationType simulationType) {
         return switch (simulationType) {
-            case BOOKING_CAPACITY, TICKET_OPEN_END_TO_END, SEAT_CONTENTION -> "run-distributed-booking.ps1";
+            case BOOKING_CAPACITY, TICKET_OPEN_END_TO_END, SEAT_CONTENTION,
+                    SMOKE, HOT_SEAT_CONCURRENCY, CORE_ADMISSION_CAPACITY, CORE_ACTIVE_USERS_CLOSED,
+                    CORE_SPIKE, QUEUE_PROTECTS_CORE -> "run-distributed-booking.ps1";
             case QUEUE_JOIN_ONLY -> "run-distributed-gatling-join.ps1";
             case CDN_PUBLIC_STATE -> "run-distributed-gatling-cdn.ps1";
             case LEGACY_QUEUE_STATUS -> "run-distributed-gatling-legacy.ps1";

@@ -40,7 +40,20 @@ tasks.register('generateAccessTokens', JavaExec) {
 }
 
 dependencies {
+    runtimeOnly 'com.oracle.database.jdbc:ojdbc8:23.9.0.25.07'
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.register('auditBookingDatabase', JavaExec) {
+    dependsOn classes
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.ticket.loadtest.BookingDatabaseAuditMain'
+    ['resultFile', 'performanceId', 'dbAuditOutput'].each { propertyName ->
+        def propertyValue = System.getProperty(propertyName)
+        if (propertyValue != null) {
+            systemProperty propertyName, propertyValue
+        }
+    }
 }

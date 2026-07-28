@@ -41,4 +41,20 @@ class SimulationTypeTest {
         assertTrue(endToEnd.usesQueueBaseUrl());
         assertFalse(contention.usesAccessTokens());
     }
+    @Test
+    void exposesProofSuiteSimulationsForConsoleSelection() {
+        assertEquals("SMOKE", SimulationType.fromKey("smoke").bookingScenario());
+        assertEquals("HOT_SEAT_CONCURRENCY",
+                SimulationType.fromKey("hot-seat-concurrency").bookingScenario());
+        assertEquals("CORE_ADMISSION_CAPACITY",
+                SimulationType.fromKey("core-admission-capacity").bookingScenario());
+        assertEquals("CORE_ACTIVE_USERS_CLOSED",
+                SimulationType.fromKey("core-active-users-closed").bookingScenario());
+        assertEquals("CORE_SPIKE", SimulationType.fromKey("core-spike").bookingScenario());
+        assertEquals("QUEUE_PROTECTS_CORE",
+                SimulationType.fromKey("queue-protects-core").bookingScenario());
+        assertTrue(SimulationType.fromKey("core-active-users-closed").usesBookingFeeder());
+        assertTrue(SimulationType.fromKey("queue-protects-core").usesQueueBaseUrl());
+    }
+
 }

@@ -1,6 +1,7 @@
 package com.ticket.loadtest;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import io.gatling.javaapi.core.ClosedInjectionStep;
 import io.gatling.javaapi.core.OpenInjectionStep;
 import io.gatling.javaapi.core.Session;
 
@@ -26,9 +27,11 @@ import java.util.stream.Stream;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
+import static io.gatling.javaapi.core.CoreDsl.constantConcurrentUsers;
 import static io.gatling.javaapi.core.CoreDsl.constantUsersPerSec;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.nothingFor;
+import static io.gatling.javaapi.core.CoreDsl.rampConcurrentUsers;
 import static io.gatling.javaapi.core.CoreDsl.rampUsers;
 import static io.gatling.javaapi.core.CoreDsl.rampUsersPerSec;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -42,6 +45,10 @@ public final class LoadTestConfig {
     private static final int TICKET_OPEN_RECOVERY_DELAY_SECONDS = 30;
     private static final int TICKET_OPEN_RECOVERY_SECONDS = 60;
     private static final double TICKET_OPEN_RECOVERY_USERS_PER_SECOND = 1.0;
+    private static final int CORE_SPIKE_BASELINE_SECONDS = 30;
+    private static final int CORE_SPIKE_RAMP_SECONDS = 5;
+    private static final int CORE_SPIKE_RECOVERY_SECONDS = 30;
+    private static final int CORE_ACTIVE_USERS_RAMP_SECONDS = 30;
     private static final ConcurrentMap<ConfigKey, CsvValues> CSV_VALUES = new ConcurrentHashMap<>();
     private static final AtomicInteger LOGIN_COUNTER = new AtomicInteger(intProperty(ConfigKey.LOGIN_START_INDEX));
     private static final AtomicInteger TOKEN_COUNTER = new AtomicInteger();
@@ -98,6 +105,14 @@ public final class LoadTestConfig {
         return property(ConfigKey.BOOKING_FEEDER_FILE);
     }
 
+    public static int bookingFeederRows() {
+        final int rows = intProperty(ConfigKey.BOOKING_FEEDER_ROWS);
+        if (rows < users()) {
+            throw new IllegalArgumentException("bookingFeederRows must be at least users for a closed model");
+        }
+        return rows;
+    }
+
     public static String bookingScenario() {
         return property(ConfigKey.BOOKING_SCENARIO);
     }
@@ -115,7 +130,48 @@ public final class LoadTestConfig {
     }
 
     public static Iterator<Map<String, Object>> bookingFeeder() {
-        return BookingFeeder.load(Path.of(bookingFeederFile()), bookingScenario(), users(), Long.parseLong(performanceId()));
+        return bookingFeeder(users());
+    }
+
+    public static Iterator<Map<String, Object>> bookingFeeder(final int expectedRows) {
+        return BookingFeeder.load(
+                Path.of(bookingFeederFile()),
+                bookingScenario(),
+                expectedRows,
+                Long.parseLong(performanceId())
+        );
+    }
+
+    public static int coreP95ThresholdMs() {
+        return intProperty(ConfigKey.CORE_P95_THRESHOLD_MS);
+    }
+
+    public static int coreP99ThresholdMs() {
+        return intProperty(ConfigKey.CORE_P99_THRESHOLD_MS);
+    }
+
+    public static int queueP99ThresholdMs() {
+        return intProperty(ConfigKey.QUEUE_P99_THRESHOLD_MS);
+    }
+
+    public static double technicalFailureThresholdPercent() {
+        return doubleProperty(ConfigKey.TECHNICAL_FAILURE_THRESHOLD_PERCENT);
+    }
+
+    public static double queueTimeoutThresholdPercent() {
+        return nonNegativeDoubleProperty(ConfigKey.QUEUE_TIMEOUT_THRESHOLD_PERCENT);
+    }
+
+    public static int maxCoreAdmissionsPerSecond() {
+        return nonNegativeIntProperty(ConfigKey.MAX_CORE_ADMISSIONS_PER_SECOND);
+    }
+
+    public static double admissionRateTolerancePercent() {
+        return nonNegativeDoubleProperty(ConfigKey.ADMISSION_RATE_TOLERANCE_PERCENT);
+    }
+
+    public static boolean dbAuditEnabled() {
+        return booleanProperty(ConfigKey.DB_AUDIT_ENABLED);
     }
 
     public static boolean http2Enabled() {
@@ -135,10 +191,27 @@ public final class LoadTestConfig {
             case "ramp-users-per-sec" -> steps.add(rampUsersPerSec(doubleProperty(ConfigKey.USERS_PER_SECOND))
                     .to(doubleProperty(ConfigKey.TARGET_USERS_PER_SECOND))
                     .during(Duration.ofSeconds(durationSeconds)));
+            case "spike" -> addCoreSpikeSteps(steps);
             case "ticket-open" -> addTicketOpenSteps(steps, doubleProperty(ConfigKey.USERS_PER_SECOND));
             default -> steps.add(rampUsers(users).during(Duration.ofSeconds(durationSeconds)));
         }
         return steps.toArray(OpenInjectionStep[]::new);
+    }
+
+    public static OpenInjectionStep[] coreSpikeInjection() {
+        final List<OpenInjectionStep> steps = new ArrayList<>();
+        addScheduledStartDelay(steps);
+        addCoreSpikeSteps(steps);
+        return steps.toArray(OpenInjectionStep[]::new);
+    }
+
+    public static ClosedInjectionStep[] coreActiveUsersInjection() {
+        return new ClosedInjectionStep[]{
+                rampConcurrentUsers(0).to(users())
+                        .during(Duration.ofSeconds(CORE_ACTIVE_USERS_RAMP_SECONDS)),
+                constantConcurrentUsers(users())
+                        .during(Duration.ofSeconds(intProperty(ConfigKey.DURATION_SECONDS)))
+        };
     }
 
     public static OpenInjectionStep[] ticketOpenRecoveryInjection() {
@@ -166,9 +239,21 @@ public final class LoadTestConfig {
             case "constant-users-per-sec" -> estimateConstantUsers(usersPerSecond, durationSeconds);
             case "ramp-users-per-sec" -> estimateRampUsers(usersPerSecond,
                     doubleProperty(ConfigKey.TARGET_USERS_PER_SECOND), durationSeconds);
+            case "spike" -> coreSpikeExpectedUsers();
             case "ticket-open" -> ticketOpenExpectedUsers(usersPerSecond);
             default -> users;
         };
+    }
+
+    public static int coreSpikeExpectedUsers() {
+        final double baselineUsersPerSecond = doubleProperty(ConfigKey.USERS_PER_SECOND);
+        final double peakUsersPerSecond = doubleProperty(ConfigKey.TARGET_USERS_PER_SECOND);
+        final int peakHoldSeconds = intProperty(ConfigKey.DURATION_SECONDS);
+        return estimateConstantUsers(baselineUsersPerSecond, CORE_SPIKE_BASELINE_SECONDS)
+                + estimateRampUsers(baselineUsersPerSecond, peakUsersPerSecond, CORE_SPIKE_RAMP_SECONDS)
+                + estimateConstantUsers(peakUsersPerSecond, peakHoldSeconds)
+                + estimateRampUsers(peakUsersPerSecond, baselineUsersPerSecond, CORE_SPIKE_RAMP_SECONDS)
+                + estimateConstantUsers(baselineUsersPerSecond, CORE_SPIKE_RECOVERY_SECONDS);
     }
 
     public static ChainBuilder initializeSession() {
@@ -341,6 +426,14 @@ public final class LoadTestConfig {
         return Double.parseDouble(property(key));
     }
 
+    private static double nonNegativeDoubleProperty(final ConfigKey key) {
+        final double value = doubleProperty(key);
+        if (value < 0) {
+            throw new IllegalArgumentException("System property must be non-negative: -D" + key.propertyName());
+        }
+        return value;
+    }
+
     private static String nextFromCsv(final ConfigKey key, final AtomicInteger counter) {
         final CsvValues csvValues = CSV_VALUES.computeIfAbsent(key, LoadTestConfig::parseCsv);
         return csvValues.values().get(Math.floorMod(counter.getAndIncrement(), csvValues.values().size()));
@@ -409,6 +502,24 @@ public final class LoadTestConfig {
                 .during(Duration.ofSeconds(TICKET_OPEN_SECOND_DECAY_SECONDS)));
         steps.add(rampUsersPerSec(secondDecayUsersPerSecond).to(tailUsersPerSecond)
                 .during(Duration.ofSeconds(TICKET_OPEN_TAIL_SECONDS)));
+    }
+
+    private static void addCoreSpikeSteps(final List<OpenInjectionStep> steps) {
+        final double baselineUsersPerSecond = doubleProperty(ConfigKey.USERS_PER_SECOND);
+        final double peakUsersPerSecond = doubleProperty(ConfigKey.TARGET_USERS_PER_SECOND);
+        if (peakUsersPerSecond <= baselineUsersPerSecond) {
+            throw new IllegalArgumentException("-DtargetUsersPerSecond must be greater than -DusersPerSecond");
+        }
+        steps.add(constantUsersPerSec(baselineUsersPerSecond)
+                .during(Duration.ofSeconds(CORE_SPIKE_BASELINE_SECONDS)));
+        steps.add(rampUsersPerSec(baselineUsersPerSecond).to(peakUsersPerSecond)
+                .during(Duration.ofSeconds(CORE_SPIKE_RAMP_SECONDS)));
+        steps.add(constantUsersPerSec(peakUsersPerSecond)
+                .during(Duration.ofSeconds(intProperty(ConfigKey.DURATION_SECONDS))));
+        steps.add(rampUsersPerSec(peakUsersPerSecond).to(baselineUsersPerSecond)
+                .during(Duration.ofSeconds(CORE_SPIKE_RAMP_SECONDS)));
+        steps.add(constantUsersPerSec(baselineUsersPerSecond)
+                .during(Duration.ofSeconds(CORE_SPIKE_RECOVERY_SECONDS)));
     }
 
     private static int ticketOpenExpectedUsers(final double peakUsersPerSecond) {
@@ -574,10 +685,19 @@ public final class LoadTestConfig {
         DUMP_FAILURE_BODY_LIMIT,
         FAILURE_BODY_DIR,
         BOOKING_FEEDER_FILE,
+        BOOKING_FEEDER_ROWS,
         BOOKING_SCENARIO,
         NODE_INDEX,
         RESULT_FILE,
         POLLING_TIMEOUT_SECONDS,
+        CORE_P95_THRESHOLD_MS,
+        CORE_P99_THRESHOLD_MS,
+        QUEUE_P99_THRESHOLD_MS,
+        TECHNICAL_FAILURE_THRESHOLD_PERCENT,
+        QUEUE_TIMEOUT_THRESHOLD_PERCENT,
+        MAX_CORE_ADMISSIONS_PER_SECOND,
+        ADMISSION_RATE_TOLERANCE_PERCENT,
+        DB_AUDIT_ENABLED,
         START_AT_EPOCH_MILLIS;
 
         private String propertyName() {
@@ -618,10 +738,19 @@ public final class LoadTestConfig {
                 case DUMP_FAILURE_BODY_LIMIT -> "dumpFailureBodyLimit";
                 case FAILURE_BODY_DIR -> "failureBodyDir";
                 case BOOKING_FEEDER_FILE -> "bookingFeederFile";
+                case BOOKING_FEEDER_ROWS -> "bookingFeederRows";
                 case BOOKING_SCENARIO -> "bookingScenario";
                 case NODE_INDEX -> "nodeIndex";
                 case RESULT_FILE -> "resultFile";
                 case POLLING_TIMEOUT_SECONDS -> "pollingTimeoutSeconds";
+                case CORE_P95_THRESHOLD_MS -> "coreP95ThresholdMs";
+                case CORE_P99_THRESHOLD_MS -> "coreP99ThresholdMs";
+                case QUEUE_P99_THRESHOLD_MS -> "queueP99ThresholdMs";
+                case TECHNICAL_FAILURE_THRESHOLD_PERCENT -> "technicalFailureThresholdPercent";
+                case QUEUE_TIMEOUT_THRESHOLD_PERCENT -> "queueTimeoutThresholdPercent";
+                case MAX_CORE_ADMISSIONS_PER_SECOND -> "maxCoreAdmissionsPerSecond";
+                case ADMISSION_RATE_TOLERANCE_PERCENT -> "admissionRateTolerancePercent";
+                case DB_AUDIT_ENABLED -> "dbAuditEnabled";
                 case START_AT_EPOCH_MILLIS -> "startAtEpochMillis";
             };
         }
@@ -663,8 +792,16 @@ public final class LoadTestConfig {
                 case NODE_INDEX -> "0";
                 case RESULT_FILE -> "build/reports/booking-results.csv";
                 case POLLING_TIMEOUT_SECONDS -> "300";
+                case CORE_P95_THRESHOLD_MS -> "2000";
+                case CORE_P99_THRESHOLD_MS -> "3000";
+                case QUEUE_P99_THRESHOLD_MS -> "2000";
+                case TECHNICAL_FAILURE_THRESHOLD_PERCENT -> "1.0";
+                case QUEUE_TIMEOUT_THRESHOLD_PERCENT -> "0.0";
+                case MAX_CORE_ADMISSIONS_PER_SECOND -> "0";
+                case ADMISSION_RATE_TOLERANCE_PERCENT -> "10.0";
+                case DB_AUDIT_ENABLED -> "false";
                 case START_AT_EPOCH_MILLIS -> "0";
-                case ACCESS_TOKENS, ACCESS_TOKENS_FILE, ADMISSION_TOKENS, JWT_SECRET -> null;
+                case ACCESS_TOKENS, ACCESS_TOKENS_FILE, ADMISSION_TOKENS, JWT_SECRET, BOOKING_FEEDER_ROWS -> null;
             };
         }
     }

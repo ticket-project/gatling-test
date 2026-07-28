@@ -8,6 +8,7 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -30,6 +31,7 @@ public class LoadTestService {
     private final GatlingCommandBuilder commandBuilder = new GatlingCommandBuilder();
     private final DistributedGatlingCommandBuilder distributedCommandBuilder = new DistributedGatlingCommandBuilder();
     private final DistributedRunStopper distributedRunStopper = new DistributedRunStopper();
+    private final RunEnvironmentClient environmentClient = new DatadogEnvironmentClient();
     private final ReportRegistry reportRegistry;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Map<UUID, LoadTestRun> runs = new LinkedHashMap<>();
@@ -46,6 +48,7 @@ public class LoadTestService {
         validateInjectionMode(request);
         validateConfiguredTokens(request);
         validateConfiguredAdmissionTokens(request);
+        validateProofSuiteInjection(request);
         validateSyntheticJwt(request);
         validateSyntheticAdmissionToken(request);
         validateAutomaticLoginCapacity(request);
@@ -65,6 +68,29 @@ public class LoadTestService {
             throw new IllegalArgumentException("예매 오픈 패턴은 Queue Join Only 테스트에서만 사용할 수 있습니다.");
         }
     }
+    private void validateProofSuiteInjection(final LoadTestRequest request) {
+        final String mode = request.injectionMode().toLowerCase(Locale.ROOT);
+        if (request.simulationType() == SimulationType.CORE_ACTIVE_USERS_CLOSED
+                && !"closed-core".equals(mode)) {
+            throw new IllegalArgumentException("Core Active Users requires the closed-core injection mode");
+        }
+        if (request.simulationType() != SimulationType.CORE_ACTIVE_USERS_CLOSED
+                && "closed-core".equals(mode)) {
+            throw new IllegalArgumentException("closed-core injection is only available for Core Active Users");
+        }
+        final boolean spikeScenario = request.simulationType() == SimulationType.CORE_SPIKE
+                || request.simulationType() == SimulationType.QUEUE_PROTECTS_CORE;
+        if (request.simulationType() == SimulationType.CORE_SPIKE && !"spike".equals(mode)) {
+            throw new IllegalArgumentException("Core Spike requires the spike injection mode");
+        }
+        if ("spike".equals(mode) && !spikeScenario) {
+            throw new IllegalArgumentException("spike injection is only available for Core Spike or Queue Protects Core");
+        }
+        if ("spike".equals(mode) && request.targetUsersPerSecond() <= request.usersPerSecond()) {
+            throw new IllegalArgumentException("Spike target RPS must be greater than baseline RPS");
+        }
+    }
+
 
     private void validateConfiguredTokens(final LoadTestRequest request) {
         if (!request.simulationType().usesAccessTokens()) {
@@ -179,16 +205,38 @@ public class LoadTestService {
         if (request.simulationType().usesQueueBaseUrl()) {
             validateRemoteUrl("Queue URL", request.queueBaseUrl());
         }
-        if (request.distributedExecution() && !request.operationalConfirmation()) {
-            throw new IllegalArgumentException("Operational confirmation is required for distributed booking execution");
+        if (request.distributedExecution()
+                && request.simulationType() == SimulationType.HOT_SEAT_CONCURRENCY) {
+            throw new IllegalArgumentException("Hot Seat must run on one load generator because rendezVous is process-local");
+        }
+        if (request.closedBookingModel() && request.bookingFeederRows() < request.users()) {
+            throw new IllegalArgumentException("Closed model feeder rows must be at least concurrent users");
+        }
+
+        if (request.simulationType() == SimulationType.QUEUE_PROTECTS_CORE
+                && request.maxCoreAdmissionsPerSecond() <= 0) {
+            throw new IllegalArgumentException("Queue Protects Core requires a positive Core admission limit");
+        }
+        if (request.dbAuditEnabled()) {
+            for (String name : List.of(
+                    "BOOKING_AUDIT_DB_URL",
+                    "BOOKING_AUDIT_DB_USERNAME",
+                    "BOOKING_AUDIT_DB_PASSWORD"
+            )) {
+                if (System.getenv(name) == null || System.getenv(name).isBlank()) {
+                    throw new IllegalArgumentException("DB audit requires environment variable: " + name);
+                }
+            }
+        }
+        if (!request.operationalConfirmation()) {
+            throw new IllegalArgumentException("Operational confirmation is required for every booking execution");
         }
         final Path feederPath = resolveInputPath(request.ticketProjectPath(), request.bookingFeederFile());
         if (!Files.isRegularFile(feederPath)) {
             throw new IllegalArgumentException("Booking feeder file not found: " + request.bookingFeederFile());
         }
-        final int requiredRows = request.distributedExecution()
-                ? (int) Math.ceil(request.usersPerSecond()) * request.durationSeconds() * request.distributedHostList().size()
-                : request.estimatedVirtualUsers();
+        final int nodeCount = request.distributedExecution() ? request.distributedHostList().size() : 1;
+        final int requiredRows = Math.multiplyExact(request.expectedBookingRowsPerNode(), nodeCount);
         final int actualRows = countBookingFeederRows(feederPath);
         if (actualRows < requiredRows) {
             throw new IllegalArgumentException("Booking feeder has fewer rows than required: required="
@@ -257,6 +305,16 @@ public class LoadTestService {
         int exitCode = -1;
         try {
             validateRunnableProject(request);
+            final RunEnvironmentMetadata metadata = RunEnvironmentMetadata.capture(request, environmentClient);
+            run.environmentMetadata(metadata);
+            run.appendLog("Environment metadata: " + metadata.captureStatus());
+            if (metadata.captureError() != null) {
+                run.appendLog("Environment metadata note: " + metadata.captureError());
+            }
+            if (!metadata.captureWarnings().isEmpty()) {
+                run.appendLog("Environment metadata warnings: "
+                        + String.join("; ", metadata.captureWarnings()));
+            }
             if (run.stopRequested()) {
                 return;
             }
@@ -304,9 +362,16 @@ public class LoadTestService {
             }
             if (reportDirectory != null) {
                 if (request.distributedExecution()) {
+                    writeRunMetadata(reportDirectory, run);
                     writeDistributedIndex(reportDirectory, run);
-                } else if (!createdFailureReport) {
-                    reportDirectory = renameReportDirectory(reportDirectory, request, run);
+                } else {
+                    if (!createdFailureReport) {
+                        reportDirectory = renameReportDirectory(reportDirectory, request, run);
+                    }
+                    writeRunMetadata(reportDirectory, run);
+                    if (request.simulationType().usesBookingFeeder()) {
+                        copyLocalBookingArtifacts(request, reportDirectory, run);
+                    }
                 }
                 reportRegistry.register(run.id(), reportDirectory);
                 run.appendLog("Report: " + reportDirectory);
@@ -316,6 +381,48 @@ public class LoadTestService {
             }
             run.complete(exitCode, reportDirectory);
             runningRunId.compareAndSet(run.id(), null);
+        }
+    }
+
+    private void copyLocalBookingArtifacts(
+            final LoadTestRequest request,
+            final Path reportDirectory,
+            final LoadTestRun run
+    ) {
+        final Path resultFile = resolveInputPath(request.ticketProjectPath(), request.resultFile());
+        final Path evidenceDirectory = resultFile.getParent();
+        if (evidenceDirectory == null) {
+            return;
+        }
+        final Map<Path, String> artifacts = new LinkedHashMap<>();
+        artifacts.put(resultFile, "booking-results.csv");
+        artifacts.put(evidenceDirectory.resolve("booking-evidence.json"), "booking-evidence.json");
+        artifacts.put(evidenceDirectory.resolve("booking-admissions.csv"), "booking-admissions.csv");
+        artifacts.put(evidenceDirectory.resolve("booking-db-audit.json"), "booking-db-audit.json");
+        artifacts.forEach((source, fileName) -> {
+            if (!Files.isRegularFile(source)) {
+                return;
+            }
+            try {
+                Files.copy(source, reportDirectory.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException exception) {
+                run.appendLog("Booking artifact copy skipped for " + source + ": " + exception.getMessage());
+            }
+        });
+    }
+    private void writeRunMetadata(final Path reportDirectory, final LoadTestRun run) {
+        final RunEnvironmentMetadata metadata = run.environmentMetadata();
+        if (metadata == null) {
+            return;
+        }
+        try {
+            Files.writeString(
+                    reportDirectory.resolve("run-metadata.json"),
+                    metadata.toJson(run.id()),
+                    StandardCharsets.UTF_8
+            );
+        } catch (IOException exception) {
+            run.appendLog("Environment metadata write skipped: " + exception.getMessage());
         }
     }
 
@@ -363,7 +470,7 @@ public class LoadTestService {
                 + "<div class=\"muted path\">Run directory: " + htmlEscape(reportDirectory.toString()) + "</div>"
                 + "<p>Simulation: " + htmlEscape(request.simulationType().label())
                 + " / exitCode: " + exitCode + "</p>"
-                + "<p><a href=\"run.log\">run.log</a></p>"
+                + "<p><a href=\"run.log\">run.log</a> · <a href=\"run-metadata.json\">run-metadata.json</a></p>"
                 + "<h2>Console log</h2><pre>" + htmlEscape(run.log()) + "</pre>"
                 + "</main></body></html>";
     }
@@ -373,10 +480,12 @@ public class LoadTestService {
             final LoadTestRequest request,
             final Path executionReportsRoot
     ) {
+        final RunEnvironmentMetadata metadata = run.environmentMetadata();
+        final String description = metadata == null ? "runId=" + run.id() : metadata.runDescription(run.id());
         if (request.distributedExecution()) {
-            return distributedCommandBuilder.build(request, run.id());
+            return distributedCommandBuilder.build(request, run.id(), description);
         }
-        return commandBuilder.build(request, executionReportsRoot);
+        return commandBuilder.build(request, executionReportsRoot, description);
     }
 
     private void prepareGeneratedAccessTokens(
@@ -515,7 +624,9 @@ public class LoadTestService {
         final String directoryName = switch (request.simulationType()) {
             case CDN_PUBLIC_STATE -> "distributed-results";
             case QUEUE_JOIN_ONLY -> "distributed-results-join";
-            case BOOKING_CAPACITY, TICKET_OPEN_END_TO_END, SEAT_CONTENTION -> "distributed-results-booking";
+            case BOOKING_CAPACITY, TICKET_OPEN_END_TO_END, SEAT_CONTENTION,
+                    SMOKE, HOT_SEAT_CONCURRENCY, CORE_ADMISSION_CAPACITY, CORE_ACTIVE_USERS_CLOSED,
+                    CORE_SPIKE, QUEUE_PROTECTS_CORE -> "distributed-results-booking";
             default -> "distributed-results-legacy";
         };
         return request.ticketProjectPath().resolve(directoryName).toAbsolutePath().normalize();
@@ -549,6 +660,11 @@ public class LoadTestService {
                 .append("</div><div class=\"actions\">");
         appendFileLink(html, runDirectory, "summary.csv");
         appendFileLink(html, runDirectory, "summary.md");
+        appendFileLink(html, runDirectory, "run-metadata.json");
+        appendFileLink(html, runDirectory, "booking-summary.json");
+        appendFileLink(html, runDirectory, "booking-results-merged.csv");
+        appendFileLink(html, runDirectory, "booking-admissions-global.csv");
+        appendFileLink(html, runDirectory, "booking-db-audit.json");
         html.append("</div>");
 
         if (!appendDistributedSummary(html, runDirectory, run)) {

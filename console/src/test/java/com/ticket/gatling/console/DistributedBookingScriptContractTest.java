@@ -31,6 +31,8 @@ class DistributedBookingScriptContractTest {
         assertTrue(source.contains("[string]$InjectionMode"));
         assertTrue(source.contains("[int]$PollingTimeoutSeconds"));
         assertTrue(source.contains("[switch]$CollectReports"));
+        assertTrue(source.contains("[string]$RunDescription"));
+        assertTrue(source.contains("--run-description"));
     }
 
     @Test
@@ -39,7 +41,8 @@ class DistributedBookingScriptContractTest {
 
         assertTrue(source.contains("memberId,accessToken,seatId,admissionToken"));
         assertTrue(source.contains("FeederFile must be UTF-8 without BOM"));
-        assertTrue(source.contains("rowsPerNode = [Math]::Ceiling($RpsPerNode * $DurationSeconds)"));
+        assertTrue(source.contains("$rowsPerNode = Get-ExpectedUsersPerNode"));
+        assertTrue(source.contains("default { [Math]::Ceiling($RpsPerNode * $DurationSeconds) }"));
         assertTrue(source.contains("required=$requiredRows"));
         assertTrue(source.contains("nodeIndex"));
         assertTrue(source.contains("totalNodes"));

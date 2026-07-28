@@ -8,10 +8,18 @@ import java.util.Locale;
 public class GatlingCommandBuilder {
 
     public List<String> build(final LoadTestRequest request) {
-        return build(request, null);
+        return build(request, null, "");
     }
 
     public List<String> build(final LoadTestRequest request, final Path gatlingReportDir) {
+        return build(request, gatlingReportDir, "");
+    }
+
+    public List<String> build(
+            final LoadTestRequest request,
+            final Path gatlingReportDir,
+            final String runDescription
+    ) {
         final List<String> command = new ArrayList<>();
         command.add(gradleWrapper(request));
         command.add("-p");
@@ -22,14 +30,25 @@ public class GatlingCommandBuilder {
         }
         command.add("--simulation");
         command.add(request.simulationType().className());
+        if (runDescription != null && !runDescription.isBlank()) {
+            command.add("--run-description");
+            command.add(runDescription);
+        }
         if (request.simulationType().usesBookingFeeder()) {
             command.add("-DcoreBaseUrl=" + request.coreBaseUrl());
             command.add("-DqueueBaseUrl=" + request.queueBaseUrl());
             command.add("-DbookingFeederFile=" + request.bookingFeederFile());
+            if (request.closedBookingModel()) {
+                command.add("-DbookingFeederRows=" + request.bookingFeederRows());
+            }
             command.add("-DbookingScenario=" + request.bookingScenario());
             command.add("-DnodeIndex=" + request.nodeIndex());
             command.add("-DresultFile=" + request.resultFile());
             command.add("-DpollingTimeoutSeconds=" + request.pollingTimeoutSeconds());
+            command.add("-DqueueTimeoutThresholdPercent=" + request.queueTimeoutThresholdPercent());
+            command.add("-DmaxCoreAdmissionsPerSecond=" + request.maxCoreAdmissionsPerSecond());
+            command.add("-DadmissionRateTolerancePercent=" + request.admissionRateTolerancePercent());
+            command.add("-DdbAuditEnabled=" + request.dbAuditEnabled());
         } else {
             command.add("-DbaseUrl=" + request.baseUrl());
         }

@@ -29,6 +29,7 @@ class BookingFeederTest {
         final Path file = feeder(row(1, 101, ""));
 
         assertEquals(1, BookingFeeder.read(file, "TICKET_OPEN_END_TO_END", 1, PERFORMANCE_ID).size());
+        assertEquals(1, BookingFeeder.read(file, "QUEUE_PROTECTS_CORE", 1, PERFORMANCE_ID).size());
         assertThrows(IllegalArgumentException.class,
                 () -> BookingFeeder.read(file, "ticket_open_end_to_end", 1, PERFORMANCE_ID));
         assertThrows(IllegalArgumentException.class,
@@ -50,6 +51,8 @@ class BookingFeederTest {
         assertInvalid(HEADER + System.lineSeparator() + "1," + accessToken(1) + ",-1,");
         assertInvalid(HEADER + System.lineSeparator() + "1,,101,");
         assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "BOOKING_CAPACITY");
+        assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "CORE_ADMISSION_CAPACITY");
+        assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "HOT_SEAT_CONCURRENCY");
         assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "SEAT_CONTENTION");
     }
 
@@ -62,6 +65,8 @@ class BookingFeederTest {
         final String duplicateSeat = row(1, 101, admissionToken(1, PERFORMANCE_ID)) + System.lineSeparator()
                 + row(2, 101, admissionToken(2, PERFORMANCE_ID));
         assertInvalid(HEADER + System.lineSeparator() + duplicateSeat, "BOOKING_CAPACITY");
+        assertEquals(2, BookingFeeder.read(feeder(duplicateSeat), "HOT_SEAT_CONCURRENCY", 2, PERFORMANCE_ID).size());
+        assertInvalid(HEADER + System.lineSeparator() + duplicateSeat, "CORE_SPIKE");
         assertEquals(2, BookingFeeder.read(feeder(duplicateSeat), "SEAT_CONTENTION", 2, PERFORMANCE_ID).size());
     }
 

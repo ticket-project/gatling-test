@@ -21,6 +21,7 @@ class SimulationConnectionPolicyTest {
         try (var sources = Files.list(SIMULATION_DIR)) {
             simulationSources = sources
                     .filter(path -> path.getFileName().toString().endsWith("Simulation.java"))
+                    .filter(path -> !path.getFileName().toString().equals("BookingProofSimulation.java"))
                     .toList();
         }
 

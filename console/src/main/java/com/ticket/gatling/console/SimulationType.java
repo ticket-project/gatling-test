@@ -93,6 +93,85 @@ public enum SimulationType {
             true,
             false,
             "SEAT_CONTENTION"
+    ),
+    SMOKE(
+            "smoke",
+            "01 Smoke",
+            "com.ticket.loadtest.simulation.SmokeSimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "SMOKE"
+    ),
+    HOT_SEAT_CONCURRENCY(
+            "hot-seat-concurrency",
+            "02 Hot Seat Concurrency",
+            "com.ticket.loadtest.simulation.HotSeatConcurrencySimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "HOT_SEAT_CONCURRENCY"
+    ),
+    CORE_ADMISSION_CAPACITY(
+            "core-admission-capacity",
+            "03 Core Admission Capacity (Open)",
+            "com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "CORE_ADMISSION_CAPACITY"
+    ),
+    CORE_ACTIVE_USERS_CLOSED(
+            "core-active-users-closed",
+            "04 Core Active Users (Closed)",
+            "com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "CORE_ACTIVE_USERS_CLOSED"
+    ),
+    CORE_SPIKE(
+            "core-spike",
+            "05 Core Spike",
+            "com.ticket.loadtest.simulation.CoreSpikeSimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "CORE_SPIKE"
+    ),
+    QUEUE_PROTECTS_CORE(
+            "queue-protects-core",
+            "06 Queue Protects Core",
+            "com.ticket.loadtest.simulation.QueueProtectsCoreSimulation",
+            "",
+            false,
+            false,
+
+            true,
+            false,
+            true,
+            true,
+            "QUEUE_PROTECTS_CORE"
     );
 
     private final String key;

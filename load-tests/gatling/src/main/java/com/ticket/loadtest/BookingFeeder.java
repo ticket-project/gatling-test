@@ -39,8 +39,8 @@ public final class BookingFeeder {
             throw new IllegalArgumentException("Booking feeder must be BOM-free UTF-8 CSV with header: " + HEADER);
         }
 
-        final boolean admissionRequired = bookingScenario != BookingScenario.TICKET_OPEN_END_TO_END;
-        final boolean uniqueSeats = bookingScenario != BookingScenario.SEAT_CONTENTION;
+        final boolean admissionRequired = bookingScenario.admissionRequired();
+        final boolean uniqueSeats = bookingScenario.uniqueSeats();
         final Set<Long> memberIds = new HashSet<>();
         final Set<Long> seatIds = new HashSet<>();
         final List<BookingRow> rows = new ArrayList<>();
@@ -63,7 +63,7 @@ public final class BookingFeeder {
                 throw invalidRow(index, "memberId must be unique");
             }
             if (uniqueSeats && !seatIds.add(seatId)) {
-                throw invalidRow(index, "seatId must be unique unless scenario is SEAT_CONTENTION");
+                throw invalidRow(index, "seatId must be unique for scenario " + bookingScenario);
             }
             try {
                 if (LoadTestTokens.readSubjectAsLong(accessToken) != memberId) {
@@ -111,9 +111,31 @@ public final class BookingFeeder {
     }
 
     private enum BookingScenario {
-        BOOKING_CAPACITY,
-        TICKET_OPEN_END_TO_END,
-        SEAT_CONTENTION;
+        BOOKING_CAPACITY(true, true),
+        TICKET_OPEN_END_TO_END(false, true),
+        SEAT_CONTENTION(true, false),
+        SMOKE(true, true),
+        HOT_SEAT_CONCURRENCY(true, false),
+        CORE_ADMISSION_CAPACITY(true, true),
+        CORE_ACTIVE_USERS_CLOSED(true, true),
+        CORE_SPIKE(true, true),
+        QUEUE_PROTECTS_CORE(false, true);
+
+        private final boolean admissionRequired;
+        private final boolean uniqueSeats;
+
+        BookingScenario(final boolean admissionRequired, final boolean uniqueSeats) {
+            this.admissionRequired = admissionRequired;
+            this.uniqueSeats = uniqueSeats;
+        }
+
+        private boolean admissionRequired() {
+            return admissionRequired;
+        }
+
+        private boolean uniqueSeats() {
+            return uniqueSeats;
+        }
 
         private static BookingScenario parse(final String value) {
             try {

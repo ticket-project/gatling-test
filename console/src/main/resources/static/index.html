@@ -476,6 +476,44 @@
       flex-wrap: wrap;
     }
 
+    .environment-box {
+      margin: 12px 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .environment-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .environment-title {
+      font-size: 13px;
+      font-weight: 720;
+    }
+
+    .environment-status {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .environment-table td:first-child {
+      width: 42%;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .environment-table td:last-child {
+      overflow-wrap: anywhere;
+      font-family: Consolas, "Segoe UI Mono", monospace;
+      font-size: 12px;
+    }
     .log-toolbar {
       display: flex;
       align-items: center;
@@ -622,11 +660,6 @@ ubuntu@43.203.136.184</textarea>
 
           <label for="distributedDumpFailureBodyLimit">노드당 저장할 실패 응답 수 <span class="help-chip" tabindex="0" data-help="503 같은 실패 응답의 HTML body와 Cloudflare 관련 헤더를 결과 리포트에 저장합니다. 부하 수치 왜곡을 줄이기 위해 보통 1개만 저장합니다.">?</span></label>
           <input id="distributedDumpFailureBodyLimit" name="distributedDumpFailureBodyLimit" type="number" min="1" value="1">
-
-          <label class="inline-check" data-option="booking">
-            <input id="operationalConfirmation" name="operationalConfirmation" type="checkbox">
-            운영 환경에서 booking 분산 부하 실행을 확인함
-          </label>
         </div>
       </fieldset>
 
@@ -641,12 +674,40 @@ ubuntu@43.203.136.184</textarea>
         <div data-option="booking" class="hidden">
           <div class="grid-2">
             <div>
-              <label for="coreBaseUrl">Ticket/Core URL <span class="help-chip" tabindex="0" data-help="좌석 상태, 좌석 선택, 주문 API를 받을 운영 Ticket/Core base URL입니다. localhost는 분산 실행에서 허용하지 않습니다.">?</span></label>
-              <input id="coreBaseUrl" name="coreBaseUrl" value="">
+              <label for="queueTimeoutThresholdPercent">Queue timeout 허용률(%) <span class="help-chip" tabindex="0" data-help="시작 사용자 중 QUEUE_TIMEOUT으로 끝나도 허용할 최대 비율입니다. 0이면 한 건도 허용하지 않습니다.">?</span></label>
+              <input id="queueTimeoutThresholdPercent" name="queueTimeoutThresholdPercent" type="number" min="0" step="0.1" value="0">
+            </div>
+            <div data-option="queue-proof" class="hidden">
+              <label for="maxCoreAdmissionsPerSecond">Core 안전 입장률(명/초) <span class="help-chip" tabindex="0" data-help="Queue 통과 후 실제 Core 흐름에 진입한 사용자 수의 초당 상한입니다. 분산 실행에서는 모든 노드를 합산합니다.">?</span></label>
+              <input id="maxCoreAdmissionsPerSecond" name="maxCoreAdmissionsPerSecond" type="number" min="1" value="300">
+            </div>
+          </div>
+          <div class="grid-2">
+            <div>
+              <label for="admissionRateTolerancePercent">입장률 측정 오차 허용(%) <span class="help-chip" tabindex="0" data-help="클라이언트 시계와 1초 구간 경계 때문에 생길 수 있는 짧은 버스트 허용치입니다. 기본 10%입니다.">?</span></label>
+              <input id="admissionRateTolerancePercent" name="admissionRateTolerancePercent" type="number" min="0" step="0.1" value="10">
             </div>
             <div>
-              <label for="queueBaseUrl">Queue URL <span class="help-chip" tabindex="0" data-help="Ticket Open E2E에서 join/state/enter를 호출할 Queue base URL입니다.">?</span></label>
-              <input id="queueBaseUrl" name="queueBaseUrl" value="">
+              <label class="inline-check">
+                <input id="dbAuditEnabled" name="dbAuditEnabled" type="checkbox" checked>
+                종료 후 DB 주문·좌석 정합성 감사
+              </label>
+              <input name="dbAuditEnabled" type="hidden" value="false">
+              <p class="field-note">Console 프로세스에 BOOKING_AUDIT_DB_URL, USERNAME, PASSWORD 환경 변수가 있어야 합니다.</p>
+            </div>
+          </div>
+          <label class="inline-check">
+            <input id="operationalConfirmation" name="operationalConfirmation" type="checkbox">
+            운영 API에 실제 좌석 선점·주문 요청을 보내는 것을 확인했습니다.
+          </label>
+          <div class="grid-2">
+            <div>
+              <label for="coreBaseUrl">Ticket/Core URL <span class="help-chip" tabindex="0" data-help="좌석 상태, 좌석 선택, 주문 API를 받을 운영 Ticket/Core base URL입니다. localhost는 분산 실행에서 허용하지 않습니다.">?</span></label>
+              <input id="coreBaseUrl" name="coreBaseUrl" value="https://api.oneticket.site">
+            </div>
+            <div data-option="queue-url">
+              <label for="queueBaseUrl">Queue URL <span class="help-chip" tabindex="0" data-help="Queue 시나리오에서 join/state/enter를 호출할 Queue base URL입니다.">?</span></label>
+              <input id="queueBaseUrl" name="queueBaseUrl" value="https://queue.oneticket.site">
             </div>
           </div>
           <div class="grid-2">
@@ -658,6 +719,11 @@ ubuntu@43.203.136.184</textarea>
               <label for="resultFile">결과 CSV <span class="help-chip" tabindex="0" data-help="각 Gatling JVM이 성공/비즈니스 거절/타임아웃 결과를 기록할 CSV 경로입니다.">?</span></label>
               <input id="resultFile" name="resultFile" value="build/reports/booking-results.csv">
             </div>
+          </div>
+          <div data-option="closed-booking" class="hidden">
+            <label for="bookingFeederRows">노드별 고유 피더 행 수 <span class="help-chip" tabindex="0" data-help="Closed Model은 완료된 사용자를 계속 교체하므로 동시 사용자 수보다 많은 고유 회원·좌석 행이 필요합니다. 피더를 순환시키지 않아 정합성 오염을 막습니다.">?</span></label>
+            <input id="bookingFeederRows" name="bookingFeederRows" type="number" min="1" value="10000">
+            <p class="field-note">로컬 실행에서는 전체 행 수, 분산 실행에서는 각 노드에 배정할 행 수입니다.</p>
           </div>
           <div class="grid-2">
             <div>
@@ -691,6 +757,8 @@ ubuntu@43.203.136.184</textarea>
           <option value="at-once-users">즉시 동시 투입</option>
           <option value="constant-users-per-sec">초당 고정 투입</option>
           <option value="ramp-users-per-sec">초당 증가 투입</option>
+          <option value="spike">Spike (Open Model)</option>
+          <option value="closed-core">동시 사용자 유지 (Closed Model)</option>
           <option value="ticket-open">예매 오픈 패턴</option>
         </select>
 
@@ -911,6 +979,23 @@ ubuntu@43.203.136.184</textarea>
           <button id="openReport" class="secondary-button" type="button">열기</button>
         </div>
       </div>
+      <div class="environment-box">
+        <div class="environment-heading">
+          <div>
+            <div class="environment-title">테스트 환경</div>
+            <div id="environmentStatus" class="environment-status">아직 수집된 환경정보가 없습니다.</div>
+          </div>
+          <div class="report-actions">
+            <button id="copyEnvironment" class="secondary-button" type="button" disabled>JSON 복사</button>
+            <button id="downloadEnvironment" class="secondary-button" type="button" disabled>JSON 다운로드</button>
+          </div>
+        </div>
+        <table class="environment-table">
+          <tbody id="environmentRows">
+          <tr><td>상태</td><td>-</td></tr>
+          </tbody>
+        </table>
+      </div>
       <table>
         <thead>
         <tr>
@@ -965,7 +1050,12 @@ const tooltip = document.querySelector('#tooltip');
 const copyLogButton = document.querySelector('#copyLog');
 const stopRunButton = document.querySelector('#stopRun');
 const admissionTokenMode = document.querySelector('#admissionTokenMode');
+const environmentStatus = document.querySelector('#environmentStatus');
+const environmentRows = document.querySelector('#environmentRows');
+const copyEnvironmentButton = document.querySelector('#copyEnvironment');
+const downloadEnvironmentButton = document.querySelector('#downloadEnvironment');
 let selectedRunId = null;
+let selectedEnvironmentJson = null;
 let polling = null;
 let simulationMeta = [];
 let generatedAccessTokenCountTouched = false;
@@ -973,10 +1063,19 @@ let accessTokensFileTouched = false;
 let stopRequestInFlight = false;
 
 const presets = {
-  smoke: { users: 5, durationSeconds: 10, injectionMode: 'ramp-users', usersPerSecond: 1, targetUsersPerSecond: 5 },
-  spike: { users: 30, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 10 },
-  ramp: { users: 50, durationSeconds: 30, injectionMode: 'ramp-users-per-sec', usersPerSecond: 1, targetUsersPerSecond: 10 },
+  smoke: { simulation: 'smoke', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1 },
+  spike: { simulation: 'core-spike', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 100, targetUsersPerSecond: 2000 },
+  ramp: { simulation: 'core-admission-capacity', users: 1, durationSeconds: 300, injectionMode: 'ramp-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 300 },
   ticketOpen: { simulation: 'queue-join-only', users: 10, durationSeconds: 270, injectionMode: 'ticket-open', usersPerSecond: 10, targetUsersPerSecond: 10 }
+};
+
+const proofSimulationDefaults = {
+  smoke: { coreBaseUrl: 'https://api.oneticket.site', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1 },
+  'hot-seat-concurrency': { coreBaseUrl: 'https://api.oneticket.site', users: 100, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1 },
+  'core-admission-capacity': { coreBaseUrl: 'https://api.oneticket.site', users: 1, durationSeconds: 300, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10 },
+  'core-active-users-closed': { coreBaseUrl: 'https://api.oneticket.site', users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000 },
+  'core-spike': { coreBaseUrl: 'https://api.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 100, targetUsersPerSecond: 2000 },
+  'queue-protects-core': { coreBaseUrl: 'https://api.oneticket.site', queueBaseUrl: 'https://queue.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300 }
 };
 
 async function loadSimulations() {
@@ -1079,6 +1178,7 @@ async function refreshRunDetail() {
     setStopButtonState(run);
     reportUrlInput.value = run.reportUrl ? `${location.origin}${run.reportUrl}` : '-';
     reportPathInput.value = run.reportPath || '-';
+    renderEnvironment(run.environment);
     await refreshRuns();
     if (run.status !== 'RUNNING') {
       restoreIdleState();
@@ -1088,6 +1188,132 @@ async function refreshRunDetail() {
   }
 }
 
+function renderEnvironment(metadata) {
+  selectedEnvironmentJson = metadata || null;
+  copyEnvironmentButton.disabled = !metadata;
+  downloadEnvironmentButton.disabled = !metadata;
+  if (!metadata) {
+    environmentStatus.textContent = '환경정보 수집 대기 중';
+    environmentRows.innerHTML = '<tr><td>상태</td><td>-</td></tr>';
+    return;
+  }
+
+  const capture = metadata.capture || {};
+  const warningCount = Array.isArray(capture.warnings) ? capture.warnings.length : 0;
+  environmentStatus.textContent = capture.error
+    ? `${display(capture.status)}: ${capture.error}`
+    : warningCount > 0
+      ? `${display(capture.status)} · 누락/경고 ${warningCount}건`
+      : display(capture.status);
+  const targets = Array.isArray(metadata.targets) ? metadata.targets : [];
+  const rows = [
+    ['수집원 / 시점', `${display(capture.source)} / ${display(metadata.capturePhase)}`]
+  ];
+
+  targets.forEach(group => {
+    const baseRoleLabel = group.role === 'queue' ? 'Queue' : 'Core';
+    const selector = group.datadog || {};
+    const groupedSchema = Array.isArray(group.instances);
+    const instances = groupedSchema ? group.instances : [group];
+    const targetCapture = group.capture || {};
+    const granularity = groupedSchema ? display(selector.granularity) : 'host (legacy)';
+    const observedCount = groupedSchema
+      ? Number(group.replicaCountObserved ?? instances.length)
+      : instances.length;
+    const captureSummary = targetCapture.error
+      ? `${display(targetCapture.status)} · ${targetCapture.error}`
+      : `${display(targetCapture.status || capture.status)} · ${observedCount} host · ${granularity}`;
+
+    rows.push(
+      [`${baseRoleLabel} 수집`, captureSummary],
+      [`${baseRoleLabel} 대상`, [selector.env, selector.service, selector.metricPrefix, selector.containerName]
+        .map(display).join(' / ')],
+      [`${baseRoleLabel} URL`, display(group.baseUrl)]
+    );
+
+    if (instances.length === 0) {
+      return;
+    }
+    instances.forEach((instance, index) => {
+      const roleLabel = instances.length > 1 ? `${baseRoleLabel} #${index + 1}` : baseRoleLabel;
+      const evidence = instance.evidence || {};
+      const host = instance.host || instance.datadog?.host;
+      rows.push(
+        [`${roleLabel} host / container`, `${display(host)} / ${evidenceDisplay(instance.container?.id, evidence['container.id'])}`],
+        [`${roleLabel} vCPU / RAM`, `${evidenceDisplay(instance.machine?.vcpu, evidence['machine.vcpu'])} / ${formatBytesWithEvidence(instance.machine?.ramBytes, evidence['machine.ramBytes'])}`],
+        [`${roleLabel} Docker CPU / memory`, `${evidenceDisplay(instance.container?.cpuLimit, evidence['container.cpuLimit'])} / ${formatBytesWithEvidence(instance.container?.memoryLimitBytes, evidence['container.memoryLimitBytes'])}`],
+        [`${roleLabel} JVM Xms / Xmx`, `${formatBytesWithEvidence(instance.jvm?.xmsBytes, evidence['jvm.xmsBytes'])} / ${formatBytesWithEvidence(instance.jvm?.xmxBytes, evidence['jvm.xmxBytes'])}`],
+        [`${roleLabel} Java`, evidenceDisplay(instance.application?.javaVersion, evidence['application.javaVersion'])],
+        [`${roleLabel} commit`, evidenceDisplay(instance.application?.commit, evidence['application.commit'])],
+        [`${roleLabel} image`, `${evidenceDisplay(instance.application?.imageName, evidence['application.imageName'])} / ${evidenceDisplay(instance.application?.imageId, evidence['application.imageId'])}`],
+        [`${roleLabel} Tomcat threads / connections`, `${evidenceDisplay(instance.tomcat?.maxThreads, evidence['tomcat.maxThreads'])} / ${evidenceDisplay(instance.tomcat?.maxConnections, evidence['tomcat.maxConnections'])}`]
+      );
+      if (group.role === 'core') {
+        rows.push(
+          ['Core Hikari maximum pool', evidenceDisplay(instance.hikari?.maximumPoolSize, evidence['hikari.maximumPoolSize'])],
+          ['Oracle', infrastructureDisplay(instance.oracle)],
+          ['Admission 검증', evidenceDisplay(
+            instance.features?.admissionTokenEnforcementEnabled,
+            evidence['features.admissionTokenEnforcementEnabled']
+          )]
+        );
+      }
+      rows.push(
+        [`${roleLabel} Redis`, redisDisplay(instance.redis)],
+        [`${roleLabel} Datadog 관측 시각`, display(instance.observedAt)],
+        [`${roleLabel} identity 관측 시각`, display(instance.identityObservedAt)]
+      );
+    });
+  });
+  rows.push(
+    ['메타데이터 생성 시각', display(metadata.capturedAt)],
+    ['누락/경고', warningCount > 0 ? capture.warnings.join('; ') : '-']
+  );
+  environmentRows.innerHTML = rows
+    .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+    .join('');
+}
+
+function evidenceDisplay(value, status) {
+  const formatted = display(value);
+  return status && status !== 'observed' ? `${formatted} (${status})` : formatted;
+}
+
+function formatBytesWithEvidence(value, status) {
+  const formatted = formatBytes(value);
+  return status && status !== 'observed' ? `${formatted} (${status})` : formatted;
+}
+
+function infrastructureDisplay(value) {
+  if (!value) return '-';
+  const parts = [value.instanceProfile, value.networkLocation]
+    .filter(item => item != null && String(item).trim());
+  if (value.networkRttMs != null) parts.push(`${value.networkRttMs} ms`);
+  return parts.length ? parts.join(' · ') : '-';
+}
+
+function redisDisplay(value) {
+  if (!value) return '-';
+  const parts = [infrastructureDisplay(value)];
+  if (value.maxMemoryBytes != null) {
+    parts.push(`maxmemory=${Number(value.maxMemoryBytes) === 0 ? 'unlimited' : formatBytes(value.maxMemoryBytes)}`);
+  }
+  return parts.filter(part => part && part !== '-').join(' · ') || '-';
+}
+
+function formatBytes(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '-';
+  const bytes = Number(value);
+  if (bytes >= 1024 ** 3) {
+    const gib = bytes / (1024 ** 3);
+    return `${gib >= 10 ? gib.toFixed(0) : gib.toFixed(1)} GiB`;
+  }
+  return `${(bytes / (1024 ** 2)).toFixed(0)} MiB`;
+}
+
+function display(value) {
+  return value == null || String(value).trim() === '' ? '-' : String(value);
+}
 function updateVisibility() {
   applyDistributedQueueJoinDefaults();
   const selected = selectedSimulation();
@@ -1100,13 +1326,16 @@ function updateVisibility() {
   setVisible('[data-option="http2"]', selected?.key === 'queue-join-only');
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
   setVisible('[data-option="booking"]', selected?.usesBookingFeeder);
+  setVisible('[data-option="queue-url"]', selected?.usesBookingFeeder && selected?.usesQueueBaseUrl);
+  setVisible('[data-option="queue-proof"]', selected?.key === 'queue-protects-core');
+  setVisible('[data-option="closed-booking"]', selected?.key === 'core-active-users-closed');
   setVisible('[data-option="poll"]', selected?.usesStatusPolling);
   setVisible('[data-option="poll-jitter"]', selected?.usesStatusPolling);
   setVisible('[data-option="access-token"]', selected?.usesAccessTokens);
   setVisible('[data-option="admission-token"]', selected?.usesAdmissionTokens);
   setVisible('[data-injection="duration"]', mode !== 'at-once-users' && mode !== 'ticket-open');
-  setVisible('[data-injection="rate"]', distributed || mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec' || mode === 'ticket-open');
-  setVisible('[data-injection="target-rate"]', !distributed && mode === 'ramp-users-per-sec');
+  setVisible('[data-injection="rate"]', distributed || mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec' || mode === 'spike' || mode === 'ticket-open');
+  setVisible('[data-injection="target-rate"]', mode === 'ramp-users-per-sec' || mode === 'spike');
   setVisible('[data-token-mode="login"]', tokenMode === 'login');
   setVisible('[data-token-mode="tokens"]', tokenMode === 'tokens');
   setVisible('[data-token-config="jwt"]', tokenMode === 'synthetic-jwt'
@@ -1125,6 +1354,14 @@ function setVisible(selector, visible) {
   });
 }
 
+function applyProofSimulationDefaults() {
+  const defaults = proofSimulationDefaults[simulationSelect.value];
+  if (!defaults) return;
+  Object.entries(defaults).forEach(([key, value]) => {
+    const input = document.querySelector(`[name="${key}"]`);
+    if (input) input.value = value;
+  });
+}
 function applyDistributedQueueJoinDefaults() {
   const selected = selectedSimulation();
   if (selected?.key !== 'queue-join-only' && injectionMode.value === 'ticket-open') {
@@ -1169,13 +1406,22 @@ function validateBeforeRun(body) {
     const feederFile = String(body.get('bookingFeederFile') || '').trim();
     if (!coreBaseUrl) return 'Booking 시나리오는 Ticket/Core URL을 입력해야 합니다.';
     if (isLocalhostUrl(coreBaseUrl)) return 'Booking 운영 부하 테스트의 Ticket/Core URL은 localhost를 사용할 수 없습니다.';
-    if (selected.usesQueueBaseUrl && !queueBaseUrl) return 'Ticket Open E2E는 Queue URL을 입력해야 합니다.';
-    if (queueBaseUrl && isLocalhostUrl(queueBaseUrl)) return 'Booking 운영 부하 테스트의 Queue URL은 localhost를 사용할 수 없습니다.';
+    if (selected.usesQueueBaseUrl && !queueBaseUrl) return 'Queue를 사용하는 시나리오는 Queue URL을 입력해야 합니다.';
+    if (selected.usesQueueBaseUrl && isLocalhostUrl(queueBaseUrl)) return 'Booking 운영 부하 테스트의 Queue URL은 localhost를 사용할 수 없습니다.';
     if (!feederFile) return 'Booking Feeder CSV 경로를 입력해야 합니다.';
-    if (distributed && body.get('operationalConfirmation') !== 'on') return '운영 환경 booking 분산 실행 확인 체크가 필요합니다.';
+    if (selected.key === 'core-active-users-closed' && Number(body.get('bookingFeederRows') || 0) < Number(body.get('users') || 0)) return 'Closed Model 피더 행 수는 동시 사용자 수 이상이어야 합니다.';
+    if (distributed && selected.key === 'hot-seat-concurrency') return 'Hot Seat는 프로세스 단위 rendezVous를 사용하므로 로컬 PC 한 대에서 실행해야 합니다.';
+    if (Number(body.get('queueTimeoutThresholdPercent') || 0) < 0) return 'Queue timeout 허용률은 0 이상이어야 합니다.';
+    if (Number(body.get('admissionRateTolerancePercent') || 0) < 0) return '입장률 측정 오차 허용치는 0 이상이어야 합니다.';
+    if (selected.key === 'queue-protects-core' && Number(body.get('maxCoreAdmissionsPerSecond') || 0) <= 0) return 'Queue 보호 증명에는 Core 안전 입장률을 입력해야 합니다.';
+    if (body.get('operationalConfirmation') !== 'on') return '운영 API에 실제 좌석 선점·주문 요청을 보내는 실행 확인이 필요합니다.';
     if (distributed && distributedHostCount(body) === 0) return 'Booking 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
   }
 
+  const injection = String(body.get('injectionMode') || 'ramp-users');
+  if (injection === 'spike' && Number(body.get('targetUsersPerSecond') || 0) <= Number(body.get('usersPerSecond') || 0)) {
+    return 'Spike 목표 RPS는 기준 RPS보다 커야 합니다.';
+  }
   if (distributed) {
     if (!selected?.usesBookingFeeder && !['cdn-public-state', 'legacy-queue-status', 'queue-join-only'].includes(selected?.key)) {
       return 'EC2 분산 실행은 Booking, Queue Join Only, CDN Public State, Legacy Queue Status 시나리오에서 지원합니다.';
@@ -1183,7 +1429,7 @@ function validateBeforeRun(body) {
     if (distributedHostCount(body) === 0) {
       return 'EC2 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
     }
-    if (Number(body.get('usersPerSecond') || 0) <= 0) {
+    if (selected?.key !== 'core-active-users-closed' && Number(body.get('usersPerSecond') || 0) <= 0) {
       return 'EC2 분산 실행에서는 시작 초당 사용자 수를 노드당 RPS로 사용하므로 0보다 커야 합니다.';
     }
     if (selected?.key === 'queue-join-only') {
@@ -1260,10 +1506,17 @@ function estimateVirtualUsers(body) {
   const usersPerSecond = Number(body.get('usersPerSecond') || 0);
   if (String(body.get('executionMode') || 'local') === 'distributed') {
     const duration = Number(body.get('durationSeconds') || 0);
-    if (mode === 'ticket-open') {
-      return ticketOpenExpectedUsers(usersPerSecond) * distributedNodeCount(body);
+    const nodes = distributedNodeCount(body);
+    if (mode === 'closed-core') {
+      return Number(body.get('users') || 0) * nodes;
     }
-    return Math.ceil(duration * usersPerSecond * distributedNodeCount(body));
+    if (mode === 'spike') {
+      return coreSpikeExpectedUsers(usersPerSecond, Number(body.get('targetUsersPerSecond') || 0), duration) * nodes;
+    }
+    if (mode === 'ticket-open') {
+      return ticketOpenExpectedUsers(usersPerSecond) * nodes;
+    }
+    return Math.ceil(duration * usersPerSecond * nodes);
   }
   const users = Number(body.get('users') || 0);
   const duration = Number(body.get('durationSeconds') || 0);
@@ -1278,9 +1531,21 @@ function estimateVirtualUsers(body) {
   if (mode === 'ticket-open') {
     return ticketOpenExpectedUsers(usersPerSecond);
   }
+  if (mode === 'spike') {
+    return coreSpikeExpectedUsers(usersPerSecond, targetUsersPerSecond, duration);
+  }
   return users;
 }
 
+function coreSpikeExpectedUsers(baselineRps, peakRps, peakHoldSeconds) {
+  const constant = (rps, seconds) => Math.ceil(rps * seconds);
+  const ramp = (start, end, seconds) => Math.ceil(((start + end) / 2) * seconds);
+  return constant(baselineRps, 30)
+          + ramp(baselineRps, peakRps, 5)
+          + constant(peakRps, peakHoldSeconds)
+          + ramp(peakRps, baselineRps, 5)
+          + constant(baselineRps, 30);
+}
 function ticketOpenExpectedUsers(peakRps) {
   const firstDecay = peakRps * 0.5;
   const secondDecay = peakRps * 0.2;
@@ -1325,6 +1590,12 @@ function estimateAccessTokensPerNode(body) {
     if (mode === 'ticket-open') {
       return ticketOpenExpectedUsers(usersPerSecond);
     }
+    if (mode === 'closed-core') {
+      return Number(body.get('bookingFeederRows') || 0);
+    }
+    if (mode === 'spike') {
+      return coreSpikeExpectedUsers(usersPerSecond, Number(body.get('targetUsersPerSecond') || 0), duration);
+    }
     return Math.ceil(duration * usersPerSecond);
   }
   return estimateVirtualUsers(body);
@@ -1356,8 +1627,10 @@ function distributedHostCount(body) {
 function updateApiPreview() {
   const selected = selectedSimulation();
   const baseUrl = trimTrailingSlash(baseUrlInput.value || selected?.defaultBaseUrl || 'http://52.237.82.8:18090/legacy-queue');
-  const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || baseUrl);
-  const queueUrl = trimTrailingSlash(queueBaseUrlInput?.value || baseUrl);
+  const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || 'https://api.oneticket.site');
+  const queueUrl = trimTrailingSlash(selected?.usesBookingFeeder
+    ? (queueBaseUrlInput?.value || 'https://queue.oneticket.site')
+    : baseUrl);
   const performanceId = document.querySelector('#performanceId').value || '1';
   const simulation = simulationSelect.value;
   const queueBase = `${queueUrl}/api/v1/queue/performances/${performanceId}`;
@@ -1380,6 +1653,39 @@ function updateApiPreview() {
       ['POST', `${performanceBase}/seats/{seatId}/select`],
       ['POST', `${coreBaseUrl}/api/v1/orders`],
       ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
+    ],
+    'smoke': [
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${coreBaseUrl}/api/v1/orders`],
+      ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
+    ],
+    'hot-seat-concurrency': [
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${coreBaseUrl}/api/v1/orders`]
+    ],
+    'core-admission-capacity': [
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${coreBaseUrl}/api/v1/orders`]
+    ],
+    'core-active-users-closed': [
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${coreBaseUrl}/api/v1/orders`]
+    ],
+    'core-spike': [
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${coreBaseUrl}/api/v1/orders`]
+    ],
+    'queue-protects-core': [
+      ['POST', `${queueBase}/join`],
+      ['GET', `${queueBase}/state`],
+      ['POST', `${queueBase}/enter`],
+      ['GET', `${performanceBase}/seats/status`],
+      ['POST', `${performanceBase}/seats/{seatId}/select`],
+      ['POST', `${coreBaseUrl}/api/v1/orders`]
     ],
     'ticket-open-end-to-end': [
       ['POST', `${queueBase}/join`],
@@ -1490,10 +1796,11 @@ function hideTooltip() {
 
 form.addEventListener('submit', startRun);
 form.addEventListener('input', updateSummary);
-simulationSelect.addEventListener('change', () => { applySimulationDefaultBaseUrl(); updateVisibility(); updateSummary(); });
+simulationSelect.addEventListener('change', () => { applyProofSimulationDefaults(); applySimulationDefaultBaseUrl(); updateVisibility(); updateSummary(); });
 injectionMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
 executionMode.addEventListener('change', () => {
-  if (executionMode.value === 'distributed' && selectedSimulation()?.key !== 'queue-join-only') {
+  if (executionMode.value === 'distributed'
+          && !['queue-join-only', 'core-active-users-closed', 'core-spike', 'queue-protects-core'].includes(selectedSimulation()?.key)) {
     injectionMode.value = 'constant-users-per-sec';
   }
   updateVisibility();
@@ -1543,6 +1850,20 @@ stopRunButton.addEventListener('click', async () => {
     logView.textContent = error.message || '실행 중지에 실패했습니다.';
     await refreshRunDetail();
   }
+});
+copyEnvironmentButton.addEventListener('click', async () => {
+  if (!selectedEnvironmentJson) return;
+  await navigator.clipboard.writeText(JSON.stringify(selectedEnvironmentJson, null, 2));
+});
+downloadEnvironmentButton.addEventListener('click', () => {
+  if (!selectedEnvironmentJson || !selectedRunId) return;
+  const blob = new Blob([JSON.stringify(selectedEnvironmentJson, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `run-metadata-${selectedRunId}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 });
 copyLogButton.addEventListener('click', async () => {
   await navigator.clipboard.writeText(logView.textContent || '');

@@ -182,4 +182,37 @@ class GatlingCommandBuilderTest {
         assertTrue(command.contains("-DgatlingReportDir=C:\\ticket\\load-tests\\gatling\\build\\tmp\\gatling-console-runs\\run-1")
                 || command.contains("-DgatlingReportDir=C:/ticket/load-tests/gatling/build/tmp/gatling-console-runs/run-1"));
     }
+    @Test
+    void includesRunDescriptionInGatlingCommand() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("cdn-public-state")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(
+                request,
+                Path.of("C:/reports"),
+                "runId=f8290000,commit=a91b32f"
+        );
+
+        assertTrue(command.contains("--run-description"));
+        assertTrue(command.contains("runId=f8290000,commit=a91b32f"));
+    }
+    @Test
+    void buildsClosedCoreCommandWithSeparateFeederCapacity() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("core-active-users-closed"),
+                "coreBaseUrl", List.of("https://api.example.com"),
+                "bookingFeederFile", List.of("C:/feeders/closed.csv"),
+                "bookingFeederRows", List.of("10000"),
+                "users", List.of("300"),
+                "injectionMode", List.of("closed-core")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation"));
+        assertTrue(command.contains("-DbookingFeederRows=10000"));
+    }
 }
