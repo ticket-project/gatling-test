@@ -1,6 +1,6 @@
 # Ticket Gatling Console
 
-기준일: 2026-05-24
+기준일: 2026-07-30
 
 로컬 브라우저에서 `gatling-test` 저장소의 Gatling 부하 테스트를 실행하고, 생성된 HTML 리포트로 이동하기 위한 개발용 콘솔이다. 운영 배포 대상이 아니며, 자동화된 테스트 러너가 아니다.
 
@@ -17,7 +17,7 @@
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
 - 대상 API 기본값: Queue join은 Cloudflare를 거치지 않는 `https://queue.oneticket.site`, legacy 계열은 `http://52.237.82.8:18090/legacy-queue`, CDN public state는 실행 시 별도 Cloudflare state endpoint 확인 필요
-- 기본 Gatling 저장소 경로: `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`
+- 권장 Gatling 저장소 경로: 현재 `gatling-test` 저장소 루트. 콘솔 입력칸에 개발자 PC의 과거 절대경로가 표시될 수 있으므로 실행 전에 반드시 현재 경로로 바꾼다.
 - 실제 Gatling 프로젝트 위치: 이 저장소의 `load-tests/gatling`
 
 ## 역할
@@ -86,6 +86,8 @@ http://localhost:9090
 | `core-active-users-closed` | `https://api.oneticket.site` |
 | `core-spike` | `https://api.oneticket.site` |
 | `queue-protects-core` | Core `https://api.oneticket.site` + Queue `https://queue.oneticket.site` |
+표의 주소는 콘솔 코드가 입력 칸을 채우는 편의 기본값이며 현재 가용성이나 운영 배포 대상을 보장하지 않는다. 특히 `legacy-queue` 주소는 비교용 구형 API이므로, 실행 전에 대상 서버 소유자와 URL·회차·허용 부하를 다시 확인한다.
+
 
 `queue-join-only`의 `https://queue.oneticket.site`는 Queue origin Nginx를 직접 호출하며 Cloudflare를 거치지 않는다. `cdn-public-state`의 기본 URL은 입력 편의를 위한 값일 뿐이다. 현재 hostname이 DNS-only이면 CDN 테스트가 아니므로, 실행 전에 Cloudflare가 프록시하는 state endpoint로 바꾸고 `CF-Ray`, `CF-Cache-Status` 헤더를 확인한다.
 
@@ -117,7 +119,7 @@ join 분산 스크립트는 기본적으로 로컬 `gatling-test` 프로젝트�
 
 ```powershell
 .\gradlew.bat -p load-tests/gatling generateAccessTokens `
-  -Doutput=C:\Users\mn040\IdeaProjects\ticket-workspace\.tmp\access-tokens.txt `
+  -Doutput=load-tests\gatling\build\tokens\access-tokens.txt `
   -DjwtSecret=0123456789abcdef0123456789abcdef `
   -DjwtIssuer=ticket `
   -DsyntheticMemberStartId=1 `
@@ -169,6 +171,12 @@ com.ticket.loadtest.simulation.CdnPublicStateSimulation
 com.ticket.loadtest.simulation.BookingCapacitySimulation
 com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation
 com.ticket.loadtest.simulation.SeatContentionSimulation
+com.ticket.loadtest.simulation.SmokeSimulation
+com.ticket.loadtest.simulation.HotSeatConcurrencySimulation
+com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation
+com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation
+com.ticket.loadtest.simulation.CoreSpikeSimulation
+com.ticket.loadtest.simulation.QueueProtectsCoreSimulation
 ```
 
 `CdnPublicStateSimulation`은 `https://queue.oneticket.site`를 기본 입력값으로 사용하고, 아래 public state API만 반복 조회한다. 기본 hostname이 DNS-only인 현재 구성에서는 origin 조회가 되므로, CDN 캐시를 검증할 때는 Cloudflare가 프록시하는 state endpoint를 명시해야 한다.
