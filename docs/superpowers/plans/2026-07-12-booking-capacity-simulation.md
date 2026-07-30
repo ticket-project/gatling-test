@@ -1,5 +1,7 @@
 # Booking Capacity Simulation Implementation Plan
 
+> 구현 기록: 이 문서가 계획한 세 시나리오와 실행 자산은 현재 저장소에 존재하며, 이후 정합성·Core 보호 시나리오가 추가됐습니다. 체크박스는 당시 작업 절차이므로 현재 완료 상태 판단에 사용하지 말고, 실행 계약은 루트 `README.md`와 `console/README.md`를 기준으로 확인하세요.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 기존 예매 오픈·좌석 경합·Ticket 용량 시나리오를 제거하고, Queue부터 PENDING 주문까지 3VM에서 분산 실행할 수 있는 세 시나리오로 교체한다.

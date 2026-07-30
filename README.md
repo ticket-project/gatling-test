@@ -46,7 +46,7 @@ Header/cookie/auth 없음
 
 ```powershell
 .\gradlew.bat -p load-tests/gatling generateAccessTokens `
-  -Doutput=C:\Users\mn040\IdeaProjects\ticket-workspace\.tmp\access-tokens.txt `
+  -Doutput=load-tests\gatling\build\tokens\access-tokens.txt `
   -DjwtSecret=0123456789abcdef0123456789abcdef `
   -DjwtIssuer=ticket `
   -DsyntheticMemberStartId=1 `
@@ -134,6 +134,27 @@ Booking 전용 실행기는 `run-distributed-booking.ps1`이다. 원격 Gradle �
 
 Smoke, Core 용량, Core Active Users Closed, Spike, Queue 보호 시나리오는 회원마다 서로 다른 `seatId`가 필요하다. Hot Seat는 반대로 모든 feeder 행이 같은 `seatId`를 사용해야 한다. 모든 시나리오는 회원별로 고유한 access token을 사용한다. Queue 보호 시나리오는 `enter` 응답으로 admission token을 받으므로 feeder의 `admissionToken`을 비워 둔다.
 
+### 실제 예매 사용자 모델
+
+용량 측정 시나리오 03~06은 한 사용자를 다음 흐름으로 실행한다.
+
+```text
+공연 요약 조회 → 좌석 상태 조회 → 좌석 선택 시간 → 좌석 선점
+→ 충돌 시 좌석 재조회 후 1회 재시도 → 주문 전 판단 시간 → 주문 생성 → 주문 PENDING 조회
+```
+
+기본값은 좌석 선택 시간 1~3초, 주문 전 판단 시간 2~6초, 재시도 대기 0.5~2초, 좌석 재조회 사용자 25%, 주문 전 이탈 사용자 10%다. 각각 `bookingSeatThinkMinMillis`/`bookingSeatThinkMaxMillis`, `bookingOrderThinkMinMillis`/`bookingOrderThinkMaxMillis`, `bookingRetryThinkMinMillis`/`bookingRetryThinkMaxMillis`, `bookingSeatRefreshPercent`, `bookingDropoutPercent`로 조정한다. 실제 서비스 행동 로그가 있으면 그 분포로 반드시 보정한다. 생각 시간이 없으면 한 사용자가 비현실적으로 빠르게 요청을 몰아 보내므로 안전 입장률은 실제보다 낮고 체류자 수는 실제보다 작게 측정된다.
+
+요청별 SLO는 다음 속성으로 분리한다.
+
+- 공연 요약: `performanceSummaryP95ThresholdMs`, `performanceSummaryP99ThresholdMs`
+- 좌석 상태: `seatStatusP95ThresholdMs`, `seatStatusP99ThresholdMs`
+- 좌석 선점: `seatSelectP95ThresholdMs`, `seatSelectP99ThresholdMs`
+- 주문 생성: `orderCreateP95ThresholdMs`, `orderCreateP99ThresholdMs`
+- 주문 조회: `orderGetP95ThresholdMs`, `orderGetP99ThresholdMs`
+
+현재 Core에는 결제 확정 흐름이 연결되어 있지 않으므로 직접 검증 범위는 주문 `PENDING`까지다. 결제가 구현되면 결제 성공·실패·재시도와 결제 단계 체류 시간을 같은 사용자 흐름에 추가해야 한다.
+
 ### Core 안전 입장률 측정
 
 `CoreAdmissionCapacitySimulation`은 Open Model로 한 실행에 하나의 고정 입장률만 사용한다. 10, 25, 50, 100, 200, 300 users/sec를 각각 별도 실행해야 앞 단계의 주문 데이터, GC, DB lock이 다음 단계 결과를 오염시키지 않는다.
@@ -196,6 +217,8 @@ Closed Model은 실행 중 사용자를 계속 교체하므로 `bookingFeederRow
 
 Queue 보호 시나리오의 `pollingTimeoutSeconds`는 최소한 `외부 유입 사용자 수 / Queue 입장률`보다 길어야 한다. 예를 들어 120,000명이 들어오고 Core 입장률이 300명/초이면 대기열 소진에만 약 400초가 필요하므로 300초 timeout은 정상 대기 사용자를 실패로 오판한다.
 
+public state에서 입장 가능 순번이 된 뒤에도 실제 `/enter` token bucket이 `429`를 반환할 수 있다. `QueueProtectsCoreSimulation`은 이 응답을 기술 실패로 세지 않고 100ms 간격으로 같은 queueToken을 재시도하며, 전체 입장 timeout을 넘긴 경우에만 `QUEUE_ENTER_TIMEOUT`으로 기록한다.
+
 ### 정합성 최종 판정
 
 Gatling 결과만으로는 응답 timeout 직전에 DB commit된 주문을 놓칠 수 있다. 따라서 Hot Seat 실행 후에는 반드시 테스트 DB를 조회해 대상 좌석의 활성 주문이 1건인지 확인한다.
@@ -219,7 +242,10 @@ HAVING COUNT(DISTINCT o.id) > 1;
 - `booking-results.csv`: 시작한 각 회원의 최종 결과를 정확히 한 줄씩 기록한다.
 - `booking-evidence.json`: 시작 수, 종료 결과 수, 누락 수, Queue timeout 비율, 관측된 최대 Core 입장률을 기록한다.
 - `booking-admissions.csv`: Queue 통과 후 실제 Core 좌석 상태 흐름에 진입한 수를 초 단위로 기록한다.
+- `booking-active-users.csv`: Core 입장과 예매 흐름 종료 때마다 부하 발생기에서 관측한 활성 사용자 수를 기록한다.
 - `booking-db-audit.json`: 클라이언트 성공 주문 수와 DB 주문 수, 중복 좌석 주문, 활성 중복 선점, 좌석 없는 주문 등을 조회한 결과다.
+
+`booking-results.csv`에는 Core 입장·종료 시각과 개별 체류 시간이 추가되고, `booking-evidence.json`에는 최대 활성 사용자 수와 평균·p95·p99 Core 체류 시간이 추가된다. 이 두 값이 안전 입장률과 함께 Queue의 `maxActiveUsers`를 정하는 근거다.
 
 Console에서는 `Queue timeout 허용률`, `Core 안전 입장률`, `입장률 측정 오차 허용`을 입력한다. Queue Protects Core의 기본 안전 입장률은 300명/초이고, 분산 실행은 노드별 값이 아니라 모든 노드의 `booking-admissions.csv`를 합산한 `booking-admissions-global.csv`로 판정한다.
 
