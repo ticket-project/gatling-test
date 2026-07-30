@@ -58,4 +58,19 @@ class LoadTestConfigTest {
         assertTrue(source.contains("case POLLING_TIMEOUT_SECONDS -> \"300\";"));
     }
 
+    @Test
+    void exposesRealisticBookingTimingAndApiSpecificSlos() throws IOException {
+        final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("case PERFORMANCE_SUMMARY_P99_THRESHOLD_MS -> \"700\";"));
+        assertTrue(source.contains("case BOOKING_SEAT_THINK_MIN_MILLIS -> \"1000\";"));
+        assertTrue(source.contains("case BOOKING_ORDER_THINK_MAX_MILLIS -> \"6000\";"));
+        assertTrue(source.contains("case BOOKING_SEAT_REFRESH_PERCENT -> \"25.0\";"));
+        assertTrue(source.contains("case BOOKING_DROPOUT_PERCENT -> \"10.0\";"));
+        assertTrue(source.contains("case SEAT_STATUS_P99_THRESHOLD_MS -> \"700\";"));
+        assertTrue(source.contains("case SEAT_SELECT_P99_THRESHOLD_MS -> \"1000\";"));
+        assertTrue(source.contains("case ORDER_CREATE_P99_THRESHOLD_MS -> \"1500\";"));
+        assertTrue(source.contains("case ORDER_GET_P99_THRESHOLD_MS -> \"1000\";"));
+    }
+
 }

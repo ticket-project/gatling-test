@@ -31,14 +31,16 @@ public class SmokeSimulation extends BookingProofSimulation {
                 .protocols(httpProtocol)
                 .assertions(
                         global().failedRequests().count().is(0L),
+                        details("performance summary").responseTime().percentile(99.0)
+                                .lt(LoadTestConfig.performanceSummaryP99ThresholdMs()),
                         details("seat status").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs()),
+                                .lt(LoadTestConfig.seatStatusP99ThresholdMs()),
                         details("select seat").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs()),
+                                .lt(LoadTestConfig.seatSelectP99ThresholdMs()),
                         details("create order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs()),
+                                .lt(LoadTestConfig.orderCreateP99ThresholdMs()),
                         details("get order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs())
+                                .lt(LoadTestConfig.orderGetP99ThresholdMs())
                 );
     }
 }
