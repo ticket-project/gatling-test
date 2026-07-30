@@ -10,7 +10,7 @@ import java.time.Instant;
 public final class BookingResultRecorder {
     private static final Object LOCK = new Object();
     private static final String HEADER = "scenario,nodeIndex,memberId,seatId,orderKey,httpStatus,result,lastStep,"
-            + "startedAt,coreAdmittedAt,timestamp"
+            + "startedAt,coreAdmittedAt,flowCompletedAt,coreResidenceMillis,timestamp"
             + System.lineSeparator();
 
     private BookingResultRecorder() {
@@ -36,9 +36,19 @@ public final class BookingResultRecorder {
             final String startedAt,
             final String coreAdmittedAt
     ) {
+        final Instant completedAt = Instant.now();
+        final long coreResidenceMillis = BookingEvidenceRecorder.recordTerminal(
+                file,
+                scenario,
+                nodeIndex,
+                memberId,
+                result,
+                completedAt
+        );
         final String line = String.join(",", csv(scenario), Integer.toString(nodeIndex), Long.toString(memberId),
                 Long.toString(seatId), csv(orderKey), Integer.toString(httpStatus), csv(result), csv(lastStep),
-                csv(startedAt), csv(coreAdmittedAt), csv(Instant.now().toString()))
+                csv(startedAt), csv(coreAdmittedAt), csv(completedAt.toString()),
+                coreResidenceMillis < 0 ? "" : Long.toString(coreResidenceMillis), csv(completedAt.toString()))
                 + System.lineSeparator();
         synchronized (LOCK) {
             try {
@@ -50,7 +60,6 @@ public final class BookingResultRecorder {
                     Files.writeString(file, HEADER, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                             StandardOpenOption.APPEND);
                 }
-                BookingEvidenceRecorder.recordTerminal(file, scenario, nodeIndex, memberId, result);
                 Files.writeString(file, line, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             } catch (IOException exception) {
                 throw new IllegalStateException("Failed to append booking result: " + file, exception);

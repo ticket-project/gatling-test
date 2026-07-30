@@ -95,9 +95,9 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
                         details("order won").successfulRequests().count().is(1L),
                         details("order business rejected").successfulRequests().count().is(users - 1L),
                         details("select seat").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs()),
+                                .lt(LoadTestConfig.seatSelectP99ThresholdMs()),
                         details("create order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs())
+                                .lt(LoadTestConfig.orderCreateP99ThresholdMs())
                 );
     }
 
@@ -106,7 +106,8 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
             final Instant admittedAt = BookingEvidenceRecorder.recordCoreAdmission(
                     Path.of(LoadTestConfig.resultFile()),
                     SCENARIO,
-                    LoadTestConfig.nodeIndex()
+                    LoadTestConfig.nodeIndex(),
+                    session.getLong("memberId")
             );
             return session.set("coreAdmittedAt", admittedAt.toString()).set("lastStep", "CORE_ADMITTED");
         });
@@ -268,4 +269,4 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
     private static String optionalString(final Session session, final String key) {
         return session.contains(key) ? session.getString(key) : "";
     }
-}
+}

@@ -6,9 +6,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -45,26 +49,32 @@ public final class BookingEvidenceRecorder {
     public static Instant recordCoreAdmission(
             final Path resultFile,
             final String scenario,
-            final int nodeIndex
+            final int nodeIndex,
+            final long memberId
     ) {
         final Instant admittedAt = Instant.now();
-        state(resultFile, scenario, nodeIndex)
-                .coreAdmissionsByEpochSecond
+        final EvidenceState state = state(resultFile, scenario, nodeIndex);
+        if (state.admittedMembers.putIfAbsent(memberId, admittedAt) != null) {
+            throw new IllegalStateException("Duplicate Core admission: memberId=" + memberId);
+        }
+        state.coreAdmissionsByEpochSecond
                 .computeIfAbsent(admittedAt.getEpochSecond(), ignored -> new AtomicLong())
                 .incrementAndGet();
+        recordActiveDelta(state, admittedAt, 1L);
         return admittedAt;
     }
 
-    static void recordTerminal(
+    static long recordTerminal(
             final Path resultFile,
             final String scenario,
             final int nodeIndex,
             final long memberId,
-            final String result
+            final String result,
+            final Instant completedAt
     ) {
         final EvidenceState state = STATES.get(key(resultFile, scenario, nodeIndex));
         if (state == null) {
-            return;
+            return -1L;
         }
         if (state.terminalMembers.putIfAbsent(memberId, result) != null) {
             throw new IllegalStateException("Duplicate booking terminal result: memberId=" + memberId);
@@ -73,6 +83,14 @@ public final class BookingEvidenceRecorder {
         if ("QUEUE_TIMEOUT".equals(result)) {
             state.queueTimeouts.incrementAndGet();
         }
+        final Instant admittedAt = state.admittedMembers.get(memberId);
+        if (admittedAt == null) {
+            return -1L;
+        }
+        final long residenceMillis = Math.max(0L, completedAt.toEpochMilli() - admittedAt.toEpochMilli());
+        state.coreResidenceMillis.add(residenceMillis);
+        recordActiveDelta(state, completedAt, -1L);
+        return residenceMillis;
     }
 
     public static EvidenceSummary verifyAndWrite(
@@ -93,6 +111,8 @@ public final class BookingEvidenceRecorder {
                 .mapToLong(AtomicLong::get)
                 .max()
                 .orElse(0L);
+        final ActiveSummary activeSummary = activeSummary(state);
+        final ResidenceSummary residenceSummary = residenceSummary(state.coreResidenceMillis);
         final double queueTimeoutPercent = startedUsers == 0
                 ? 0.0
                 : queueTimeouts * 100.0 / startedUsers;
@@ -110,9 +130,18 @@ public final class BookingEvidenceRecorder {
                 queueTimeoutPercent,
                 maxObservedCoreAdmissions,
                 maxCoreAdmissionsPerSecond,
-                allowedCoreAdmissions
+                allowedCoreAdmissions,
+                activeSummary.maxActiveUsers(),
+                residenceSummary.averageMillis(),
+                residenceSummary.p95Millis(),
+                residenceSummary.p99Millis()
         );
-        writeSummary(key.resultFile(), summary, state.coreAdmissionsByEpochSecond);
+        writeSummary(
+                key.resultFile(),
+                summary,
+                state.coreAdmissionsByEpochSecond,
+                activeSummary.samples()
+        );
 
         if (startedUsers <= 0) {
             throw new IllegalStateException("Booking evidence is invalid: no virtual user started");
@@ -135,11 +164,13 @@ public final class BookingEvidenceRecorder {
     private static void writeSummary(
             final Path resultFile,
             final EvidenceSummary summary,
-            final Map<Long, AtomicLong> coreAdmissions
+            final Map<Long, AtomicLong> coreAdmissions,
+            final List<ActiveSample> activeSamples
     ) {
         final Path parent = Objects.requireNonNullElse(resultFile.toAbsolutePath().getParent(), Path.of("."));
         final Path summaryFile = parent.resolve("booking-evidence.json");
         final Path admissionsFile = parent.resolve("booking-admissions.csv");
+        final Path activeUsersFile = parent.resolve("booking-active-users.csv");
         final String json = "{\n"
                 + "  \"scenario\":\"" + json(summary.scenario()) + "\",\n"
                 + "  \"nodeIndex\":" + summary.nodeIndex() + ",\n"
@@ -152,22 +183,67 @@ public final class BookingEvidenceRecorder {
                 + summary.maxObservedCoreAdmissionsPerSecond() + ",\n"
                 + "  \"configuredMaxCoreAdmissionsPerSecond\":"
                 + summary.configuredMaxCoreAdmissionsPerSecond() + ",\n"
-                + "  \"allowedCoreAdmissionsPerSecond\":" + summary.allowedCoreAdmissionsPerSecond() + "\n"
+                + "  \"allowedCoreAdmissionsPerSecond\":" + summary.allowedCoreAdmissionsPerSecond() + ",\n"
+                + "  \"maxObservedActiveUsers\":" + summary.maxObservedActiveUsers() + ",\n"
+                + "  \"averageCoreResidenceMillis\":" + summary.averageCoreResidenceMillis() + ",\n"
+                + "  \"p95CoreResidenceMillis\":" + summary.p95CoreResidenceMillis() + ",\n"
+                + "  \"p99CoreResidenceMillis\":" + summary.p99CoreResidenceMillis() + "\n"
                 + "}\n";
         final StringBuilder csv = new StringBuilder("epochSecond,count\n");
         coreAdmissions.entrySet().stream()
                 .sorted(Comparator.comparingLong(Map.Entry::getKey))
                 .forEach(entry -> csv.append(entry.getKey()).append(',')
                         .append(entry.getValue().get()).append('\n'));
+        final StringBuilder activeCsv = new StringBuilder("epochMilli,activeUsers\n");
+        activeSamples.forEach(sample -> activeCsv.append(sample.epochMilli()).append(',')
+                .append(sample.activeUsers()).append('\n'));
         try {
             Files.createDirectories(parent);
             Files.writeString(summaryFile, json, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
             Files.writeString(admissionsFile, csv, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(activeUsersFile, activeCsv, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to write booking evidence beside " + resultFile, exception);
         }
+    }
+
+    private static ActiveSummary activeSummary(final EvidenceState state) {
+        synchronized (state.activeLock) {
+            return new ActiveSummary(state.maxActiveUsers, List.copyOf(state.activeSamples));
+        }
+    }
+
+    private static void recordActiveDelta(
+            final EvidenceState state,
+            final Instant occurredAt,
+            final long delta
+    ) {
+        synchronized (state.activeLock) {
+            state.currentActiveUsers += delta;
+            if (state.currentActiveUsers < 0L) {
+                throw new IllegalStateException("Core active users became negative");
+            }
+            state.maxActiveUsers = Math.max(state.maxActiveUsers, state.currentActiveUsers);
+            state.activeSamples.add(new ActiveSample(occurredAt.toEpochMilli(), state.currentActiveUsers));
+        }
+    }
+
+    private static ResidenceSummary residenceSummary(final ConcurrentLinkedQueue<Long> residenceMillis) {
+        if (residenceMillis.isEmpty()) {
+            return new ResidenceSummary(0L, 0L, 0L);
+        }
+        final List<Long> sorted = new ArrayList<>(residenceMillis);
+        Collections.sort(sorted);
+        final long average = Math.round(sorted.stream().mapToLong(Long::longValue).average().orElse(0.0));
+        return new ResidenceSummary(average, percentile(sorted, 0.95), percentile(sorted, 0.99));
+    }
+
+    private static long percentile(final List<Long> sorted, final double percentile) {
+        final int index = Math.max(0, (int) Math.ceil(sorted.size() * percentile) - 1);
+        return sorted.get(index);
     }
 
     private static EvidenceState state(
@@ -204,6 +280,12 @@ public final class BookingEvidenceRecorder {
         private final ConcurrentMap<Long, Boolean> startedMembers = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, String> terminalMembers = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, AtomicLong> coreAdmissionsByEpochSecond = new ConcurrentHashMap<>();
+        private final ConcurrentMap<Long, Instant> admittedMembers = new ConcurrentHashMap<>();
+        private final ConcurrentLinkedQueue<Long> coreResidenceMillis = new ConcurrentLinkedQueue<>();
+        private final Object activeLock = new Object();
+        private final List<ActiveSample> activeSamples = new ArrayList<>();
+        private long currentActiveUsers;
+        private long maxActiveUsers;
     }
 
     public record EvidenceSummary(
@@ -216,7 +298,20 @@ public final class BookingEvidenceRecorder {
             double queueTimeoutPercent,
             long maxObservedCoreAdmissionsPerSecond,
             int configuredMaxCoreAdmissionsPerSecond,
-            long allowedCoreAdmissionsPerSecond
+            long allowedCoreAdmissionsPerSecond,
+            long maxObservedActiveUsers,
+            long averageCoreResidenceMillis,
+            long p95CoreResidenceMillis,
+            long p99CoreResidenceMillis
     ) {
     }
-}
+
+    private record ActiveSummary(long maxActiveUsers, List<ActiveSample> samples) {
+    }
+
+    private record ActiveSample(long epochMilli, long activeUsers) {
+    }
+
+    private record ResidenceSummary(long averageMillis, long p95Millis, long p99Millis) {
+    }
+}

@@ -20,19 +20,25 @@ class ProofSuiteSimulationTest {
         final String flow = source(SIMULATION_ROOT.resolve("CoreBookingFlow.java"));
 
         assertFalse(flow.contains("/api/v1/members"));
+        assertTrue(flow.contains("/performances/#{performanceId}/summary"));
         assertTrue(flow.contains("/performances/#{performanceId}/seats/status"));
         assertTrue(flow.contains("/performances/#{performanceId}/seats/#{seatId}/select"));
         assertTrue(flow.contains(".post(\"/api/v1/orders\")"));
         assertTrue(flow.contains("BookingResultRecorder.append("));
+        assertTrue(flow.contains("pause(LoadTestConfig.bookingSeatThinkMin()"));
+        assertTrue(flow.contains("pause(LoadTestConfig.bookingOrderThinkMin()"));
+        assertTrue(flow.contains("shouldRefreshSeatStatus()"));
+        assertTrue(flow.contains("shouldDropBeforeOrder()"));
+        assertTrue(flow.contains("selectSeatAllowingConflict()"));
 
         assertTrue(source(SIMULATION_ROOT.resolve("SmokeSimulation.java"))
                 .contains("CoreBookingFlow.successfulFlow(SCENARIO, true)"));
         assertTrue(source(SIMULATION_ROOT.resolve("CoreAdmissionCapacitySimulation.java"))
-                .contains("CoreBookingFlow.successfulFlow(SCENARIO, false)"));
+                .contains("CoreBookingFlow.realisticFlow(SCENARIO)"));
         assertTrue(source(SIMULATION_ROOT.resolve("CoreActiveUsersClosedSimulation.java"))
-                .contains("CoreBookingFlow.successfulFlow(SCENARIO, false)"));
+                .contains("CoreBookingFlow.realisticFlow(SCENARIO)"));
         assertTrue(source(SIMULATION_ROOT.resolve("CoreSpikeSimulation.java"))
-                .contains("CoreBookingFlow.successfulFlow(SCENARIO, false)"));
+                .contains("CoreBookingFlow.realisticFlow(SCENARIO)"));
         assertTrue(source(SIMULATION_ROOT.resolve("QueueProtectsCoreSimulation.java"))
                 .contains("CoreBookingFlow.successfulFlow(SCENARIO, false)"));
     }

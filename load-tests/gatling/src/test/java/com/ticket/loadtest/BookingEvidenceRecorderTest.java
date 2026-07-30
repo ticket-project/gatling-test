@@ -20,7 +20,8 @@ class BookingEvidenceRecorderTest {
         BookingEvidenceRecorder.begin(resultFile, "COMPLETE", 0);
         BookingEvidenceRecorder.recordStarted(resultFile, "COMPLETE", 0, 1L);
         BookingEvidenceRecorder.recordStarted(resultFile, "COMPLETE", 0, 2L);
-        BookingEvidenceRecorder.recordCoreAdmission(resultFile, "COMPLETE", 0);
+        BookingEvidenceRecorder.recordCoreAdmission(resultFile, "COMPLETE", 0, 1L);
+        BookingEvidenceRecorder.recordCoreAdmission(resultFile, "COMPLETE", 0, 2L);
         BookingResultRecorder.append(resultFile, "COMPLETE", 0, 1L, 11L, "order-1", 201, "SUCCESS");
         BookingResultRecorder.append(resultFile, "COMPLETE", 0, 2L, 12L, "order-2", 201, "SUCCESS");
 
@@ -31,8 +32,10 @@ class BookingEvidenceRecorderTest {
         assertEquals(2L, summary.startedUsers());
         assertEquals(2L, summary.terminalUsers());
         assertEquals(0L, summary.missingTerminalResults());
+        assertEquals(2L, summary.maxObservedActiveUsers());
         assertTrue(Files.isRegularFile(resultFile.resolveSibling("booking-evidence.json")));
         assertTrue(Files.isRegularFile(resultFile.resolveSibling("booking-admissions.csv")));
+        assertTrue(Files.isRegularFile(resultFile.resolveSibling("booking-active-users.csv")));
     }
 
     @Test
@@ -57,4 +60,4 @@ class BookingEvidenceRecorderTest {
                 resultFile, "TIMEOUT", 0, 0.0, 0, 0.0
         ));
     }
-}
+}

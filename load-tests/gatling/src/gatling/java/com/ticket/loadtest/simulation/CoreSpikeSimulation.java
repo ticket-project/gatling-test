@@ -28,19 +28,23 @@ public class CoreSpikeSimulation extends BookingProofSimulation {
                 .exec(CoreBookingFlow.initializeSession(SCENARIO))
                 .exec(dummy("external arrival", 0))
                 .exec(dummy("core admitted", 0))
-                .exec(CoreBookingFlow.successfulFlow(SCENARIO, false));
+                .exec(CoreBookingFlow.realisticFlow(SCENARIO));
 
         setUp(scenario.injectOpen(LoadTestConfig.coreSpikeInjection()))
                 .protocols(httpProtocol)
                 .assertions(
                         global().failedRequests().percent()
                                 .lt(LoadTestConfig.technicalFailureThresholdPercent()),
+                        details("performance summary").responseTime().percentile(99.0)
+                                .lt(LoadTestConfig.performanceSummaryP99ThresholdMs()),
                         details("seat status").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs()),
+                                .lt(LoadTestConfig.seatStatusP99ThresholdMs()),
                         details("select seat").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs()),
+                                .lt(LoadTestConfig.seatSelectP99ThresholdMs()),
                         details("create order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs())
+                                .lt(LoadTestConfig.orderCreateP99ThresholdMs()),
+                        details("get order").responseTime().percentile(99.0)
+                                .lt(LoadTestConfig.orderGetP99ThresholdMs())
                 );
     }
 }
