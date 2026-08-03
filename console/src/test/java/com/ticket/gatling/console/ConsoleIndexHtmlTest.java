@@ -84,8 +84,7 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("label[for=\"baseUrl\"], #baseUrl"));
         assertFalse(html.contains("label[for=\"ticketProjectPath\"], #ticketProjectPath"));
         assertTrue(html.contains("setInputContainerVisible('queueTimeoutThresholdPercent', selected?.usesQueueBaseUrl)"));
-        assertFalse(html.contains("setInputContainerVisible('dbAuditEnabled', false)"));
-        assertFalse(html.contains("dbAudit.checked = false"));
+        assertFalse(html.contains("dbAuditEnabled"));
         assertTrue(html.contains("setInputContainerVisible('resultFile', false)"));
         assertTrue(html.contains("simulationSelect.value = 'smoke'"));
         assertTrue(html.contains("'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10"));
