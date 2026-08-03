@@ -125,7 +125,7 @@ Booking 전용 실행기는 `run-distributed-booking.ps1`이다. 원격 Gradle �
 
 스크립트는 주입 방식별 예상 사용자 수만큼 feeder 행을 VM별로 연속 분할하고 `manifest.csv`에 기준·목표 RPS, 주입 방식, 행 범위를 기록한다. URL/feeder/manifest 오류는 exit 2, 원격 노드 실패나 SLO/중복 성공 검출은 exit 1이다.
 
-결과는 `distributed-results-booking` 아래에 모이며, `booking-summary.json`과 `booking-results-merged.csv`를 확인한다. 실제 smoke와 단계별 증분 부하는 운영 URL, performanceId, feeder, VM별 RPS를 사람이 확인한 뒤 별도로 실행한다.
+모든 Gatling 결과는 `distributed-results-join` 아래에 모이며, `booking-summary.json`과 `booking-results-merged.csv`를 확인한다. 실제 smoke와 단계별 증분 부하는 운영 URL, performanceId, feeder, VM별 RPS를 사람이 확인한 뒤 별도로 실행한다.
 
 ## 정합성·Core 보호 증명 시나리오
 
@@ -181,7 +181,7 @@ Booking 전용 실행기는 `run-distributed-booking.ps1`이다. 원격 Gradle �
   -DinjectionMode=constant-users-per-sec `
   -DusersPerSecond=300 `
   -DdurationSeconds=300 `
-  -DresultFile=build\reports\core-capacity-300.csv
+  -DresultFile=..\..\distributed-results-join\_latest\core-capacity-300.csv
 ```
 
 `external arrival`과 `core admitted`는 Gatling의 별도 dummy 지표다. Queue 없는 Core 테스트에서는 두 시계열이 거의 같아야 하고, Queue 보호 테스트에서는 외부 유입과 Core 진입의 차이가 보여야 한다.

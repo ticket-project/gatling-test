@@ -29,7 +29,7 @@
 
 - 이 프로젝트는 로컬 콘솔 UI와 Gatling 실행 command 생성만 담당한다.
 - Ticket Server, Queue Server, Gateway 기능을 직접 구현하지 않는다.
-- 리포트는 이 저장소의 `load-tests/gatling/build/reports/gatling` 아래 생성되는 것으로 본다.
+- 모든 Gatling 리포트는 이 저장소의 `distributed-results-join` 아래 생성되는 것으로 본다.
 
 ## 검증
 

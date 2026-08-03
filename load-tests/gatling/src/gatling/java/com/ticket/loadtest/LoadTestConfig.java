@@ -928,11 +928,11 @@ public final class LoadTestConfig {
                 case SYNTHETIC_JWT_ROLE -> "MEMBER";
                 case DUMP_FAILURE_BODY -> "false";
                 case DUMP_FAILURE_BODY_LIMIT -> "1";
-                case FAILURE_BODY_DIR -> "build/reports/failure-bodies";
+                case FAILURE_BODY_DIR -> "../../distributed-results-join/_latest/failure-bodies";
                 case BOOKING_FEEDER_FILE -> "build/booking-feeder.csv";
                 case BOOKING_SCENARIO -> "TICKET_OPEN_END_TO_END";
                 case NODE_INDEX -> "0";
-                case RESULT_FILE -> "build/reports/booking-results.csv";
+                case RESULT_FILE -> "../../distributed-results-join/_latest/booking-results.csv";
                 case POLLING_TIMEOUT_SECONDS -> "300";
                 case CORE_P95_THRESHOLD_MS -> "2000";
                 case CORE_P99_THRESHOLD_MS -> "3000";

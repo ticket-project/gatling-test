@@ -681,8 +681,7 @@ ubuntu@43.203.136.184</textarea>
 
       <fieldset>
         <legend>대상</legend>
-        <label for="ticketProjectPath">Gatling 저장소 경로 <span class="help-chip" tabindex="0" data-help="load-tests/gatling 프로젝트가 들어 있는 Gatling 부하 테스트 저장소 경로입니다. 콘솔은 이 경로의 gradlew.bat을 실행해서 load-tests/gatling을 돌립니다.">?</span></label>
-        <input id="ticketProjectPath" name="ticketProjectPath" value="C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test">
+        <input id="ticketProjectPath" name="ticketProjectPath" type="hidden" value="C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test">
 
         <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 대상 base URL입니다. legacy-queue-status는 http://52.237.82.8:18090/legacy-queue, cdn-public-state는 https://queue.oneticket.site 를 사용합니다.">?</span></label>
         <input id="baseUrl" name="baseUrl" value="http://52.237.82.8:18090/legacy-queue">
@@ -726,7 +725,7 @@ ubuntu@43.203.136.184</textarea>
             </div>
             <div>
               <label for="resultFile">결과 CSV <span class="help-chip" tabindex="0" data-help="각 Gatling JVM이 성공/비즈니스 거절/타임아웃 결과를 기록할 CSV 경로입니다.">?</span></label>
-              <input id="resultFile" name="resultFile" value="build/reports/booking-results.csv">
+              <input id="resultFile" name="resultFile" value="../../distributed-results-join/_latest/booking-results.csv">
             </div>
           </div>
           <div data-option="closed-booking" class="hidden">
@@ -1080,12 +1079,12 @@ const presets = {
 };
 
 const proofSimulationDefaults = {
-  smoke: { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: 'build/reports/smoke.csv' },
-  'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: 'build/reports/hot-seat-concurrency.csv' },
-  'core-admission-capacity': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'synthetic-jwt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: 'build/reports/core-admission-capacity.csv' },
-  'core-active-users-closed': { coreBaseUrl: 'https://oneticket.site', users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000, resultFile: 'build/reports/core-active-users-closed.csv' },
-  'core-spike': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 10, targetUsersPerSecond: 50, resultFile: 'build/reports/core-spike.csv' },
-  'queue-protects-core': { coreBaseUrl: 'https://oneticket.site', queueBaseUrl: 'https://queue.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300, resultFile: 'build/reports/queue-protects-core.csv' }
+  smoke: { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/smoke.csv' },
+  'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/hot-seat-concurrency.csv' },
+  'core-admission-capacity': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'synthetic-jwt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv' },
+  'core-active-users-closed': { coreBaseUrl: 'https://oneticket.site', users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000, resultFile: '../../distributed-results-join/_latest/core-active-users-closed.csv' },
+  'core-spike': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 10, targetUsersPerSecond: 50, resultFile: '../../distributed-results-join/_latest/core-spike.csv' },
+  'queue-protects-core': { coreBaseUrl: 'https://oneticket.site', queueBaseUrl: 'https://queue.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300, resultFile: '../../distributed-results-join/_latest/queue-protects-core.csv' }
 };
 
 const simulationHelp = {

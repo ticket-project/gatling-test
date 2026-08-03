@@ -21,7 +21,7 @@ param(
     [switch]$IncludeLocal,
     [switch]$CollectReports,
     [string]$LocalProjectDir = (Join-Path $PSScriptRoot "."),
-    [string]$ReportRoot = (Join-Path $PSScriptRoot "distributed-results-legacy")
+    [string]$ReportRoot = (Join-Path $PSScriptRoot "distributed-results-join")
 )
 
 $runner = Join-Path $PSScriptRoot "run-distributed-gatling-cdn.ps1"

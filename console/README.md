@@ -17,7 +17,7 @@
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
 - 대상 API 기본값: Queue join은 Cloudflare를 거치지 않는 `https://queue.oneticket.site`, legacy 계열은 `http://52.237.82.8:18090/legacy-queue`, CDN public state는 실행 시 별도 Cloudflare state endpoint 확인 필요
-- 권장 Gatling 저장소 경로: 현재 `gatling-test` 저장소 루트. 콘솔 입력칸에 개발자 PC의 과거 절대경로가 표시될 수 있으므로 실행 전에 반드시 현재 경로로 바꾼다.
+- Gatling 저장소 경로는 콘솔이 `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`로 고정해서 사용하므로 UI에서 입력하지 않는다.
 - 실제 Gatling 프로젝트 위치: 이 저장소의 `load-tests/gatling`
 
 ## 역할
@@ -27,7 +27,7 @@ Browser
   -> Ticket Gatling Console localhost:9090
   -> gatling-test 저장소의 Gradle wrapper 실행
   -> load-tests/gatling simulation 실행
-  -> build/reports/gatling HTML report 노출
+  -> distributed-results-join HTML report 노출
 ```
 
 이 콘솔은 부하 테스트 설정 UI와 리포트 브라우징만 담당한다. Ticket Server 기능이나 Queue Server 기능을 직접 구현하지 않는다.
@@ -199,8 +199,8 @@ rg -n "찾을_문구" .
 
 - 이 프로젝트에서 `test` 또는 `run`을 자동으로 실행하지 않는다.
 - 부하 테스트 관련 변경은 이 저장소의 `load-tests/gatling` simulation과 함께 읽는다.
-- 기본 Gatling 저장소 경로가 현재 작업 공간과 다를 수 있으므로 실행 전 UI 입력값을 확인한다.
-- 리포트는 이 저장소의 `load-tests/gatling/build/reports/gatling` 아래에 생성된다.
+- Gatling 저장소 경로는 콘솔 내부 기본값을 사용하며 UI에서 입력하지 않는다.
+- 모든 리포트와 실행 증거는 이 저장소의 `distributed-results-join` 아래에 생성된다.
 
 ## Booking 예매 부하 콘솔 사용
 
@@ -248,7 +248,7 @@ Console의 `테스트 종류`에서 다음 여섯 시나리오를 직접 선택�
 
 Gatling의 `seat selection conflict`는 E4001/409 좌석 경쟁 횟수다. 인기 공연에서 기대되는 비즈니스 결과이므로 5xx·timeout과 합쳐 서버 오류로 계산하지 않는다.
 
-분산 booking 결과는 `distributed-results-booking` 아래에 생성된다.
+분산 booking 결과도 `distributed-results-join` 아래에 생성된다.
 
 - `manifest.csv`: VM별 rowStart/rowEnd, nodeRps, globalRps.
 - `booking-results-merged.csv`: 모든 VM의 성공/거절/타임아웃 결과 병합본.

@@ -18,6 +18,11 @@ class LoadTestRequestTest {
                 Path.of("C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test").toAbsolutePath().normalize(),
                 request.ticketProjectPath()
         );
+        assertEquals(
+                request.ticketProjectPath().resolve("distributed-results-join"),
+                request.reportsRoot()
+        );
+        assertEquals("../../distributed-results-join/_latest/booking-results.csv", request.resultFile());
     }
 
     @Test
