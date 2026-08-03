@@ -161,7 +161,10 @@ public record LoadTestRequest(
         admissionTokens = admissionTokens == null ? "" : admissionTokens.trim();
         bookingFeederFile = defaultIfBlank(bookingFeederFile, "build/booking-feeder.csv");
         bookingScenario = defaultIfBlank(bookingScenario, simulationType.bookingScenario());
-        resultFile = defaultIfBlank(resultFile, "build/reports/booking-results.csv");
+        resultFile = defaultIfBlank(
+                resultFile,
+                "../../distributed-results-join/_latest/booking-results.csv"
+        );
         environment = environment == null
                 ? RunEnvironmentInput.automatic(simulationType, baseUrl, coreBaseUrl, queueBaseUrl)
                 : environment;
@@ -235,8 +238,7 @@ public record LoadTestRequest(
     }
 
     public Path reportsRoot() {
-        return ticketProjectPath.resolve("load-tests").resolve("gatling")
-                .resolve("build").resolve("reports").resolve("gatling");
+        return ticketProjectPath.resolve("distributed-results-join");
     }
 
     public int estimatedVirtualUsers() {

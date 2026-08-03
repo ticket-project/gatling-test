@@ -35,7 +35,7 @@ param(
     [switch]$IncludeLocal,
     [switch]$CollectReports,
     [string]$LocalProjectDir = (Join-Path $PSScriptRoot "."),
-    [string]$ReportRoot = (Join-Path $PSScriptRoot "distributed-results")
+    [string]$ReportRoot = (Join-Path $PSScriptRoot "distributed-results-join")
 )
 
 $ErrorActionPreference = "Stop"
@@ -380,9 +380,7 @@ function New-ProjectArchive {
         "--exclude=.git",
         "--exclude=.gradle",
         "--exclude=.tmp",
-        "--exclude=distributed-results",
         "--exclude=distributed-results-join",
-        "--exclude=distributed-results-legacy",
         "--exclude=console/build",
         "--exclude=load-tests/gatling/build",
         "-C", $LocalProjectDir,

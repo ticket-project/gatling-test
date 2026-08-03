@@ -16,6 +16,8 @@ tasks.withType(io.gatling.gradle.GatlingRunTask).configureEach {
     def configuredReportDir = System.getProperty('gatlingReportDir')
     if (configuredReportDir != null && !configuredReportDir.isBlank()) {
         gatlingReportDir = file(configuredReportDir)
+    } else {
+        gatlingReportDir = file("$projectDir/../../distributed-results-join")
     }
 }
 

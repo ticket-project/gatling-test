@@ -401,7 +401,10 @@ public class LoadTestService {
             final Path reportDirectory,
             final LoadTestRun run
     ) {
-        final Path resultFile = resolveInputPath(request.ticketProjectPath(), request.resultFile());
+        final Path resultFile = resolveInputPath(
+                request.ticketProjectPath().resolve("load-tests").resolve("gatling"),
+                request.resultFile()
+        );
         final Path evidenceDirectory = resultFile.getParent();
         if (evidenceDirectory == null) {
             return;
@@ -633,15 +636,7 @@ public class LoadTestService {
     }
 
     private Path distributedReportRoot(final LoadTestRequest request) {
-        final String directoryName = switch (request.simulationType()) {
-            case CDN_PUBLIC_STATE -> "distributed-results";
-            case QUEUE_JOIN_ONLY -> "distributed-results-join";
-            case BOOKING_CAPACITY, TICKET_OPEN_END_TO_END, SEAT_CONTENTION,
-                    SMOKE, HOT_SEAT_CONCURRENCY, CORE_ADMISSION_CAPACITY, CORE_ACTIVE_USERS_CLOSED,
-                    CORE_SPIKE, QUEUE_PROTECTS_CORE -> "distributed-results-booking";
-            default -> "distributed-results-legacy";
-        };
-        return request.ticketProjectPath().resolve(directoryName).toAbsolutePath().normalize();
+        return request.reportsRoot().toAbsolutePath().normalize();
     }
 
     private void writeDistributedIndex(final Path runDirectory, final LoadTestRun run) {
@@ -1185,12 +1180,7 @@ public class LoadTestService {
     }
 
     private Path archivedReportRoot(final LoadTestRequest request) {
-        if (request.simulationType() == SimulationType.QUEUE_JOIN_ONLY) {
-            return distributedReportRoot(request);
-        }
-        return request.distributedExecution()
-                ? distributedReportRoot(request)
-                : request.reportsRoot();
+        return request.reportsRoot();
     }
 
     private void deleteIfEmpty(final Path directory) {

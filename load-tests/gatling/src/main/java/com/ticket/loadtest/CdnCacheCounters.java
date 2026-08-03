@@ -86,15 +86,7 @@ public final class CdnCacheCounters {
         if (configuredReportsRoot != null && !configuredReportsRoot.isBlank()) {
             return Path.of(configuredReportsRoot).toAbsolutePath().normalize();
         }
-        final Path gatlingModule = Path.of("load-tests", "gatling");
-        if (Files.isDirectory(gatlingModule)) {
-            return gatlingModule.resolve("build")
-                    .resolve("reports")
-                    .resolve("gatling");
-        }
-        return Path.of("build")
-                .resolve("reports")
-                .resolve("gatling");
+        return Path.of("..", "..", "distributed-results-join").toAbsolutePath().normalize();
     }
 
     public static Path summaryPathForLatestReport(

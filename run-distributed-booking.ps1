@@ -27,7 +27,7 @@ param(
     [switch]$CollectReports,
     [switch]$CleanupRemote,
     [string]$LocalProjectDir = (Join-Path $PSScriptRoot "."),
-    [string]$ReportRoot = (Join-Path $PSScriptRoot "distributed-results-booking"),
+    [string]$ReportRoot = (Join-Path $PSScriptRoot "distributed-results-join"),
     [double]$TechnicalFailureThresholdPercent = 1.0,
     [double]$QueueTimeoutThresholdPercent = 0.0,
     [int]$MaxCoreAdmissionsPerSecond = 0,
@@ -317,7 +317,7 @@ function New-UniqueRunDirectoryPath {
 function New-ProjectArchive {
     param([string]$RunDir)
     $archivePath = Join-Path $RunDir "gatling-test-project.tgz"
-    & $TarCommand -czf $archivePath --exclude=.git --exclude=.gradle --exclude=.tmp --exclude=distributed-results --exclude=distributed-results-booking --exclude=console/build --exclude=load-tests/gatling/build -C $LocalProjectDir .
+    & $TarCommand -czf $archivePath --exclude=.git --exclude=.gradle --exclude=.tmp --exclude=distributed-results-join --exclude=console/build --exclude=load-tests/gatling/build -C $LocalProjectDir .
     if ($LASTEXITCODE -ne 0) { throw "Project archive creation failed with exit code $LASTEXITCODE" }
     return $archivePath
 }
@@ -382,7 +382,7 @@ cd $RemoteProjectDir
 chmod +x gradlew
 ./gradlew --console=plain $args
 status=`$?
-latest=`$(ls -td load-tests/gatling/build/reports/gatling/*/ 2>/dev/null | head -1)
+latest=`$(ls -td distributed-results-join/*/ 2>/dev/null | head -1)
 rm -rf '$CollectDir'
 mkdir -p '$CollectDir'
 if [ -n "`$latest" ]; then cp -R "`$latest" '$CollectDir/gatling-report'; fi
