@@ -156,6 +156,10 @@ function Test-ContentionScenario {
     return (Get-BookingScenario) -in @("SEAT_CONTENTION", "HOT_SEAT_CONCURRENCY")
 }
 
+function Test-DynamicSeatScenario {
+    return (Get-BookingScenario) -in @("CORE_ACTIVE_USERS_CLOSED", "CORE_SPIKE")
+}
+
 function Test-ProofScenario {
     return (Get-BookingScenario) -in @(
         "SMOKE",
@@ -174,9 +178,14 @@ function Import-BookingFeederRows {
         Stop-Validation "FeederFile must be UTF-8 without BOM: $Path"
     }
     $lines = [IO.File]::ReadAllLines((Resolve-Path -LiteralPath $Path).ProviderPath, [Text.Encoding]::UTF8)
-    if ($lines.Count -eq 0 -or $lines[0] -ne "memberId,accessToken,seatId,admissionToken") {
-        Stop-Validation "FeederFile header must be exactly: memberId,accessToken,seatId,admissionToken"
+    $fixedSeatHeader = "memberId,accessToken,seatId,admissionToken"
+    $dynamicSeatHeader = "memberId,accessToken,admissionToken"
+    $dynamicSeatInput = $lines.Count -gt 0 -and $lines[0] -eq $dynamicSeatHeader
+    if ($lines.Count -eq 0 -or ($lines[0] -ne $fixedSeatHeader -and
+            -not ($dynamicSeatInput -and (Test-DynamicSeatScenario)))) {
+        Stop-Validation "FeederFile header is invalid for scenario $(Get-BookingScenario)"
     }
+    $script:BookingFeederHeader = $lines[0]
     $rows = New-Object System.Collections.Generic.List[string]
     $members = @{}
     $seats = @{}
@@ -184,21 +193,28 @@ function Import-BookingFeederRows {
         $line = $lines[$index]
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         $columns = $line.Split(",")
-        if ($columns.Count -ne 4) { Stop-Validation "Invalid feeder row $($index + 1): exactly 4 columns are required" }
+        $expectedColumns = if ($dynamicSeatInput) { 3 } else { 4 }
+        if ($columns.Count -ne $expectedColumns) {
+            Stop-Validation "Invalid feeder row $($index + 1): exactly $expectedColumns columns are required"
+        }
         $memberId = 0L
         $seatId = 0L
         if (-not [long]::TryParse($columns[0].Trim(), [ref]$memberId) -or $memberId -le 0) { Stop-Validation "Invalid feeder row $($index + 1): memberId must be positive" }
-        if (-not [long]::TryParse($columns[2].Trim(), [ref]$seatId) -or $seatId -le 0) { Stop-Validation "Invalid feeder row $($index + 1): seatId must be positive" }
+        if (-not $dynamicSeatInput -and
+                (-not [long]::TryParse($columns[2].Trim(), [ref]$seatId) -or $seatId -le 0)) {
+            Stop-Validation "Invalid feeder row $($index + 1): seatId must be positive"
+        }
         if ([string]::IsNullOrWhiteSpace($columns[1])) { Stop-Validation "Invalid feeder row $($index + 1): accessToken is required" }
-        if (-not (Test-QueueScenario) -and [string]::IsNullOrWhiteSpace($columns[3])) {
+        $admissionTokenIndex = if ($dynamicSeatInput) { 2 } else { 3 }
+        if (-not (Test-QueueScenario) -and [string]::IsNullOrWhiteSpace($columns[$admissionTokenIndex])) {
             Stop-Validation "Invalid feeder row $($index + 1): admissionToken is required"
         }
         if ($members.ContainsKey($memberId)) { Stop-Validation "Invalid feeder row $($index + 1): memberId must be unique" }
         $members[$memberId] = $true
-        if (-not (Test-ContentionScenario) -and $seats.ContainsKey($seatId)) {
+        if (-not $dynamicSeatInput -and -not (Test-ContentionScenario) -and $seats.ContainsKey($seatId)) {
             Stop-Validation "Invalid feeder row $($index + 1): seatId must be unique"
         }
-        $seats[$seatId] = $true
+        if (-not $dynamicSeatInput) { $seats[$seatId] = $true }
         $rows.Add($line)
     }
     if ((Get-BookingScenario) -eq "HOT_SEAT_CONCURRENCY" -and $seats.Count -ne 1) {
@@ -227,7 +243,7 @@ function New-NodeFeeders {
     for ($nodeIndex = 0; $nodeIndex -lt $TotalNodes; $nodeIndex++) {
         $start = [int]($nodeIndex * $rowsPerNode)
         $endExclusive = [int]($start + $rowsPerNode)
-        $nodeRows = @("memberId,accessToken,seatId,admissionToken") + @($Rows[$start..($endExclusive - 1)])
+        $nodeRows = @($script:BookingFeederHeader) + @($Rows[$start..($endExclusive - 1)])
         $nodeFile = Join-Path $feederDir "booking-feeder-node-$nodeIndex.csv"
         [IO.File]::WriteAllLines($nodeFile, $nodeRows, $utf8NoBom)
         $manifestRows += [pscustomobject]@{

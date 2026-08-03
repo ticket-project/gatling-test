@@ -64,7 +64,7 @@ final class ReportDirectoryNameFormatter {
     }
 
     private static String targetUrl(final LoadTestRequest request) {
-        return request.simulationType().usesBookingFeeder() ? request.coreBaseUrl() : request.baseUrl();
+        return request.simulationType().usesCoreBookingFlow() ? request.coreBaseUrl() : request.baseUrl();
     }
 
     private static String targetName(final String baseUrl) {

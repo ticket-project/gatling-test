@@ -24,11 +24,12 @@ public class CoreAdmissionCapacitySimulation extends BookingProofSimulation {
                 .contentTypeHeader("application/json");
 
         final ScenarioBuilder scenario = scenario("03-core-admission-capacity")
-                .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.expectedUsers()))
-                .exec(CoreBookingFlow.initializeSession(SCENARIO))
+                .exec(LoadTestConfig.initializeSession())
+                .exec(LoadTestConfig.authenticate())
+                .exec(CoreBookingFlow.initializeRealisticSession(SCENARIO))
                 .exec(dummy("external arrival", 0))
                 .exec(dummy("core admitted", 0))
-                .exec(CoreBookingFlow.realisticFlow(SCENARIO));
+                .exec(CoreBookingFlow.realisticFlowWithoutAdmission(SCENARIO));
 
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)

@@ -94,6 +94,14 @@ memberId,accessToken,seatId,admissionToken
 - `ticket-open-end-to-end`는 admission token을 Queue `enter` 응답에서 받으므로 feeder의 `admissionToken`은 비워도 된다.
 - feeder가 부족하면 실행 전 검증 또는 Gatling feeder exhaustion으로 실패한다.
 
+04·05에서는 아래 3컬럼 형식을 사용할 수 있다. 좌석 ID는 Core의 좌석 상태 응답에서 자동으로 고른다. 03은 feeder 자체를 사용하지 않는다.
+
+```csv
+memberId,accessToken,admissionToken
+1,access-jwt-1,admission-jwt-1
+2,access-jwt-2,admission-jwt-2
+```
+
 ### 3 VM 분산 실행
 
 Booking 전용 실행기는 `run-distributed-booking.ps1`이다. 원격 Gradle 명령에는 운영 URL, performanceId, feeder 경로, injection mode, polling timeout, node/result 경로만 전달한다. JWT secret이나 admission secret은 명령행에 전달하지 않는다.
@@ -127,23 +135,24 @@ Booking 전용 실행기는 `run-distributed-booking.ps1`이다. 원격 Gradle �
 | --- | --- | --- |
 | 01 | `SmokeSimulation` | 좌석 조회부터 주문 조회까지 실제 예매 계약이 정상인지 확인 |
 | 02 | `HotSeatConcurrencySimulation` | 같은 좌석에 동시 요청해 선택 성공 1건, 주문 성공 1건, 나머지 정상 거부인지 확인 |
-| 03 | `CoreAdmissionCapacitySimulation` | Queue 없이 Core의 안전한 초당 입장 사용자 수 측정 |
+| 03 | `CoreAdmissionCapacitySimulation` | 인기 좌석 쏠림·충돌·재시도를 포함해 Queue 없이 Core의 안전한 초당 입장 사용자 수 측정 |
 | 04 | `CoreActiveUsersClosedSimulation` | Closed Model로 Core가 안정적으로 유지할 수 있는 동시 활성 사용자 상한 측정 |
 | 05 | `CoreSpikeSimulation` | 기준 부하에서 5초 안에 최고 부하로 상승한 뒤 유지·회복하는지 측정 |
 | 06 | `QueueProtectsCoreSimulation` | 외부 유입과 Queue 통과 후 Core 실제 진입을 분리해 보호 효과 측정 |
 
-Smoke, Core 용량, Core Active Users Closed, Spike, Queue 보호 시나리오는 회원마다 서로 다른 `seatId`가 필요하다. Hot Seat는 반대로 모든 feeder 행이 같은 `seatId`를 사용해야 한다. 모든 시나리오는 회원별로 고유한 access token을 사용한다. Queue 보호 시나리오는 `enter` 응답으로 admission token을 받으므로 feeder의 `admissionToken`을 비워 둔다.
+03 Core 용량은 feeder를 사용하지 않는다. 04 Active Users·05 Spike는 실행 중 실제 잔여 좌석을 조회하므로 feeder에 `seatId`가 없어도 된다. Smoke와 Queue 보호는 회원마다 서로 다른 `seatId`를 사용하고, Hot Seat는 반대로 모든 행에 같은 `seatId`를 넣는다. 모든 시나리오는 회원별로 고유한 access token을 사용한다. Queue 보호 시나리오는 `enter` 응답으로 admission token을 받으므로 feeder의 `admissionToken`을 비워 둔다.
 
 ### 실제 예매 사용자 모델
 
-용량 측정 시나리오 03~06은 한 사용자를 다음 흐름으로 실행한다.
+용량 측정 시나리오 03~05는 한 사용자를 다음 흐름으로 실행한다.
 
 ```text
-공연 요약 조회 → 좌석 상태 조회 → 좌석 선택 시간 → 좌석 선점
-→ 충돌 시 좌석 재조회 후 1회 재시도 → 주문 전 판단 시간 → 주문 생성 → 주문 PENDING 조회
+공연 요약 조회 → 좌석 상태 조회 → 좌석 선택 시간 → 잔여 좌석 중 하나를 선택해 선점
+→ 충돌 시 좌석 재조회 후 아직 시도하지 않은 다른 좌석으로 최대 2회 재시도
+→ 주문 전 판단 시간 → 주문 생성 → 주문 PENDING 조회
 ```
 
-기본값은 좌석 선택 시간 1~3초, 주문 전 판단 시간 2~6초, 재시도 대기 0.5~2초, 좌석 재조회 사용자 25%, 주문 전 이탈 사용자 10%다. 각각 `bookingSeatThinkMinMillis`/`bookingSeatThinkMaxMillis`, `bookingOrderThinkMinMillis`/`bookingOrderThinkMaxMillis`, `bookingRetryThinkMinMillis`/`bookingRetryThinkMaxMillis`, `bookingSeatRefreshPercent`, `bookingDropoutPercent`로 조정한다. 실제 서비스 행동 로그가 있으면 그 분포로 반드시 보정한다. 생각 시간이 없으면 한 사용자가 비현실적으로 빠르게 요청을 몰아 보내므로 안전 입장률은 실제보다 낮고 체류자 수는 실제보다 작게 측정된다.
+03~05는 사용자의 80%가 현재 잔여 좌석 중 앞쪽 10%의 인기 좌석에 몰리고, 충돌하면 다른 좌석을 골라 총 3회까지 시도한다. 기본값은 좌석 선택 시간 1~3초, 주문 전 판단 시간 2~6초, 재시도 대기 0.5~2초, 좌석 재조회 사용자 25%, 주문 전 이탈 사용자 10%다. 각각 `bookingSeatThinkMinMillis`/`bookingSeatThinkMaxMillis`, `bookingOrderThinkMinMillis`/`bookingOrderThinkMaxMillis`, `bookingRetryThinkMinMillis`/`bookingRetryThinkMaxMillis`, `bookingSeatRefreshPercent`, `bookingDropoutPercent`로 조정한다. 실제 서비스 행동 로그가 있으면 그 분포로 반드시 보정한다. 생각 시간이 없으면 한 사용자가 비현실적으로 빠르게 요청을 몰아 보내므로 안전 입장률은 실제보다 낮고 체류자 수는 실제보다 작게 측정된다.
 
 요청별 SLO는 다음 속성으로 분리한다.
 
@@ -157,15 +166,18 @@ Smoke, Core 용량, Core Active Users Closed, Spike, Queue 보호 시나리오�
 
 ### Core 안전 입장률 측정
 
-`CoreAdmissionCapacitySimulation`은 Open Model로 한 실행에 하나의 고정 입장률만 사용한다. 10, 25, 50, 100, 200, 300 users/sec를 각각 별도 실행해야 앞 단계의 주문 데이터, GC, DB lock이 다음 단계 결과를 오염시키지 않는다.
+`CoreAdmissionCapacitySimulation`은 Queue를 완전히 우회하고 Booking Feeder와 Admission Token 없이 Core만 직접 호출한다. Open Model로 한 실행에 하나의 고정 입장률만 사용하며 10, 25, 50, 100, 200, 300 users/sec를 각각 별도 실행한다. 각 실행 전 충분한 AVAILABLE 좌석을 준비하고 주문·선점 상태를 초기화해야 앞 단계의 매진과 주문 데이터가 다음 결과를 오염시키지 않는다. 처음에는 60초로 동작을 확인하고, 후보 한계 구간만 5~10분 유지한다.
+
+로그인 API 부하를 섞지 않으려면 `synthetic-jwt`를 사용한다. 이 JWT는 인증만 대신할 뿐 회원 데이터까지 만들지는 않는다. 따라서 `syntheticMemberStartId`부터 예상 가상 사용자 수만큼의 `ACTIVE` 회원 ID가 Core DB에 실제로 존재해야 한다. 또한 이 테스트는 Admission Token을 보내지 않으므로 전용 테스트 환경의 Core에서 `ADMISSION_TOKEN_ENFORCEMENT_ENABLED=false`여야 한다.
 
 ```powershell
 .\gradlew.bat -p load-tests\gatling gatlingRun `
   --simulation com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation `
   -DcoreBaseUrl=https://api.example.com `
   -DperformanceId=1 `
-  -DbookingFeederFile=C:\path\booking-feeder.csv `
-  -DbookingScenario=CORE_ADMISSION_CAPACITY `
+  -DaccessTokenMode=synthetic-jwt `
+  -DjwtSecret=$env:CORE_JWT_SECRET `
+  -DsyntheticMemberStartId=100000 `
   -DinjectionMode=constant-users-per-sec `
   -DusersPerSecond=300 `
   -DdurationSeconds=300 `
@@ -180,7 +192,7 @@ Smoke, Core 용량, Core Active Users Closed, Spike, Queue 보호 시나리오�
 
 이 테스트가 필요한 이유는 Open Model의 안전 입장률과 Closed Model의 동시 사용자 상한이 서로 다른 한계이기 때문이다. Open Model은 외부 도착률을 고정해 과부하를 그대로 드러내고, Closed Model은 느려진 사용자를 새 사용자로 보충하지 않으므로 처리량 저하가 가려질 수 있다. 따라서 Closed 결과를 Queue 입장률로 사용하면 안 된다. 50, 100, 200, 300명처럼 단계별로 실행하면서 API p95·p99, 5xx·timeout, DB Pool·Lock뿐 아니라 `core flow completed` 성공 완료 흐름 수/초가 함께 유지되는지 확인한다.
 
-Closed Model은 실행 중 사용자를 계속 교체하므로 `bookingFeederRows`가 `users`와 별도로 필요하다. 피더는 순환시키지 않으며 모든 행의 회원, access token, seatId, admission token은 고유해야 한다. 필요한 행 수는 응답 시간이 빨라질수록 증가하므로 예상 완료 흐름 수보다 여유 있게 준비하고, 부족하면 테스트를 실패시켜 정합성 오염을 막는다.
+Closed Model은 실행 중 사용자를 계속 교체하므로 `bookingFeederRows`가 `users`와 별도로 필요하다. 피더는 순환시키지 않으며 모든 행의 회원, access token, admission token은 고유해야 한다. 좌석은 실행 중 실제 잔여 좌석에서 고른다. 필요한 행 수는 응답 시간이 빨라질수록 증가하므로 예상 완료 흐름 수보다 여유 있게 준비하고, 부족하면 테스트를 실패시켜 정합성 오염을 막는다.
 
 ```powershell
 .\run-distributed-booking.ps1 `

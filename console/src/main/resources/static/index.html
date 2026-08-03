@@ -183,6 +183,11 @@
       transform: translateY(0);
     }
 
+    .tooltip.simulation-help {
+      width: min(520px, calc(100vw - 24px));
+      white-space: pre-line;
+    }
+
     input, select, textarea {
       width: 100%;
       min-height: 36px;
@@ -211,6 +216,17 @@
       font-size: 12px;
       line-height: 1.45;
     }
+
+    .target-route {
+      background: #eef6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      color: #1e3a5f;
+      font-size: 13px;
+      margin: 0 0 14px;
+      padding: 10px 12px;
+    }
+
 
     .grid-2 {
       display: grid;
@@ -614,7 +630,7 @@
           <button class="secondary-button" type="button" data-preset="ticketOpen">예매 오픈</button>
         </div>
 
-        <label for="simulation">테스트 종류 <span class="help-chip" tabindex="0" data-help="실행할 Gatling 시나리오입니다. 대기열 진입, 예매 오픈 흐름, 홀드 경합, 티켓 서버 용량 테스트를 선택합니다.">?</span></label>
+        <label for="simulation">테스트 종류 <span id="simulationHelpChip" class="help-chip" tabindex="0" aria-label="선택한 테스트 설명" aria-describedby="tooltip" data-help="테스트를 선택하면 이곳에서 목적과 흐름, 사용 시점, 주의사항을 볼 수 있습니다.">?</span></label>
         <select id="simulation" name="simulation"></select>
 
         <label for="executionMode">실행 위치 <span class="help-chip" tabindex="0" data-help="로컬은 현재 PC에서 Gatling을 한 번 실행합니다. EC2 분산은 기존 PowerShell 스크립트로 여러 VM과 선택 시 로컬 PC까지 동시에 실행합니다.">?</span></label>
@@ -672,6 +688,7 @@ ubuntu@43.203.136.184</textarea>
         <input id="baseUrl" name="baseUrl" value="http://52.237.82.8:18090/legacy-queue">
 
         <div data-option="booking" class="hidden">
+          <p id="targetRouteSummary" class="target-route"></p>
           <div class="grid-2">
             <div>
               <label for="queueTimeoutThresholdPercent">Queue timeout 허용률(%) <span class="help-chip" tabindex="0" data-help="시작 사용자 중 QUEUE_TIMEOUT으로 끝나도 허용할 최대 비율입니다. 0이면 한 건도 허용하지 않습니다.">?</span></label>
@@ -703,16 +720,16 @@ ubuntu@43.203.136.184</textarea>
           <div class="grid-2">
             <div>
               <label for="coreBaseUrl">Ticket/Core URL <span class="help-chip" tabindex="0" data-help="좌석 상태, 좌석 선택, 주문 API를 받을 운영 Ticket/Core base URL입니다. localhost는 분산 실행에서 허용하지 않습니다.">?</span></label>
-              <input id="coreBaseUrl" name="coreBaseUrl" value="https://api.oneticket.site">
+              <input id="coreBaseUrl" name="coreBaseUrl" value="https://oneticket.site">
             </div>
             <div data-option="queue-url">
               <label for="queueBaseUrl">Queue URL <span class="help-chip" tabindex="0" data-help="Queue 시나리오에서 join/state/enter를 호출할 Queue base URL입니다.">?</span></label>
               <input id="queueBaseUrl" name="queueBaseUrl" value="https://queue.oneticket.site">
             </div>
           </div>
-          <div class="grid-2">
+          <div class="grid-2" data-option="booking-feeder">
             <div>
-              <label for="bookingFeederFile">Booking Feeder CSV <span class="help-chip" tabindex="0" data-help="memberId,accessToken,seatId,admissionToken 4컬럼 UTF-8 no BOM CSV입니다. 분산 실행에서는 노드별로 자동 분할됩니다.">?</span></label>
+              <label for="bookingFeederFile">Booking Feeder CSV <span class="help-chip" tabindex="0" data-help="04·05는 memberId,accessToken,admissionToken 3컬럼만 필요합니다. 좌석은 실행 중 실제 잔여 좌석에서 선택합니다. 03은 feeder를 사용하지 않습니다. 그 외 테스트는 seatId를 포함한 4컬럼을 사용합니다. UTF-8 no BOM CSV입니다.">?</span></label>
               <input id="bookingFeederFile" name="bookingFeederFile" value="build/booking-feeder.csv">
             </div>
             <div>
@@ -787,7 +804,7 @@ ubuntu@43.203.136.184</textarea>
 
       <fieldset data-option="access-token">
         <legend>로그인 토큰</legend>
-        <label for="accessTokenMode">토큰 모드 <span class="help-chip" tabindex="0" data-help="자동 로그인은 seed 회원으로 로그인해서 토큰을 받고, 직접 입력은 textarea의 토큰을 그대로 씁니다. 테스트 JWT 생성은 로그인과 회원 seed 없이 memberId가 다른 JWT를 Gatling이 직접 만듭니다.">?</span></label>
+        <label for="accessTokenMode">토큰 모드 <span class="help-chip" tabindex="0" data-help="자동 로그인은 seed 회원으로 로그인해서 토큰을 받고, 직접 입력은 textarea의 토큰을 그대로 씁니다. 테스트 JWT 생성은 로그인 API를 호출하지 않고 Gatling이 JWT를 직접 만듭니다. 단 Core 예매 테스트에서는 JWT memberId와 일치하는 ACTIVE 회원이 Core DB에 실제로 있어야 합니다.">?</span></label>
         <select id="accessTokenMode" name="accessTokenMode">
           <option value="login">자동 로그인</option>
           <option value="tokens">토큰 파일/목록</option>
@@ -1047,6 +1064,7 @@ const bookingFeederFileInput = document.querySelector('#bookingFeederFile');
 const ticketProjectPathInput = document.querySelector('#ticketProjectPath');
 const accessTokensFileInput = document.querySelector('#accessTokensFile');
 const tooltip = document.querySelector('#tooltip');
+const simulationHelpChip = document.querySelector('#simulationHelpChip');
 const copyLogButton = document.querySelector('#copyLog');
 const stopRunButton = document.querySelector('#stopRun');
 const admissionTokenMode = document.querySelector('#admissionTokenMode');
@@ -1070,20 +1088,44 @@ const presets = {
 };
 
 const proofSimulationDefaults = {
-  smoke: { coreBaseUrl: 'https://api.oneticket.site', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1 },
-  'hot-seat-concurrency': { coreBaseUrl: 'https://api.oneticket.site', users: 100, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1 },
-  'core-admission-capacity': { coreBaseUrl: 'https://api.oneticket.site', users: 1, durationSeconds: 300, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10 },
-  'core-active-users-closed': { coreBaseUrl: 'https://api.oneticket.site', users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000 },
-  'core-spike': { coreBaseUrl: 'https://api.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 100, targetUsersPerSecond: 2000 },
-  'queue-protects-core': { coreBaseUrl: 'https://api.oneticket.site', queueBaseUrl: 'https://queue.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300 }
+  smoke: { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: 'build/reports/smoke.csv' },
+  'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: 'build/reports/hot-seat-concurrency.csv' },
+  'core-admission-capacity': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'synthetic-jwt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: 'build/reports/core-admission-capacity.csv' },
+  'core-active-users-closed': { coreBaseUrl: 'https://oneticket.site', users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000, resultFile: 'build/reports/core-active-users-closed.csv' },
+  'core-spike': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 10, targetUsersPerSecond: 50, resultFile: 'build/reports/core-spike.csv' },
+  'queue-protects-core': { coreBaseUrl: 'https://oneticket.site', queueBaseUrl: 'https://queue.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300, resultFile: 'build/reports/queue-protects-core.csv' }
 };
 
+const simulationHelp = {
+  'queue-join-only': '무엇을 보나요? 예매 오픈 순간 Queue의 대기 등록(/join)이 초당 몇 명까지 안정적으로 받아지는지 확인합니다.\n실제 흐름: 사용자별 Access Token으로 /join을 한 번 호출하고, queueToken·대기 순번 관련 값이 정상인지 검사합니다.\n언제 쓰나요? Queue 입구의 최대 처리량, HTTP/1.1과 HTTP/2 차이, 오픈 직후 트래픽 패턴을 비교할 때 씁니다.\n주의: 초당 사용자 수가 거의 초당 /join 요청 수입니다. 분산 3대라면 노드별 설정값을 합산해야 하며, 토큰 수도 노드별 예상 사용자 수에 맞춰 준비합니다.',
+  'queue-enter': '무엇을 보나요? 대기열을 통과한 사용자가 입장 토큰을 받는 /enter API의 응답과 방어 동작을 확인합니다.\n실제 흐름: 준비된 Queue 정보로 /enter를 호출하고 성공·만료·아직 입장 불가·과부하 응답을 구분합니다.\n언제 쓰나요? 입장 전환 API만 빠르게 점검하거나 잘못된 입장 요청이 차단되는지 볼 때 씁니다.\n주의: join부터 기다리는 전체 흐름은 아닙니다. 전체 검증은 Ticket Open End to End를 사용합니다.',
+  'legacy-queue-status': '무엇을 보나요? 기존 Queue의 사용자별 상태 조회(/status)가 많은 반복 조회를 감당하는지 확인합니다.\n실제 흐름: 각 사용자가 자신의 Queue 세션으로 /status를 여러 번 호출하며 응답 시간과 실패율을 측정합니다.\n언제 쓰나요? 기존 개인화 조회의 기준선을 남기거나 CDN 방식과 비교할 때 씁니다.\n주의: 사용자마다 응답이 달라 CDN 캐시 효과를 받기 어렵고, 조회 횟수와 간격이 총 요청 수를 크게 바꿉니다.',
+  'cdn-public-state': '무엇을 보나요? 인증 없는 공개 Queue 상태(/state)가 CDN 캐시로 얼마나 효율적으로 제공되는지 확인합니다.\n실제 흐름: 여러 사용자가 같은 공개 URL을 반복 조회하고 응답 시간·실패율·캐시 응답을 살핍니다.\n언제 쓰나요? Legacy 방식과 비교해 원본 서버 부하 감소와 캐시 효과를 증명할 때 씁니다.\n주의: 실제 CDN 도메인을 대상으로 해야 하며 캐시 HIT/MISS 헤더도 함께 봐야 합니다.',
+  'booking-capacity': '무엇을 보나요? Queue를 거치지 않은 Ticket/Core 일반 예매 흐름의 처리 한계를 확인합니다.\n실제 흐름: 좌석 상태 → 좌석 선택 → 주문 생성 → 주문 상태 확인을 사용자별 고유 데이터로 진행합니다.\n언제 쓰나요? Queue가 보호해야 할 Core 자체의 한계와 병목을 먼저 찾을 때 씁니다.\n주의: 실제 좌석 선점과 주문이 생성됩니다. 피더의 회원·좌석·Admission Token이 서로 맞아야 합니다.',
+  'ticket-open-end-to-end': '무엇을 보나요? 예매 오픈 사용자가 Queue에 들어와 실제 주문까지 가는 전체 체인을 확인합니다.\n실제 흐름: join → 공개 state 반복 조회 → enter → 좌석 상태 → 선택 → 주문 생성 → 주문 상태 확인 순서입니다.\n언제 쓰나요? Queue와 Core의 실제 고객 여정, 전체 성공률, 구간별 병목을 최종 검증할 때 씁니다.\n주의: Queue 입장이 느리면 테스트가 길어지므로 대기 최대 시간을 충분히 잡아야 합니다.',
+  'seat-contention': '무엇을 보나요? 여러 사용자가 같은 좌석을 동시에 잡을 때 중복 선점이나 주문이 생기지 않는지 확인합니다.\n실제 흐름: 같은 좌석에 동시 요청을 보내 한 명의 성공과 나머지의 정상적인 비즈니스 거절을 구분합니다.\n언제 쓰나요? 좌석 락과 중복 주문 방지를 집중 검증할 때 씁니다.\n주의: 거절은 기대 결과일 수 있습니다. 정확히 한 명 성공을 강하게 증명하려면 Hot Seat Concurrency를 사용합니다.',
+  'smoke': '무엇을 보나요? 큰 부하 전에 Core 예매의 기본 기능과 테스트 데이터가 정상인지 1명으로 빠르게 확인합니다.\n실제 흐름: 좌석 상태 → 좌석 선택 → 주문 생성 → 주문 상태 확인을 한 번 수행합니다.\n언제 쓰나요? 모든 부하 테스트의 첫 단계로 사용하며, 실패하면 큰 테스트를 시작하지 않는 것이 좋습니다.\n주의: 성능 한계 테스트가 아닙니다. 실패하면 URL·토큰·회차·좌석 데이터부터 확인합니다.',
+  'hot-seat-concurrency': '무엇을 보나요? 여러 사용자가 한 좌석을 정확히 동시에 요청해 오직 한 명만 성공하는지 검증합니다.\n실제 흐름: 사용자를 시작선에 모은 뒤 같은 좌석 선택을 동시에 실행하고 승자 한 명만 주문 가능한지 검사합니다.\n언제 쓰나요? 좌석 락과 주문 정합성을 증명하거나 동시성 버그를 재현할 때 씁니다.\n주의: 시작 장벽은 한 Gatling 프로세스 안에서만 정확하므로 분산 실행하지 말고 DB 감사도 확인합니다.',
+  'core-admission-capacity': '무엇을 보나요? Queue를 완전히 우회하고, 실제 사용자들이 인기 좌석에 몰려 충돌·재시도하는 상황에서 Core가 초당 몇 명까지 버티는지 확인합니다.\n실제 흐름: Gatling이 access JWT를 준비 → 공연 요약·잔여 좌석 조회 → 인기 좌석 선택 → 409 충돌 시 다른 좌석으로 최대 2회 재시도 → 일부 이탈 → 주문 생성·상태 확인. Booking Feeder와 Admission Token은 사용하지 않습니다.\n왜 이렇게 하나요? 로그인·Queue의 처리량을 섞지 않고 좌석 조회, 선점 충돌, 주문 생성 때문에 발생하는 Core와 DB 부하만 측정하기 위해서입니다.\n준비: Core의 ADMISSION_TOKEN_ENFORCEMENT_ENABLED=false여야 하며, syntheticMemberStartId부터 생성되는 memberId와 일치하는 ACTIVE 회원이 Core DB에 실제로 있어야 합니다. 기본 60초로 시작하고 초당 사용자 수만 단계적으로 올리세요.',
+  'core-active-users-closed': '무엇을 보나요? 일정 수의 사용자가 계속 예매 중일 때 Core가 감당할 동시 사용자 수를 확인합니다.\n실제 흐름: 목표 동시성까지 올리고, 한 사용자가 끝나면 새 사용자를 보충해 일정 시간 유지합니다.\n언제 쓰나요? 커넥션 풀·스레드 풀 같은 동시성 한계를 볼 때 씁니다.\n주의: 초당 유입 테스트와 다르며, 사용자를 계속 교체하므로 동시 사용자 수보다 많은 고유 피더 행이 필요합니다.',
+  'core-spike': '무엇을 보나요? 큰 트래픽이 갑자기 몰렸다 사라질 때 Core가 버티고 다시 회복하는지 확인합니다.\n실제 흐름: 기준 부하 → 급상승 → 최고 부하 유지 → 감소 → 회복 순서로 예매 요청을 보냅니다.\n언제 쓰나요? 티켓 오픈이나 알림 직후 순간 폭증의 장애 여부와 회복 시간을 측정할 때 씁니다.\n주의: 최고 구간뿐 아니라 부하가 내려간 뒤 응답 시간과 성공률이 원래대로 돌아오는지도 봐야 합니다.',
+  'queue-protects-core': '무엇을 보나요? 큰 외부 유입에도 Queue가 Core 전달량을 안전 입장률 이하로 제한하는지 증명합니다.\n실제 흐름: 대량 join → state 조회 → 입장 가능한 사용자만 enter → Core 좌석·주문 흐름으로 이어집니다.\n언제 쓰나요? Queue 도입 효과와 “외부 트래픽이 커져도 Core는 보호된다”는 가설을 최종 검증할 때 씁니다.\n주의: 콘솔의 안전 입장률은 검증 기준일 뿐 서버 제한을 바꾸지 않습니다. 서버 설정 후 전체 노드 입장 수를 합산합니다.'
+};
+
+function updateSimulationHelp(selected) {
+  if (!simulationHelpChip) return;
+  simulationHelpChip.dataset.help = simulationHelp[selected?.key]
+    || '선택한 테스트의 상세 설명이 아직 준비되지 않았습니다.';
+  simulationHelpChip.setAttribute('aria-label', (selected?.label || '선택한 테스트') + ' 상세 설명');
+}
 async function loadSimulations() {
   const response = await fetch('/api/simulations');
   simulationMeta = await response.json();
   simulationSelect.innerHTML = simulationMeta
     .map(item => `<option value="${item.key}">${item.label}</option>`)
     .join('');
+  simulationSelect.value = 'smoke';
+  applyProofSimulationDefaults();
   applySimulationDefaultBaseUrl();
   updateVisibility();
   updateSummary();
@@ -1317,17 +1359,31 @@ function display(value) {
 function updateVisibility() {
   applyDistributedQueueJoinDefaults();
   const selected = selectedSimulation();
+  updateSimulationHelp(selected);
   const mode = injectionMode.value;
   const distributed = executionMode.value === 'distributed';
   const tokenMode = accessTokenMode.value;
   const tokenSource = accessTokenSource?.value || 'generate-file';
+  const proof = Boolean(proofSimulationDefaults[selected?.key]);
+  const selectionLegend = simulationSelect.closest('fieldset')?.querySelector('legend');
+  if (selectionLegend) selectionLegend.textContent = proof ? '\uD14C\uC2A4\uD2B8 \uC120\uD0DD' : '\uBE60\uB978 \uC124\uC815';
 
   setVisible('[data-execution="distributed"]', distributed);
+  setVisible('.preset-row', !proof);
+  setVisible('label[for="baseUrl"], #baseUrl', !selected?.usesCoreBookingFlow);
+  setVisible('label[for="injectionMode"], #injectionMode', !proof);
+  setInputContainerVisible('users', mode === 'ramp-users' || mode === 'at-once-users' || mode === 'closed-core');
   setVisible('[data-option="http2"]', selected?.key === 'queue-join-only');
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
-  setVisible('[data-option="booking"]', selected?.usesBookingFeeder);
-  setVisible('[data-option="queue-url"]', selected?.usesBookingFeeder && selected?.usesQueueBaseUrl);
+  setVisible('[data-option="booking"]', selected?.usesCoreBookingFlow);
+  setVisible('[data-option="booking-feeder"]', selected?.usesBookingFeeder);
+  setVisible('[data-option="queue-url"]', selected?.usesCoreBookingFlow && selected?.usesQueueBaseUrl);
   setVisible('[data-option="queue-proof"]', selected?.key === 'queue-protects-core');
+  setInputContainerVisible('queueTimeoutThresholdPercent', selected?.usesQueueBaseUrl);
+  setInputContainerVisible('admissionRateTolerancePercent', false);
+  setInputContainerVisible('resultFile', false);
+  setInputContainerVisible('pollingTimeoutSeconds', selected?.usesQueueBaseUrl);
+  setInputContainerVisible('nodeIndex', distributed);
   setVisible('[data-option="closed-booking"]', selected?.key === 'core-active-users-closed');
   setVisible('[data-option="poll"]', selected?.usesStatusPolling);
   setVisible('[data-option="poll-jitter"]', selected?.usesStatusPolling);
@@ -1352,6 +1408,13 @@ function setVisible(selector, visible) {
   document.querySelectorAll(selector).forEach(element => {
     element.classList.toggle('hidden', !visible);
   });
+}
+
+function setInputContainerVisible(id, visible) {
+  const input = document.querySelector(`#${id}`);
+  if (!input) return;
+  const container = input.closest('.grid-2 > div') || input.parentElement;
+  container?.classList.toggle('hidden', !visible);
 }
 
 function applyProofSimulationDefaults() {
@@ -1387,6 +1450,7 @@ function updateSummary() {
   document.querySelector('#summarySimulation').textContent = selected?.label || '-';
   document.querySelector('#summaryUsers').textContent = String(estimatedUsers);
   document.querySelector('#summaryInjection').textContent = `${executionLabel} / ${injectionMode.options[injectionMode.selectedIndex]?.text || '-'}`;
+  updateTargetRouteSummary();
   updateApiPreview();
 }
 
@@ -1400,7 +1464,7 @@ function validateBeforeRun(body) {
   const admissionMode = String(body.get('admissionTokenMode') || 'synthetic');
   const admissionTokens = String(body.get('admissionTokens') || '').trim();
 
-  if (selected?.usesBookingFeeder) {
+  if (selected?.usesCoreBookingFlow) {
     const coreBaseUrl = String(body.get('coreBaseUrl') || '').trim();
     const queueBaseUrl = String(body.get('queueBaseUrl') || '').trim();
     const feederFile = String(body.get('bookingFeederFile') || '').trim();
@@ -1408,12 +1472,13 @@ function validateBeforeRun(body) {
     if (isLocalhostUrl(coreBaseUrl)) return 'Booking 운영 부하 테스트의 Ticket/Core URL은 localhost를 사용할 수 없습니다.';
     if (selected.usesQueueBaseUrl && !queueBaseUrl) return 'Queue를 사용하는 시나리오는 Queue URL을 입력해야 합니다.';
     if (selected.usesQueueBaseUrl && isLocalhostUrl(queueBaseUrl)) return 'Booking 운영 부하 테스트의 Queue URL은 localhost를 사용할 수 없습니다.';
-    if (!feederFile) return 'Booking Feeder CSV 경로를 입력해야 합니다.';
+    if (selected.usesBookingFeeder && !feederFile) return 'Booking Feeder CSV 경로를 입력해야 합니다.';
     if (selected.key === 'core-active-users-closed' && Number(body.get('bookingFeederRows') || 0) < Number(body.get('users') || 0)) return 'Closed Model 피더 행 수는 동시 사용자 수 이상이어야 합니다.';
     if (distributed && selected.key === 'hot-seat-concurrency') return 'Hot Seat는 프로세스 단위 rendezVous를 사용하므로 로컬 PC 한 대에서 실행해야 합니다.';
     if (Number(body.get('queueTimeoutThresholdPercent') || 0) < 0) return 'Queue timeout 허용률은 0 이상이어야 합니다.';
     if (Number(body.get('admissionRateTolerancePercent') || 0) < 0) return '입장률 측정 오차 허용치는 0 이상이어야 합니다.';
     if (selected.key === 'queue-protects-core' && Number(body.get('maxCoreAdmissionsPerSecond') || 0) <= 0) return 'Queue 보호 증명에는 Core 안전 입장률을 입력해야 합니다.';
+    if (distributed && selected.key === 'core-admission-capacity') return '03 Core 수용량 테스트는 현재 로컬 실행만 지원합니다.';
     if (body.get('operationalConfirmation') !== 'on') return '운영 API에 실제 좌석 선점·주문 요청을 보내는 실행 확인이 필요합니다.';
     if (distributed && distributedHostCount(body) === 0) return 'Booking 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
   }
@@ -1623,12 +1688,24 @@ function distributedHostCount(body) {
     .filter(Boolean)
     .length;
 }
+function updateTargetRouteSummary() {
+  const target = document.querySelector('#targetRouteSummary');
+  const selected = selectedSimulation();
+  if (!target || !selected?.usesCoreBookingFlow) return;
+  const core = trimTrailingSlash(coreBaseUrlInput?.value || 'https://oneticket.site');
+  if (selected.usesQueueBaseUrl) {
+    const queue = trimTrailingSlash(queueBaseUrlInput?.value || 'https://queue.oneticket.site');
+    target.textContent = `\uC2E4\uC81C \uB300\uC0C1: Queue \uACBD\uC720 | ${queue} -> ${core}`;
+    return;
+  }
+  target.textContent = `\uC2E4\uC81C \uB300\uC0C1: Core \uC9C1\uC811 \uD638\uCD9C | ${core}`;
+}
 
 function updateApiPreview() {
   const selected = selectedSimulation();
   const baseUrl = trimTrailingSlash(baseUrlInput.value || selected?.defaultBaseUrl || 'http://52.237.82.8:18090/legacy-queue');
-  const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || 'https://api.oneticket.site');
-  const queueUrl = trimTrailingSlash(selected?.usesBookingFeeder
+  const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || 'https://oneticket.site');
+  const queueUrl = trimTrailingSlash(selected?.usesQueueBaseUrl
     ? (queueBaseUrlInput?.value || 'https://queue.oneticket.site')
     : baseUrl);
   const performanceId = document.querySelector('#performanceId').value || '1';
@@ -1776,6 +1853,7 @@ function showTooltip(target) {
   const text = target.dataset.help;
   if (!text) return;
   tooltip.textContent = text;
+  tooltip.classList.toggle('simulation-help', target === simulationHelpChip);
   tooltip.classList.add('visible');
 
   const rect = target.getBoundingClientRect();
@@ -1791,7 +1869,7 @@ function showTooltip(target) {
 }
 
 function hideTooltip() {
-  tooltip.classList.remove('visible');
+  tooltip.classList.remove('visible', 'simulation-help');
 }
 
 form.addEventListener('submit', startRun);

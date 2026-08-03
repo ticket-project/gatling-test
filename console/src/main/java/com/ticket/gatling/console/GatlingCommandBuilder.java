@@ -34,12 +34,16 @@ public class GatlingCommandBuilder {
             command.add("--run-description");
             command.add(runDescription);
         }
-        if (request.simulationType().usesBookingFeeder()) {
+        if (request.simulationType().usesCoreBookingFlow()) {
             command.add("-DcoreBaseUrl=" + request.coreBaseUrl());
-            command.add("-DqueueBaseUrl=" + request.queueBaseUrl());
-            command.add("-DbookingFeederFile=" + request.bookingFeederFile());
-            if (request.closedBookingModel()) {
-                command.add("-DbookingFeederRows=" + request.bookingFeederRows());
+            if (request.simulationType().usesQueueBaseUrl()) {
+                command.add("-DqueueBaseUrl=" + request.queueBaseUrl());
+            }
+            if (request.simulationType().usesBookingFeeder()) {
+                command.add("-DbookingFeederFile=" + request.bookingFeederFile());
+                if (request.closedBookingModel()) {
+                    command.add("-DbookingFeederRows=" + request.bookingFeederRows());
+                }
             }
             command.add("-DbookingScenario=" + request.bookingScenario());
             command.add("-DnodeIndex=" + request.nodeIndex());

@@ -25,7 +25,7 @@ public class CoreSpikeSimulation extends BookingProofSimulation {
 
         final ScenarioBuilder scenario = scenario("05-core-spike")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.coreSpikeExpectedUsers()))
-                .exec(CoreBookingFlow.initializeSession(SCENARIO))
+                .exec(CoreBookingFlow.initializeRealisticSession(SCENARIO))
                 .exec(dummy("external arrival", 0))
                 .exec(dummy("core admitted", 0))
                 .exec(CoreBookingFlow.realisticFlow(SCENARIO));

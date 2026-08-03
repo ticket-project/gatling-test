@@ -154,7 +154,7 @@ class RunEnvironmentMetadataTest {
     void selectsCoreTargetForCoreOnlySimulation() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "simulation", List.of("booking-capacity"),
-                "coreBaseUrl", List.of("https://api.oneticket.site")
+                "coreBaseUrl", List.of("https://oneticket.site")
         ));
 
         final DatadogTargetInput target = request.environment().targets().getFirst();
@@ -170,7 +170,7 @@ class RunEnvironmentMetadataTest {
     void selectsQueueAndCoreTargetsForEndToEndSimulation() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "simulation", List.of("ticket-open-end-to-end"),
-                "coreBaseUrl", List.of("https://api.oneticket.site"),
+                "coreBaseUrl", List.of("https://oneticket.site"),
                 "queueBaseUrl", List.of("https://queue.oneticket.site")
         ));
 

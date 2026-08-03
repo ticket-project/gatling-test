@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BookingFeederTest {
     private static final String HEADER = "memberId,accessToken,seatId,admissionToken";
+    private static final String DYNAMIC_HEADER = "memberId,accessToken,admissionToken";
     private static final String SECRET = "0123456789abcdef0123456789abcdef";
     private static final long PERFORMANCE_ID = 10L;
 
@@ -94,6 +95,32 @@ class BookingFeederTest {
         assertFalse(feeder.hasNext());
     }
 
+    @Test
+    void acceptsDynamicSeatFeederOnlyForClosedAndSpikeScenarios() throws IOException {
+        final String content = DYNAMIC_HEADER + System.lineSeparator()
+                + dynamicRow(1, admissionToken(1, PERFORMANCE_ID));
+        final Path file = writeFeeder(content);
+
+        assertEquals(0L, BookingFeeder.read(file, "CORE_ACTIVE_USERS_CLOSED", 1, PERFORMANCE_ID)
+                .getFirst().seatId());
+        assertEquals(0L, BookingFeeder.read(file, "CORE_SPIKE", 1, PERFORMANCE_ID)
+                .getFirst().seatId());
+        assertThrows(IllegalArgumentException.class,
+                () -> BookingFeeder.read(file, "BOOKING_CAPACITY", 1, PERFORMANCE_ID));
+    }
+
+    @Test
+    void dynamicSeatFeederStillRequiresValidAdmissionToken() throws IOException {
+        final Path missingToken = writeFeeder(DYNAMIC_HEADER + System.lineSeparator() + dynamicRow(1, ""));
+        final Path mismatchedToken = writeFeeder(DYNAMIC_HEADER + System.lineSeparator()
+                + dynamicRow(1, admissionToken(2, PERFORMANCE_ID)));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> BookingFeeder.read(missingToken, "CORE_SPIKE", 1, PERFORMANCE_ID));
+        assertThrows(IllegalArgumentException.class,
+                () -> BookingFeeder.read(mismatchedToken, "CORE_SPIKE", 1, PERFORMANCE_ID));
+    }
+
     private void assertInvalid(final String content) throws IOException {
         assertInvalid(content, "TICKET_OPEN_END_TO_END");
     }
@@ -106,13 +133,21 @@ class BookingFeederTest {
     }
 
     private Path feeder(final String rows) throws IOException {
+        return writeFeeder(HEADER + System.lineSeparator() + rows);
+    }
+
+    private Path writeFeeder(final String content) throws IOException {
         final Path file = tempDir.resolve("feeder-" + System.nanoTime() + ".csv");
-        Files.writeString(file, HEADER + System.lineSeparator() + rows, StandardCharsets.UTF_8);
+        Files.writeString(file, content, StandardCharsets.UTF_8);
         return file;
     }
 
     private static String row(final long memberId, final long seatId, final String admissionToken) {
         return memberId + "," + accessToken(memberId) + "," + seatId + "," + admissionToken;
+    }
+
+    private static String dynamicRow(final long memberId, final String admissionToken) {
+        return memberId + "," + accessToken(memberId) + "," + admissionToken;
     }
 
     private static String accessToken(final long memberId) {

@@ -78,6 +78,7 @@ public class ConsoleServer {
                         + "\"usesStatusPolling\":" + type.usesStatusPolling() + ","
                         + "\"usesAccessTokens\":" + type.usesAccessTokens() + ","
                         + "\"usesBookingFeeder\":" + type.usesBookingFeeder() + ","
+                        + "\"usesCoreBookingFlow\":" + type.usesCoreBookingFlow() + ","
                         + "\"usesQueueBaseUrl\":" + type.usesQueueBaseUrl() + ","
                         + "\"bookingScenario\":\"" + Json.escape(type.bookingScenario()) + "\""
                         + "}")

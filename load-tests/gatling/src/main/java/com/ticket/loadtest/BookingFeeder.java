@@ -12,7 +12,8 @@ import java.util.Map;
 import java.util.Set;
 
 public final class BookingFeeder {
-    private static final String HEADER = "memberId,accessToken,seatId,admissionToken";
+    private static final String FIXED_SEAT_HEADER = "memberId,accessToken,seatId,admissionToken";
+    private static final String DYNAMIC_SEAT_HEADER = "memberId,accessToken,admissionToken";
 
     private BookingFeeder() {
     }
@@ -35,8 +36,15 @@ public final class BookingFeeder {
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read booking feeder file: " + file, exception);
         }
-        if (lines.isEmpty() || lines.getFirst().startsWith("\uFEFF") || !HEADER.equals(lines.getFirst())) {
-            throw new IllegalArgumentException("Booking feeder must be BOM-free UTF-8 CSV with header: " + HEADER);
+        if (lines.isEmpty() || lines.getFirst().startsWith("\uFEFF")) {
+            throw new IllegalArgumentException("Booking feeder must be BOM-free UTF-8 CSV");
+        }
+        final boolean dynamicSeatHeader = DYNAMIC_SEAT_HEADER.equals(lines.getFirst());
+        final boolean validHeader = FIXED_SEAT_HEADER.equals(lines.getFirst())
+                || (dynamicSeatHeader && bookingScenario.dynamicSeatSelection());
+        if (!validHeader) {
+            throw new IllegalArgumentException("Booking feeder header must be " + FIXED_SEAT_HEADER
+                    + (bookingScenario.dynamicSeatSelection() ? " or " + DYNAMIC_SEAT_HEADER : ""));
         }
 
         final boolean admissionRequired = bookingScenario.admissionRequired();
@@ -46,13 +54,14 @@ public final class BookingFeeder {
         final List<BookingRow> rows = new ArrayList<>();
         for (int index = 1; index < lines.size(); index++) {
             final String[] columns = lines.get(index).split(",", -1);
-            if (columns.length != 4) {
-                throw invalidRow(index, "exactly 4 columns are required");
+            final int expectedColumns = dynamicSeatHeader ? 3 : 4;
+            if (columns.length != expectedColumns) {
+                throw invalidRow(index, "exactly " + expectedColumns + " columns are required");
             }
             final long memberId = positiveLong(columns[0], index, "memberId");
             final String accessToken = columns[1].trim();
-            final long seatId = positiveLong(columns[2], index, "seatId");
-            final String admissionToken = columns[3].trim();
+            final long seatId = dynamicSeatHeader ? 0L : positiveLong(columns[2], index, "seatId");
+            final String admissionToken = columns[dynamicSeatHeader ? 2 : 3].trim();
             if (accessToken.isEmpty()) {
                 throw invalidRow(index, "accessToken is required");
             }
@@ -62,7 +71,7 @@ public final class BookingFeeder {
             if (!memberIds.add(memberId)) {
                 throw invalidRow(index, "memberId must be unique");
             }
-            if (uniqueSeats && !seatIds.add(seatId)) {
+            if (!dynamicSeatHeader && uniqueSeats && !seatIds.add(seatId)) {
                 throw invalidRow(index, "seatId must be unique for scenario " + bookingScenario);
             }
             try {
@@ -135,6 +144,11 @@ public final class BookingFeeder {
 
         private boolean uniqueSeats() {
             return uniqueSeats;
+        }
+
+        private boolean dynamicSeatSelection() {
+            return this == CORE_ACTIVE_USERS_CLOSED
+                    || this == CORE_SPIKE;
         }
 
         private static BookingScenario parse(final String value) {

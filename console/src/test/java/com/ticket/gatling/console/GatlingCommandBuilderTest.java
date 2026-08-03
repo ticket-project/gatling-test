@@ -27,7 +27,7 @@ class GatlingCommandBuilderTest {
 
         assertTrue(command.contains("com.ticket.loadtest.simulation.BookingCapacitySimulation"));
         assertTrue(command.contains("-DcoreBaseUrl=https://api.example.com"));
-        assertTrue(command.contains("-DqueueBaseUrl=https://queue.example.com"));
+        assertFalse(command.contains("-DqueueBaseUrl=https://queue.example.com"));
         assertTrue(command.contains("-DbookingFeederFile=C:/feeders/booking.csv"));
         assertTrue(command.contains("-DbookingScenario=BOOKING_CAPACITY"));
         assertTrue(command.contains("-DresultFile=build/results/booking.csv"));

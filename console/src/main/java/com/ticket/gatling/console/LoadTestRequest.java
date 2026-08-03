@@ -124,7 +124,7 @@ public record LoadTestRequest(
         ticketProjectPath = ticketProjectPath.toAbsolutePath().normalize();
         sshKeyPath = sshKeyPath.toAbsolutePath().normalize();
         baseUrl = defaultIfBlank(baseUrl, simulationType.defaultBaseUrl());
-        if (simulationType.usesBookingFeeder()) {
+        if (simulationType.usesCoreBookingFlow()) {
             coreBaseUrl = defaultIfBlank(coreBaseUrl, "");
             queueBaseUrl = defaultIfBlank(queueBaseUrl, "");
         } else {

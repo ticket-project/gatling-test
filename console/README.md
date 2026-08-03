@@ -80,12 +80,12 @@ http://localhost:9090
 | `booking-capacity` | 사용자가 입력한 Ticket/Core URL |
 | `ticket-open-end-to-end` | 사용자가 입력한 Ticket/Core URL + Queue URL |
 | `seat-contention` | 사용자가 입력한 Ticket/Core URL |
-| `smoke` | `https://api.oneticket.site` |
-| `hot-seat-concurrency` | `https://api.oneticket.site` |
-| `core-admission-capacity` | `https://api.oneticket.site` |
-| `core-active-users-closed` | `https://api.oneticket.site` |
-| `core-spike` | `https://api.oneticket.site` |
-| `queue-protects-core` | Core `https://api.oneticket.site` + Queue `https://queue.oneticket.site` |
+| `smoke` | `https://oneticket.site` |
+| `hot-seat-concurrency` | `https://oneticket.site` |
+| `core-admission-capacity` | `https://oneticket.site` |
+| `core-active-users-closed` | `https://oneticket.site` |
+| `core-spike` | `https://oneticket.site` |
+| `queue-protects-core` | Core `https://oneticket.site` + Queue `https://queue.oneticket.site` |
 표의 주소는 콘솔 코드가 입력 칸을 채우는 편의 기본값이며 현재 가용성이나 운영 배포 대상을 보장하지 않는다. 특히 `legacy-queue` 주소는 비교용 구형 API이므로, 실행 전에 대상 서버 소유자와 URL·회차·허용 부하를 다시 확인한다.
 
 
@@ -109,7 +109,7 @@ join 분산 스크립트는 기본적으로 로컬 `gatling-test` 프로젝트�
 | --- | --- | --- |
 | 자동 로그인 | Gatling 실행 전 seed 회원으로 로그인해 access token 준비 | seed 회원이 생성되어 있어야 함 |
 | 직접 입력 | 토큰 파일 자동 생성, 기존 파일 사용, token 목록 붙여넣기 중 선택 | `/join` 큰 테스트는 파일 자동 생성 권장 |
-| 테스트 JWT 생성 | 로그인 API 없이 Gatling이 서로 다른 `sub=memberId` JWT 생성 | 서버 `JWT_SECRET`과 같은 secret 입력 필요 |
+| 테스트 JWT 생성 | 로그인 API 없이 Gatling이 서로 다른 `sub=memberId` JWT 생성 | 서버 `JWT_SECRET`과 같은 secret이 필요하며 Core 예매에서는 해당 ACTIVE 회원 ID도 DB에 존재해야 함 |
 
 큰 `/join` 테스트에서는 `Token mode=직접 입력`, `Access Token 준비 방식=파일 자동 생성`을 사용한다. 콘솔이 실행 전에 access token 파일을 먼저 만들고 Gatling에는 `-DaccessTokensFile=...`만 넘긴다. 따라서 `/join` HTTP 요청 시간에는 JWT 생성이 포함되지 않는다.
 
@@ -210,7 +210,7 @@ Console의 `테스트 종류`에서 다음 여섯 시나리오를 직접 선택�
 | --- | --- | --- | --- |
 | 01 | `01 Smoke` | 1명 즉시 실행 | 좌석 조회 → 좌석 선점 → 주문 생성 → 주문 조회 계약 확인 |
 | 02 | `02 Hot Seat Concurrency` | N명 동시 시작 | 같은 좌석의 선점 성공 1건, 주문 성공 1건, 나머지 정상 거절, 중복 0건 확인 |
-| 03 | `03 Core Admission Capacity (Open)` | Open Model | 초당 신규 사용자 입장률을 단계별로 올려 Core의 안전 입장률 결정 |
+| 03 | `03 Realistic Hot Ticket Capacity (Open)` | Open Model | 인기 좌석 쏠림·충돌·다른 좌석 재시도를 포함해 Core의 안전 입장률 결정 |
 | 04 | `04 Core Active Users (Closed)` | Closed Model | Core 안에서 동시에 활동하는 사용자 수의 안전 상한 결정 |
 | 05 | `05 Core Spike` | Open Model Spike | 기준 RPS에서 5초 동안 최고 RPS로 급증한 뒤 회복하는지 확인 |
 | 06 | `06 Queue Protects Core` | Open Model | 외부 유입은 높게 유지하면서 Queue가 Core 입장률을 보호하는지 확인 |
@@ -220,8 +220,8 @@ Console의 `테스트 종류`에서 다음 여섯 시나리오를 직접 선택�
 1. `gatling-test/console`에서 `..\gradlew.bat run`을 실행한다.
 2. 브라우저에서 `http://localhost:9090`을 연다.
 3. `테스트 종류`에서 01~06 중 하나를 선택한다. 선택과 동시에 해당 시나리오의 권장 부하 모델과 기본값이 채워진다.
-4. `Ticket/Core URL`, 필요하면 `Queue URL`, `performanceId`, `Booking Feeder CSV`를 입력한다.
-5. 화면의 예상 사용자 수보다 많은 feeder 행이 준비됐는지 확인한다.
+4. `Ticket/Core URL`, 필요하면 `Queue URL`, `performanceId`를 입력한다. 화면에 `Booking Feeder CSV`가 보이는 시나리오만 feeder 경로를 입력한다.
+5. feeder를 사용하는 시나리오라면 화면의 예상 사용자 수보다 많은 feeder 행이 준비됐는지 확인한다.
 6. 대상 서버와 Datadog 대시보드를 확인한 뒤 `실행`을 누른다.
 7. 완료 후 Console의 Gatling 리포트와 `booking-summary.json`을 함께 확인한다.
 
@@ -229,22 +229,24 @@ Console의 `테스트 종류`에서 다음 여섯 시나리오를 직접 선택�
 
 - `01 Smoke`: 기본값은 사용자 1명, `at-once-users`다. 기능 계약을 먼저 확인하는 용도이므로 이 단계에서 부하를 높이지 않는다.
 - `02 Hot Seat Concurrency`: `사용자 수`를 100 또는 1,000으로 지정하고, feeder의 모든 행에 같은 `seatId`를 넣는다. `rendezVous`가 한 JVM 안에서만 동기화되므로 반드시 로컬 실행을 사용한다. Console은 분산 실행을 거부한다.
-- `03 Core Admission Capacity`: `constant-users-per-sec` 또는 `ramp-users-per-sec`를 사용한다. 10 → 25 → 50 → 100 → 200 → 300처럼 실행을 나누고, 각 실행의 API p95/p99·5xx·timeout·DB/CPU 지표를 비교한다.
+- `03 Realistic Hot Ticket Capacity`: Queue·Booking Feeder·Admission Token 없이 Core를 직접 호출한다. 기본값은 10명/초·60초이며 사용자의 80%가 현재 잔여 좌석 중 앞쪽 10%의 인기 좌석에 몰리고, 409 충돌 시 아직 시도하지 않은 다른 좌석으로 최대 2회 재시도한다. 로그인 API 부하를 제외하기 위해 기본 토큰 모드는 `synthetic-jwt`다. `syntheticMemberStartId`부터 예상 사용자 수만큼 ACTIVE 회원이 Core DB에 실제로 있어야 하고, 전용 테스트 환경의 `ADMISSION_TOKEN_ENFORCEMENT_ENABLED=false`가 필요하다. 10 → 25 → 50 → 100처럼 실행을 나누고 API p95/p99·5xx·timeout·DB/CPU 지표를 비교한다.
 - `04 Core Active Users (Closed)`: 주입 방식을 `동시 사용자 유지 (Closed Model)`로 사용한다. `사용자 수`는 동시에 유지할 Core 사용자 수이고, `Closed Model 피더 행 수`는 노드마다 소비할 수 있는 고유 CSV 행 수다. 피더는 순환하지 않으므로 이 값은 사용자 수 이상이어야 한다.
 - `05 Core Spike`: `초당 사용자 수`가 기준 RPS, `최고 RPS`가 spike RPS, `투입 시간`이 최고 RPS 유지 시간이다. 실행 패턴은 기준 30초 → 5초 ramp-up → 최고 RPS 유지 → 5초 ramp-down → 기준 30초다.
 - `06 Queue Protects Core`: `초당 사용자 수`는 Queue로 들어오는 외부 유입률이다. 사용자는 join → state polling → enter로 admission token을 얻은 뒤에만 Core 흐름을 실행한다. Queue/Core URL과 polling timeout을 모두 입력한다. 2,000명/초를 60초 동안 받고 Core를 300명/초로 제한하면 마지막 사용자는 약 340초 이상 기다릴 수 있으므로 기본 timeout은 600초로 설정한다.
 
 ### Feeder 규칙
 
-`Booking Feeder CSV`는 `memberId,accessToken,seatId,admissionToken` 4컬럼의 UTF-8 no BOM 파일이다.
+`Booking Feeder CSV`는 UTF-8 no BOM 파일이다. 04·05는 `memberId,accessToken,admissionToken` 3컬럼을 권장하며 좌석은 실행 중 Core에서 자동으로 고른다. 03은 feeder를 사용하지 않는다. 나머지는 `memberId,accessToken,seatId,admissionToken` 4컬럼을 사용한다.
 
-- Smoke·Core Capacity·Closed·Spike는 사용자별로 고유한 `seatId`가 필요하다.
+- 03 Core Capacity는 feeder를 사용하지 않는다. 04 Closed·05 Spike는 feeder에 `seatId`가 필요 없다.
 - Hot Seat는 모든 행에 같은 `seatId`가 필요하다.
 - Queue Protects Core는 `enter` 응답에서 admission token을 받으므로 feeder의 `admissionToken`을 비워 둔다.
 - Open Model의 예상 행 수는 주입 패턴의 전체 사용자 수이며, 분산 실행에서는 모든 노드의 필요량을 합산한다.
 - Closed Model의 feeder 행 수는 `Closed Model 피더 행 수 × 노드 수`로 검증한다.
 
 ### 리포트 해석
+
+Gatling의 `seat selection conflict`는 E4001/409 좌석 경쟁 횟수다. 인기 공연에서 기대되는 비즈니스 결과이므로 5xx·timeout과 합쳐 서버 오류로 계산하지 않는다.
 
 분산 booking 결과는 `distributed-results-booking` 아래에 생성된다.
 

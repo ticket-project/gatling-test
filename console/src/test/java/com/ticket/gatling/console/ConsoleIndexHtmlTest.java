@@ -22,14 +22,15 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("booking-capacity"));
         assertTrue(html.contains("ticket-open-end-to-end"));
         assertTrue(html.contains("seat-contention"));
-        assertTrue(html.contains("id=\"coreBaseUrl\" name=\"coreBaseUrl\" value=\"https://api.oneticket.site\""));
+        assertTrue(html.contains("id=\"coreBaseUrl\" name=\"coreBaseUrl\" value=\"https://oneticket.site\""));
         assertTrue(html.contains("id=\"queueBaseUrl\" name=\"queueBaseUrl\" value=\"https://queue.oneticket.site\""));
         assertTrue(html.contains("id=\"bookingFeederFile\" name=\"bookingFeederFile\""));
         assertTrue(html.contains("id=\"resultFile\" name=\"resultFile\""));
         assertTrue(html.contains("id=\"pollingTimeoutSeconds\" name=\"pollingTimeoutSeconds\""));
         assertTrue(html.contains("id=\"distributedRemoteProjectDir\" name=\"distributedRemoteProjectDir\""));
         assertTrue(html.contains("id=\"operationalConfirmation\" name=\"operationalConfirmation\""));
-        assertTrue(html.contains("setVisible('[data-option=\"booking\"]', selected?.usesBookingFeeder);"));
+        assertTrue(html.contains("setVisible('[data-option=\"booking\"]', selected?.usesCoreBookingFlow);"));
+        assertTrue(html.contains("setVisible('[data-option=\"booking-feeder\"]', selected?.usesBookingFeeder);"));
         assertTrue(html.contains("isLocalhostUrl(coreBaseUrl)"));
         assertTrue(html.contains("body.get('operationalConfirmation') !== 'on'"));
         assertTrue(html.contains("${queueBase}/join"));
@@ -79,5 +80,16 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("selected?.key === 'core-active-users-closed'"));
         assertTrue(html.contains("function coreSpikeExpectedUsers("));
         assertTrue(html.contains("Closed Model \ud53c\ub354 \ud589 \uc218\ub294 \ub3d9\uc2dc \uc0ac\uc6a9\uc790 \uc218 \uc774\uc0c1"));
+        assertTrue(html.contains("id=\"targetRouteSummary\""));
+        assertTrue(html.contains("label[for=\"baseUrl\"], #baseUrl"));
+        assertFalse(html.contains("label[for=\"ticketProjectPath\"], #ticketProjectPath"));
+        assertTrue(html.contains("setInputContainerVisible('queueTimeoutThresholdPercent', selected?.usesQueueBaseUrl)"));
+        assertFalse(html.contains("setInputContainerVisible('dbAuditEnabled', false)"));
+        assertFalse(html.contains("dbAudit.checked = false"));
+        assertTrue(html.contains("setInputContainerVisible('resultFile', false)"));
+        assertTrue(html.contains("simulationSelect.value = 'smoke'"));
+        assertTrue(html.contains("'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10"));
+        assertTrue(html.contains("usersPerSecond: 10, targetUsersPerSecond: 50, resultFile: 'build/reports/core-spike.csv'"));
+        assertTrue(html.contains("resultFile: 'build/reports/core-admission-capacity.csv'"));
     }
 }

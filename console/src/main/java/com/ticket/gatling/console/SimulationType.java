@@ -122,14 +122,14 @@ public enum SimulationType {
     ),
     CORE_ADMISSION_CAPACITY(
             "core-admission-capacity",
-            "03 Core Admission Capacity (Open)",
+            "03 Realistic Hot Ticket Capacity (Open)",
             "com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation",
             "",
             false,
             false,
             false,
-            false,
             true,
+            false,
             false,
             "CORE_ADMISSION_CAPACITY"
     ),
@@ -246,6 +246,10 @@ public enum SimulationType {
 
     public boolean usesBookingFeeder() {
         return usesBookingFeeder;
+    }
+
+    public boolean usesCoreBookingFlow() {
+        return !bookingScenario.isBlank();
     }
 
     public boolean usesQueueBaseUrl() {

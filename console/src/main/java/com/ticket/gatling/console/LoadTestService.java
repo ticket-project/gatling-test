@@ -175,6 +175,9 @@ public class LoadTestService {
         if (!request.distributedExecution()) {
             return;
         }
+        if (request.simulationType() == SimulationType.CORE_ADMISSION_CAPACITY) {
+            throw new IllegalArgumentException("03 Core capacity without a feeder currently supports local execution only");
+        }
         if (!request.simulationType().usesBookingFeeder()
                 && request.simulationType() != SimulationType.CDN_PUBLIC_STATE
                 && request.simulationType() != SimulationType.LEGACY_QUEUE_STATUS
@@ -198,7 +201,7 @@ public class LoadTestService {
     }
 
     private void validateBookingExecution(final LoadTestRequest request) {
-        if (!request.simulationType().usesBookingFeeder()) {
+        if (!request.simulationType().usesCoreBookingFlow()) {
             return;
         }
         validateRemoteUrl("Core URL", request.coreBaseUrl());
@@ -231,16 +234,18 @@ public class LoadTestService {
         if (!request.operationalConfirmation()) {
             throw new IllegalArgumentException("Operational confirmation is required for every booking execution");
         }
-        final Path feederPath = resolveInputPath(request.ticketProjectPath(), request.bookingFeederFile());
-        if (!Files.isRegularFile(feederPath)) {
-            throw new IllegalArgumentException("Booking feeder file not found: " + request.bookingFeederFile());
-        }
-        final int nodeCount = request.distributedExecution() ? request.distributedHostList().size() : 1;
-        final int requiredRows = Math.multiplyExact(request.expectedBookingRowsPerNode(), nodeCount);
-        final int actualRows = countBookingFeederRows(feederPath);
-        if (actualRows < requiredRows) {
-            throw new IllegalArgumentException("Booking feeder has fewer rows than required: required="
-                    + requiredRows + ", actual=" + actualRows);
+        if (request.simulationType().usesBookingFeeder()) {
+            final Path feederPath = resolveInputPath(request.ticketProjectPath(), request.bookingFeederFile());
+            if (!Files.isRegularFile(feederPath)) {
+                throw new IllegalArgumentException("Booking feeder file not found: " + request.bookingFeederFile());
+            }
+            final int nodeCount = request.distributedExecution() ? request.distributedHostList().size() : 1;
+            final int requiredRows = Math.multiplyExact(request.expectedBookingRowsPerNode(), nodeCount);
+            final int actualRows = countBookingFeederRows(feederPath, request.simulationType());
+            if (actualRows < requiredRows) {
+                throw new IllegalArgumentException("Booking feeder has fewer rows than required: required="
+                        + requiredRows + ", actual=" + actualRows);
+            }
         }
     }
 
@@ -262,15 +267,22 @@ public class LoadTestService {
         }
     }
 
-    private int countBookingFeederRows(final Path feederPath) {
+    private int countBookingFeederRows(final Path feederPath, final SimulationType simulationType) {
         try {
             final byte[] bytes = Files.readAllBytes(feederPath);
             if (bytes.length >= 3 && bytes[0] == (byte) 0xEF && bytes[1] == (byte) 0xBB && bytes[2] == (byte) 0xBF) {
                 throw new IllegalArgumentException("Booking feeder must be UTF-8 without BOM: " + feederPath);
             }
             final List<String> lines = Files.readAllLines(feederPath, StandardCharsets.UTF_8);
-            if (lines.isEmpty() || !"memberId,accessToken,seatId,admissionToken".equals(lines.getFirst())) {
-                throw new IllegalArgumentException("Booking feeder header must be memberId,accessToken,seatId,admissionToken");
+            final String header = lines.isEmpty() ? "" : lines.getFirst();
+            final boolean dynamicSeatSelection = switch (simulationType) {
+                case CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE -> true;
+                default -> false;
+            };
+            final boolean validHeader = "memberId,accessToken,seatId,admissionToken".equals(header)
+                    || (dynamicSeatSelection && "memberId,accessToken,admissionToken".equals(header));
+            if (!validHeader) {
+                throw new IllegalArgumentException("Booking feeder header is invalid");
             }
             return (int) lines.stream().skip(1).filter(line -> !line.isBlank()).count();
         } catch (IOException exception) {
@@ -369,7 +381,7 @@ public class LoadTestService {
                         reportDirectory = renameReportDirectory(reportDirectory, request, run);
                     }
                     writeRunMetadata(reportDirectory, run);
-                    if (request.simulationType().usesBookingFeeder()) {
+                    if (request.simulationType().usesCoreBookingFlow()) {
                         copyLocalBookingArtifacts(request, reportDirectory, run);
                     }
                 }

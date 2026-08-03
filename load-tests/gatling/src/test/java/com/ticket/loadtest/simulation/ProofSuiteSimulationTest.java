@@ -29,12 +29,12 @@ class ProofSuiteSimulationTest {
         assertTrue(flow.contains("pause(LoadTestConfig.bookingOrderThinkMin()"));
         assertTrue(flow.contains("shouldRefreshSeatStatus()"));
         assertTrue(flow.contains("shouldDropBeforeOrder()"));
-        assertTrue(flow.contains("selectSeatAllowingConflict()"));
+        assertTrue(flow.contains("selectSeatAllowingConflict(includeAdmissionToken)"));
 
         assertTrue(source(SIMULATION_ROOT.resolve("SmokeSimulation.java"))
                 .contains("CoreBookingFlow.successfulFlow(SCENARIO, true)"));
         assertTrue(source(SIMULATION_ROOT.resolve("CoreAdmissionCapacitySimulation.java"))
-                .contains("CoreBookingFlow.realisticFlow(SCENARIO)"));
+                .contains("CoreBookingFlow.realisticFlowWithoutAdmission(SCENARIO)"));
         assertTrue(source(SIMULATION_ROOT.resolve("CoreActiveUsersClosedSimulation.java"))
                 .contains("CoreBookingFlow.realisticFlow(SCENARIO)"));
         assertTrue(source(SIMULATION_ROOT.resolve("CoreSpikeSimulation.java"))

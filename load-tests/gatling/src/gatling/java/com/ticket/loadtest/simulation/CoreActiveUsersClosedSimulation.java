@@ -25,7 +25,7 @@ public class CoreActiveUsersClosedSimulation extends BookingProofSimulation {
 
         final ScenarioBuilder scenario = scenario("04-core-active-users-closed")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.bookingFeederRows()))
-                .exec(CoreBookingFlow.initializeSession(SCENARIO))
+                .exec(CoreBookingFlow.initializeRealisticSession(SCENARIO))
                 .exec(dummy("core active user started", 0))
                 .exec(CoreBookingFlow.realisticFlow(SCENARIO))
                 .exec(dummy("core flow completed", 0));
