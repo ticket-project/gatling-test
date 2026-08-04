@@ -1733,9 +1733,11 @@ function updateApiPreview() {
       ['POST', `${coreBaseUrl}/api/v1/orders`]
     ],
     'core-admission-capacity': [
+      ['GET', `${performanceBase}/summary`],
       ['GET', `${performanceBase}/seats/status`],
       ['POST', `${performanceBase}/seats/{seatId}/select`],
-      ['POST', `${coreBaseUrl}/api/v1/orders`]
+      ['POST', `${coreBaseUrl}/api/v1/orders`],
+      ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
     ],
     'core-active-users-closed': [
       ['GET', `${performanceBase}/seats/status`],
