@@ -80,7 +80,7 @@ class ProofSuiteSimulationTest {
         assertTrue(simulation.contains("injectClosed(LoadTestConfig.coreActiveUsersInjection())"));
         assertTrue(simulation.contains("scenario(\"04-core-active-users-closed\")"));
         assertTrue(simulation.contains("bookingFeeder(LoadTestConfig.bookingFeederRows())"));
-        assertTrue(simulation.contains("dummy(\"core flow completed\", 0)"));
+        assertTrue(simulation.contains("CoreBookingFlow.realisticFlow(SCENARIO)"));
     }
 
     @Test

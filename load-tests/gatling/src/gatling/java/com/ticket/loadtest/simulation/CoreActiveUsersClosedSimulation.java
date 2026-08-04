@@ -6,7 +6,6 @@ import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import static io.gatling.javaapi.core.CoreDsl.details;
-import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -26,9 +25,7 @@ public class CoreActiveUsersClosedSimulation extends BookingProofSimulation {
         final ScenarioBuilder scenario = scenario("04-core-active-users-closed")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.bookingFeederRows()))
                 .exec(CoreBookingFlow.initializeRealisticSession(SCENARIO))
-                .exec(dummy("core active user started", 0))
-                .exec(CoreBookingFlow.realisticFlow(SCENARIO))
-                .exec(dummy("core flow completed", 0));
+                .exec(CoreBookingFlow.realisticFlow(SCENARIO));
 
         setUp(scenario.injectClosed(LoadTestConfig.coreActiveUsersInjection()))
                 .protocols(httpProtocol)

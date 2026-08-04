@@ -165,6 +165,14 @@ public record LoadTestRequest(
                 resultFile,
                 "../../distributed-results-join/_latest/booking-results.csv"
         );
+        if (!simulationType.usesQueueBaseUrl()) {
+            queueTimeoutThresholdPercent = 0.0;
+        }
+        if (simulationType != SimulationType.QUEUE_PROTECTS_CORE) {
+            maxCoreAdmissionsPerSecond = 0;
+            admissionRateTolerancePercent = 0.0;
+        }
+
         environment = environment == null
                 ? RunEnvironmentInput.automatic(simulationType, baseUrl, coreBaseUrl, queueBaseUrl)
                 : environment;

@@ -390,6 +390,9 @@ if [ -f '$RemoteResultFile' ]; then cp '$RemoteResultFile' '$CollectDir/booking-
 evidence_dir=`$(dirname '$RemoteResultFile')
 if [ -f "`$evidence_dir/booking-evidence.json" ]; then cp "`$evidence_dir/booking-evidence.json" '$CollectDir/booking-evidence.json'; fi
 if [ -f "`$evidence_dir/booking-admissions.csv" ]; then cp "`$evidence_dir/booking-admissions.csv" '$CollectDir/booking-admissions.csv'; fi
+if [ -f "`$evidence_dir/booking-completions.csv" ]; then cp "`$evidence_dir/booking-completions.csv" '$CollectDir/booking-completions.csv'; fi
+if [ -f "`$evidence_dir/booking-active-users.csv" ]; then cp "`$evidence_dir/booking-active-users.csv" '$CollectDir/booking-active-users.csv'; fi
+if [ -f "`$evidence_dir/booking-run-config.json" ]; then cp "`$evidence_dir/booking-run-config.json" '$CollectDir/booking-run-config.json'; fi
 $cleanup
 exit `$status
 "@
@@ -433,9 +436,11 @@ function Write-BookingSummary {
     $startedUsers = ($evidenceRows | Measure-Object -Property startedUsers -Sum).Sum
     $terminalUsers = ($evidenceRows | Measure-Object -Property terminalUsers -Sum).Sum
     $reportedMissingResults = ($evidenceRows | Measure-Object -Property missingTerminalResults -Sum).Sum
+    $seatSelectionConflictAttempts = ($evidenceRows | Measure-Object -Property seatSelectionConflictAttempts -Sum).Sum
     if ($null -eq $startedUsers) { $startedUsers = 0 }
     if ($null -eq $terminalUsers) { $terminalUsers = 0 }
     if ($null -eq $reportedMissingResults) { $reportedMissingResults = 0 }
+    if ($null -eq $seatSelectionConflictAttempts) { $seatSelectionConflictAttempts = 0 }
     $missingTerminalResults = [Math]::Max([long]$reportedMissingResults, [long]$startedUsers - $resultRows.Count)
 
     $admissionFiles = @(Get-ChildItem -Path $RunDir -Recurse -Filter booking-admissions.csv -File -ErrorAction SilentlyContinue)
@@ -453,18 +458,59 @@ function Write-BookingSummary {
     Write-CsvUtf8NoBom -Path (Join-Path $RunDir "booking-admissions-global.csv") -Rows $globalAdmissionRows
     $maxObservedCoreAdmissions = ($globalAdmissionRows | Measure-Object -Property count -Maximum).Maximum
     if ($null -eq $maxObservedCoreAdmissions) { $maxObservedCoreAdmissions = 0 }
+    $completionFiles = @(Get-ChildItem -Path $RunDir -Recurse -Filter booking-completions.csv -File -ErrorAction SilentlyContinue)
+    $completionRows = @()
+    foreach ($file in $completionFiles) { $completionRows += @(Import-Csv -Path $file.FullName) }
+    $globalCompletionRows = @($completionRows |
+        Group-Object epochSecond |
+        ForEach-Object {
+            [pscustomobject]@{
+                epochSecond = [long]$_.Name
+                count = [long](($_.Group | Measure-Object -Property count -Sum).Sum)
+            }
+        } |
+        Sort-Object epochSecond)
+    Write-CsvUtf8NoBom -Path (Join-Path $RunDir "booking-completions-global.csv") -Rows $globalCompletionRows
+    $maxObservedSuccessfulCompletions = ($globalCompletionRows | Measure-Object -Property count -Maximum).Maximum
+    if ($null -eq $maxObservedSuccessfulCompletions) { $maxObservedSuccessfulCompletions = 0 }
+
+    $activeFiles = @(Get-ChildItem -Path $RunDir -Recurse -Filter booking-active-users.csv -File -ErrorAction SilentlyContinue)
+    $activeEvents = @()
+    foreach ($file in $activeFiles) {
+        foreach ($row in @(Import-Csv -Path $file.FullName)) {
+            $activeEvents += [pscustomobject]@{
+                node = $file.Directory.FullName
+                epochMilli = [long]$row.epochMilli
+                activeUsers = [long]$row.activeUsers
+            }
+        }
+    }
+    $nodeActiveUsers = @{}
+    $globalActiveRows = @()
+    foreach ($timeGroup in @($activeEvents | Group-Object epochMilli | Sort-Object { [long]$_.Name })) {
+        foreach ($event in $timeGroup.Group) { $nodeActiveUsers[$event.node] = $event.activeUsers }
+        $totalActiveUsers = ($nodeActiveUsers.Values | Measure-Object -Sum).Sum
+        if ($null -eq $totalActiveUsers) { $totalActiveUsers = 0 }
+        $globalActiveRows += [pscustomobject]@{ epochMilli = [long]$timeGroup.Name; activeUsers = [long]$totalActiveUsers }
+    }
+    Write-CsvUtf8NoBom -Path (Join-Path $RunDir "booking-active-users-global.csv") -Rows $globalActiveRows
+    $maxObservedActiveUsers = ($globalActiveRows | Measure-Object -Property activeUsers -Maximum).Maximum
+    if ($null -eq $maxObservedActiveUsers) { $maxObservedActiveUsers = 0 }
+
     $allowedCoreAdmissions = if ($MaxCoreAdmissionsPerSecond -gt 0) {
         [Math]::Ceiling($MaxCoreAdmissionsPerSecond * (1.0 + $AdmissionRateTolerancePercent / 100.0))
     } else { 0 }
 
     $successRows = @($resultRows | Where-Object { $_.result -eq "SUCCESS" })
     $businessRows = @($resultRows | Where-Object { $_.result -like "BUSINESS_REJECTED_*" -or $_.result -like "SELECT_BUSINESS_REJECTED_*" })
+    $dropoutRows = @($resultRows | Where-Object { $_.result -like "USER_DROPPED_*" })
     $queueTimeoutRows = @($resultRows | Where-Object { $_.result -eq "QUEUE_TIMEOUT" })
-    $technicalRows = @($resultRows | Where-Object { $_.result -ne "SUCCESS" -and $_.result -notlike "BUSINESS_REJECTED_*" -and $_.result -notlike "SELECT_BUSINESS_REJECTED_*" -and $_.result -ne "QUEUE_TIMEOUT" })
+    $technicalRows = @($resultRows | Where-Object { $_.result -ne "SUCCESS" -and $_.result -notlike "BUSINESS_REJECTED_*" -and $_.result -notlike "SELECT_BUSINESS_REJECTED_*" -and $_.result -notlike "USER_DROPPED_*" -and $_.result -ne "QUEUE_TIMEOUT" })
     $duplicateTerminalMembers = @($resultRows | Group-Object memberId | Where-Object { $_.Count -gt 1 })
     $duplicateSuccessfulSeats = @($successRows | Group-Object seatId | Where-Object { $_.Count -gt 1 })
     $duplicateOrderKeys = @($successRows | Where-Object { -not [string]::IsNullOrWhiteSpace($_.orderKey) } | Group-Object orderKey | Where-Object { $_.Count -gt 1 })
-    $technicalFailurePercent = if ($resultRows.Count -gt 0) { ($technicalRows.Count * 100.0) / $resultRows.Count } else { 0.0 }
+    $technicalFailureDenominator = if ($startedUsers -gt 0) { $startedUsers } else { $resultRows.Count }
+    $technicalFailurePercent = if ($technicalFailureDenominator -gt 0) { ($technicalRows.Count * 100.0) / $technicalFailureDenominator } else { 0.0 }
     $queueTimeoutDenominator = if ($startedUsers -gt 0) { $startedUsers } else { $resultRows.Count }
     $queueTimeoutPercent = if ($queueTimeoutDenominator -gt 0) { ($queueTimeoutRows.Count * 100.0) / $queueTimeoutDenominator } else { 0.0 }
 
@@ -485,14 +531,19 @@ function Write-BookingSummary {
         duplicateTerminalMembers = $duplicateTerminalMembers.Count
         success = $successRows.Count
         businessRejected = $businessRows.Count
+        userDropped = $dropoutRows.Count
+        seatSelectionConflictAttempts = [long]$seatSelectionConflictAttempts
         queueTimeout = $queueTimeoutRows.Count
         queueTimeoutPercent = [Math]::Round($queueTimeoutPercent, 4)
         queueTimeoutThresholdPercent = $QueueTimeoutThresholdPercent
         technicalFailures = $technicalRows.Count
         technicalFailurePercent = [Math]::Round($technicalFailurePercent, 4)
+        technicalFailureThresholdPercent = $TechnicalFailureThresholdPercent
         duplicateSuccessfulSeats = $duplicateSuccessfulSeats.Count
         duplicateOrderKeys = $duplicateOrderKeys.Count
         maxObservedCoreAdmissionsPerSecond = [long]$maxObservedCoreAdmissions
+        maxObservedSuccessfulCompletionsPerSecond = [long]$maxObservedSuccessfulCompletions
+        maxObservedActiveUsers = [long]$maxObservedActiveUsers
         configuredMaxCoreAdmissionsPerSecond = $MaxCoreAdmissionsPerSecond
         allowedCoreAdmissionsPerSecond = [long]$allowedCoreAdmissions
         maxNodeP99Ms = $maxP99

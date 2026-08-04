@@ -63,6 +63,16 @@ public final class BookingEvidenceRecorder {
         recordActiveDelta(state, admittedAt, 1L);
         return admittedAt;
     }
+    public static void recordSeatSelectionConflict(
+            final Path resultFile,
+            final String scenario,
+            final int nodeIndex
+    ) {
+        state(resultFile, scenario, nodeIndex)
+                .seatSelectionConflictAttempts
+                .incrementAndGet();
+    }
+
 
     static long recordTerminal(
             final Path resultFile,
@@ -83,6 +93,18 @@ public final class BookingEvidenceRecorder {
         if ("QUEUE_TIMEOUT".equals(result)) {
             state.queueTimeouts.incrementAndGet();
         }
+        if ("SUCCESS".equals(result)) {
+            state.successfulUsers.incrementAndGet();
+            state.successfulCompletionsByEpochSecond
+                    .computeIfAbsent(completedAt.getEpochSecond(), ignored -> new AtomicLong())
+                    .incrementAndGet();
+        } else if (result.startsWith("BUSINESS_REJECTED_")) {
+            state.businessRejectedUsers.incrementAndGet();
+        } else if (result.startsWith("USER_DROPPED_")) {
+            state.userDroppedUsers.incrementAndGet();
+        } else if (!"QUEUE_TIMEOUT".equals(result)) {
+            state.technicalFailureUsers.incrementAndGet();
+        }
         final Instant admittedAt = state.admittedMembers.get(memberId);
         if (admittedAt == null) {
             return -1L;
@@ -99,7 +121,8 @@ public final class BookingEvidenceRecorder {
             final int nodeIndex,
             final double queueTimeoutThresholdPercent,
             final int maxCoreAdmissionsPerSecond,
-            final double admissionRateTolerancePercent
+            final double admissionRateTolerancePercent,
+            final double technicalFailureThresholdPercent
     ) {
         final EvidenceKey key = key(resultFile, scenario, nodeIndex);
         final EvidenceState state = state(key);
@@ -107,6 +130,18 @@ public final class BookingEvidenceRecorder {
         final long terminalUsers = state.terminalUsers.get();
         final long queueTimeouts = state.queueTimeouts.get();
         final long missingTerminalResults = startedUsers - terminalUsers;
+        final long successfulUsers = state.successfulUsers.get();
+        final long technicalFailureUsers = state.technicalFailureUsers.get();
+        final long businessRejectedUsers = state.businessRejectedUsers.get();
+        final long userDroppedUsers = state.userDroppedUsers.get();
+        final long seatSelectionConflictAttempts = state.seatSelectionConflictAttempts.get();
+        final long maxObservedSuccessfulCompletions = state.successfulCompletionsByEpochSecond.values().stream()
+                .mapToLong(AtomicLong::get)
+                .max()
+                .orElse(0L);
+        final double technicalFailurePercent = startedUsers == 0
+                ? 0.0
+                : technicalFailureUsers * 100.0 / startedUsers;
         final long maxObservedCoreAdmissions = state.coreAdmissionsByEpochSecond.values().stream()
                 .mapToLong(AtomicLong::get)
                 .max()
@@ -126,6 +161,13 @@ public final class BookingEvidenceRecorder {
                 startedUsers,
                 terminalUsers,
                 missingTerminalResults,
+                successfulUsers,
+                technicalFailureUsers,
+                technicalFailurePercent,
+                businessRejectedUsers,
+                userDroppedUsers,
+                seatSelectionConflictAttempts,
+                maxObservedSuccessfulCompletions,
                 queueTimeouts,
                 queueTimeoutPercent,
                 maxObservedCoreAdmissions,
@@ -140,6 +182,7 @@ public final class BookingEvidenceRecorder {
                 key.resultFile(),
                 summary,
                 state.coreAdmissionsByEpochSecond,
+                state.successfulCompletionsByEpochSecond,
                 activeSummary.samples()
         );
 
@@ -154,6 +197,10 @@ public final class BookingEvidenceRecorder {
             throw new IllegalStateException("Queue timeout threshold exceeded: actual="
                     + queueTimeoutPercent + "%, threshold=" + queueTimeoutThresholdPercent + "%");
         }
+        if (technicalFailurePercent >= technicalFailureThresholdPercent) {
+            throw new IllegalStateException("Technical user-flow failure threshold exceeded: actual="
+                    + technicalFailurePercent + "%, threshold=" + technicalFailureThresholdPercent + "%");
+        }
         if (maxCoreAdmissionsPerSecond > 0 && maxObservedCoreAdmissions > allowedCoreAdmissions) {
             throw new IllegalStateException("Core admission rate exceeded: observed="
                     + maxObservedCoreAdmissions + "/s, allowed=" + allowedCoreAdmissions + "/s");
@@ -165,11 +212,13 @@ public final class BookingEvidenceRecorder {
             final Path resultFile,
             final EvidenceSummary summary,
             final Map<Long, AtomicLong> coreAdmissions,
+            final Map<Long, AtomicLong> successfulCompletions,
             final List<ActiveSample> activeSamples
     ) {
         final Path parent = Objects.requireNonNullElse(resultFile.toAbsolutePath().getParent(), Path.of("."));
         final Path summaryFile = parent.resolve("booking-evidence.json");
         final Path admissionsFile = parent.resolve("booking-admissions.csv");
+        final Path completionsFile = parent.resolve("booking-completions.csv");
         final Path activeUsersFile = parent.resolve("booking-active-users.csv");
         final String json = "{\n"
                 + "  \"scenario\":\"" + json(summary.scenario()) + "\",\n"
@@ -177,6 +226,14 @@ public final class BookingEvidenceRecorder {
                 + "  \"startedUsers\":" + summary.startedUsers() + ",\n"
                 + "  \"terminalUsers\":" + summary.terminalUsers() + ",\n"
                 + "  \"missingTerminalResults\":" + summary.missingTerminalResults() + ",\n"
+                + "  \"successfulUsers\":" + summary.successfulUsers() + ",\n"
+                + "  \"technicalFailureUsers\":" + summary.technicalFailureUsers() + ",\n"
+                + "  \"technicalFailurePercent\":" + summary.technicalFailurePercent() + ",\n"
+                + "  \"businessRejectedUsers\":" + summary.businessRejectedUsers() + ",\n"
+                + "  \"userDroppedUsers\":" + summary.userDroppedUsers() + ",\n"
+                + "  \"seatSelectionConflictAttempts\":" + summary.seatSelectionConflictAttempts() + ",\n"
+                + "  \"maxObservedSuccessfulCompletionsPerSecond\":"
+                + summary.maxObservedSuccessfulCompletionsPerSecond() + ",\n"
                 + "  \"queueTimeouts\":" + summary.queueTimeouts() + ",\n"
                 + "  \"queueTimeoutPercent\":" + summary.queueTimeoutPercent() + ",\n"
                 + "  \"maxObservedCoreAdmissionsPerSecond\":"
@@ -195,6 +252,11 @@ public final class BookingEvidenceRecorder {
                 .forEach(entry -> csv.append(entry.getKey()).append(',')
                         .append(entry.getValue().get()).append('\n'));
         final StringBuilder activeCsv = new StringBuilder("epochMilli,activeUsers\n");
+        final StringBuilder completionCsv = new StringBuilder("epochSecond,count\n");
+        successfulCompletions.entrySet().stream()
+                .sorted(Comparator.comparingLong(Map.Entry::getKey))
+                .forEach(entry -> completionCsv.append(entry.getKey()).append(',')
+                        .append(entry.getValue().get()).append('\n'));
         activeSamples.forEach(sample -> activeCsv.append(sample.epochMilli()).append(',')
                 .append(sample.activeUsers()).append('\n'));
         try {
@@ -204,6 +266,8 @@ public final class BookingEvidenceRecorder {
             Files.writeString(admissionsFile, csv, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
             Files.writeString(activeUsersFile, activeCsv, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(completionsFile, completionCsv, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to write booking evidence beside " + resultFile, exception);
@@ -277,9 +341,15 @@ public final class BookingEvidenceRecorder {
         private final AtomicLong startedUsers = new AtomicLong();
         private final AtomicLong terminalUsers = new AtomicLong();
         private final AtomicLong queueTimeouts = new AtomicLong();
+        private final AtomicLong successfulUsers = new AtomicLong();
+        private final AtomicLong technicalFailureUsers = new AtomicLong();
+        private final AtomicLong businessRejectedUsers = new AtomicLong();
+        private final AtomicLong userDroppedUsers = new AtomicLong();
+        private final AtomicLong seatSelectionConflictAttempts = new AtomicLong();
         private final ConcurrentMap<Long, Boolean> startedMembers = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, String> terminalMembers = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, AtomicLong> coreAdmissionsByEpochSecond = new ConcurrentHashMap<>();
+        private final ConcurrentMap<Long, AtomicLong> successfulCompletionsByEpochSecond = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, Instant> admittedMembers = new ConcurrentHashMap<>();
         private final ConcurrentLinkedQueue<Long> coreResidenceMillis = new ConcurrentLinkedQueue<>();
         private final Object activeLock = new Object();
@@ -294,6 +364,13 @@ public final class BookingEvidenceRecorder {
             long startedUsers,
             long terminalUsers,
             long missingTerminalResults,
+            long successfulUsers,
+            long technicalFailureUsers,
+            double technicalFailurePercent,
+            long businessRejectedUsers,
+            long userDroppedUsers,
+            long seatSelectionConflictAttempts,
+            long maxObservedSuccessfulCompletionsPerSecond,
             long queueTimeouts,
             double queueTimeoutPercent,
             long maxObservedCoreAdmissionsPerSecond,

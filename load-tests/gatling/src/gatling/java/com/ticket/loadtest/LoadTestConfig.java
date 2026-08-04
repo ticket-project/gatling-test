@@ -125,6 +125,30 @@ public final class LoadTestConfig {
         return property(ConfigKey.RESULT_FILE);
     }
 
+    public static String consoleRunId() {
+        return optionalSystemProperty("consoleRunId", "manual");
+    }
+
+    public static int durationSeconds() {
+        return intProperty(ConfigKey.DURATION_SECONDS);
+    }
+
+    public static String injectionMode() {
+        return property(ConfigKey.INJECTION_MODE);
+    }
+
+    public static double usersPerSecond() {
+        return doubleProperty(ConfigKey.USERS_PER_SECOND);
+    }
+
+    public static double targetUsersPerSecond() {
+        return doubleProperty(ConfigKey.TARGET_USERS_PER_SECOND);
+    }
+
+    public static String accessTokenMode() {
+        return property(ConfigKey.ACCESS_TOKEN_MODE);
+    }
+
     public static int pollingTimeoutSeconds() {
         return nonNegativeIntProperty(ConfigKey.POLLING_TIMEOUT_SECONDS);
     }
@@ -399,6 +423,14 @@ public final class LoadTestConfig {
     public static Map<CharSequence, String> authHeaders() {
         return Map.of("Authorization", "Bearer #{accessToken}");
     }
+    public static Map<CharSequence, String> bookingCorrelationHeaders() {
+        return Map.of(
+                "X-Load-Test-Run-Id", consoleRunId(),
+                "X-Load-Test-Scenario", bookingScenario(),
+                "X-Load-Test-User-Id", "#{memberId}"
+        );
+    }
+
 
     public static boolean dumpFailureBodyEnabled() {
         return booleanProperty(ConfigKey.DUMP_FAILURE_BODY);
@@ -473,6 +505,14 @@ public final class LoadTestConfig {
         }
         return value.trim();
     }
+    private static String optionalSystemProperty(final String propertyName, final String defaultValue) {
+        final String value = System.getProperty(propertyName);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        return value.trim();
+    }
+
 
     private static int intProperty(final ConfigKey key) {
         return Integer.parseInt(property(key));

@@ -6,7 +6,6 @@ import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import static io.gatling.javaapi.core.CoreDsl.details;
-import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -27,8 +26,6 @@ public class CoreAdmissionCapacitySimulation extends BookingProofSimulation {
                 .exec(LoadTestConfig.initializeSession())
                 .exec(LoadTestConfig.authenticate())
                 .exec(CoreBookingFlow.initializeRealisticSession(SCENARIO))
-                .exec(dummy("external arrival", 0))
-                .exec(dummy("core admitted", 0))
                 .exec(CoreBookingFlow.realisticFlowWithoutAdmission(SCENARIO));
 
         setUp(scenario.injectOpen(LoadTestConfig.injection()))

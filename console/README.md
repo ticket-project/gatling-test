@@ -246,13 +246,16 @@ Console의 `테스트 종류`에서 다음 여섯 시나리오를 직접 선택�
 
 ### 리포트 해석
 
-Gatling의 `seat selection conflict`는 E4001/409 좌석 경쟁 횟수다. 인기 공연에서 기대되는 비즈니스 결과이므로 5xx·timeout과 합쳐 서버 오류로 계산하지 않는다.
+`seatSelectionConflictAttempts`는 E4001/409 좌석 경쟁 횟수다. 실제 HTTP 호출 수와 Gatling 성공/실패 통계를 오염시키지 않도록 `booking-evidence.json`에 별도 기록하며, 허용 목록에 없는 409는 Gatling KO와 기술 실패로 처리한다.
 
 분산 booking 결과도 `distributed-results-join` 아래에 생성된다.
 
 - `manifest.csv`: VM별 rowStart/rowEnd, nodeRps, globalRps.
 - `booking-results-merged.csv`: 모든 VM의 성공/거절/타임아웃 결과 병합본.
-- `booking-summary.json`: 성공 수, 비즈니스 거절 수, 기술 실패율, 중복 좌석 성공, 중복 orderKey.
+- `booking-summary.json`: 성공·비즈니스 거절·사용자 이탈·기술 실패, 좌석 경쟁 횟수, 최대 완료율·활성 사용자 수, 중복 좌석 성공·orderKey.
+- `booking-completions-global.csv`: 모든 노드의 초당 성공 완료 수 합계.
+- `booking-active-users-global.csv`: 모든 노드의 Core 활성 사용자 수 합계.
+- `booking-run-config.json`: 노드별 실행·주입·행동·합격 기준 설정.
 - Gatling HTML report: API별 응답 시간, p95/p99, KO 비율.
 
 Hot Seat에서 비즈니스 거절은 실패가 아니라 기대 결과다. 합격 조건은 선점 성공 1건, 주문 성공 1건, 나머지 비즈니스 거절, 기술 실패 0건, 중복 좌석 성공 0건, 중복 orderKey 0건이다.

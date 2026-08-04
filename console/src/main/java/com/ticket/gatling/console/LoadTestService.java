@@ -413,6 +413,9 @@ public class LoadTestService {
         artifacts.put(resultFile, "booking-results.csv");
         artifacts.put(evidenceDirectory.resolve("booking-evidence.json"), "booking-evidence.json");
         artifacts.put(evidenceDirectory.resolve("booking-admissions.csv"), "booking-admissions.csv");
+        artifacts.put(evidenceDirectory.resolve("booking-completions.csv"), "booking-completions.csv");
+        artifacts.put(evidenceDirectory.resolve("booking-active-users.csv"), "booking-active-users.csv");
+        artifacts.put(evidenceDirectory.resolve("booking-run-config.json"), "booking-run-config.json");
         artifacts.put(evidenceDirectory.resolve("booking-db-audit.json"), "booking-db-audit.json");
         artifacts.forEach((source, fileName) -> {
             if (!Files.isRegularFile(source)) {
@@ -500,7 +503,10 @@ public class LoadTestService {
         if (request.distributedExecution()) {
             return distributedCommandBuilder.build(request, run.id(), description);
         }
-        return commandBuilder.build(request, executionReportsRoot, description);
+        final List<String> command = new ArrayList<>(
+                commandBuilder.build(request, executionReportsRoot, description));
+        command.add("-DconsoleRunId=" + run.id());
+        return List.copyOf(command);
     }
 
     private void prepareGeneratedAccessTokens(

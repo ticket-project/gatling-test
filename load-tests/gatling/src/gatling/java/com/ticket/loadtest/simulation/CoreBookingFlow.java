@@ -9,6 +9,7 @@ import io.gatling.javaapi.core.Session;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +17,6 @@ import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
-import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.doIf;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
@@ -121,7 +121,7 @@ final class CoreBookingFlow {
                                 .exec(classifySelectAttempt())
                 ))
                 .exec(doIf(CoreBookingFlow::hasSelectConflict).then(
-                        dummy("seat selection conflict", 0)
+                        recordSeatSelectionConflict()
                 ))
                 .asLongAs(CoreBookingFlow::shouldRetrySeatSelection).on(
                         pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
@@ -135,7 +135,7 @@ final class CoreBookingFlow {
                                                 .exec(classifySelectAttempt())
                                 ))
                                 .exec(doIf(CoreBookingFlow::hasSelectConflict).then(
-                                        dummy("seat selection conflict", 0)
+                                        recordSeatSelectionConflict()
                                 ))
                 )
                 .exec(doIf(CoreBookingFlow::hasSelectConflict).then(
@@ -177,11 +177,22 @@ final class CoreBookingFlow {
         });
     }
 
+    private static ChainBuilder recordSeatSelectionConflict() {
+        return exec(session -> {
+            BookingEvidenceRecorder.recordSeatSelectionConflict(
+                    Path.of(LoadTestConfig.resultFile()),
+                    session.getString("bookingScenarioName"),
+                    LoadTestConfig.nodeIndex()
+            );
+            return session;
+        });
+    }
+
     private static ChainBuilder fetchPerformanceSummary() {
         return exec(session -> session.remove("performanceSummaryHttpStatus").set("lastStep", "PERFORMANCE_SUMMARY"))
                 .exec(http("performance summary")
                         .get("/api/v1/performances/#{performanceId}/summary")
-                        .headers(LoadTestConfig.authHeaders())
+                        .headers(bookingHeaders(false))
                         .check(status().saveAs("performanceSummaryHttpStatus"))
                         .check(status().is(200)));
     }
@@ -248,8 +259,11 @@ final class CoreBookingFlow {
                         .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
                         .headers(bookingHeaders(includeAdmissionToken))
                         .check(status().saveAs("selectHttpStatus"))
+                        .check(jsonPath("$.error.code").optional().saveAs("selectErrorCode"))
                         .check(status().in(200, 409))
-                        .check(jsonPath("$.error.code").optional().saveAs("selectErrorCode")));
+                        .checkIf((response, session) -> response.status().code() == 409).then(
+                                jsonPath("$.error.code").is(SELECT_REJECTION_CODE)
+                        ));
     }
 
     private static ChainBuilder classifySelectAttempt() {
@@ -314,7 +328,10 @@ final class CoreBookingFlow {
                         .check(status().in(201, 409))
                         .check(header("X-Order-Key").optional().saveAs("orderKeyHeader"))
                         .check(jsonPath("$.data.orderKey").optional().saveAs("orderKeyBody"))
-                        .check(jsonPath("$.error.code").optional().saveAs("orderErrorCode")));
+                        .check(jsonPath("$.error.code").optional().saveAs("orderErrorCode"))
+                        .checkIf((response, session) -> response.status().code() == 409).then(
+                                jsonPath("$.error.code").in(ORDER_REJECTION_CODES.stream().toList())
+                        ));
     }
 
     private static ChainBuilder classifyOrderAttempt() {
@@ -367,7 +384,7 @@ final class CoreBookingFlow {
                 .set("lastStep", "GET_ORDER"))
                 .exec(http("get order")
                         .get("/api/v1/orders/#{orderKey}")
-                        .headers(LoadTestConfig.authHeaders())
+                        .headers(bookingHeaders(false))
                         .check(status().saveAs("orderHttpStatus"))
                         .check(status().is(200))
                         .check(jsonPath("$.data.status").optional().saveAs("orderState")));
@@ -423,7 +440,9 @@ final class CoreBookingFlow {
                     result,
                     lastStep,
                     optionalString(session, "flowStartedAt"),
-                    optionalString(session, "coreAdmittedAt")
+                    optionalString(session, "coreAdmittedAt"),
+                    terminalErrorCode(session),
+                    optionalInt(session, "selectAttemptCount")
             );
             return session;
         });
@@ -446,9 +465,16 @@ final class CoreBookingFlow {
     }
 
     private static Map<CharSequence, String> bookingHeaders(final boolean includeAdmissionToken) {
-        return includeAdmissionToken
+        final Map<CharSequence, String> headers = new HashMap<>(includeAdmissionToken
                 ? LoadTestConfig.authAndAdmissionHeaders()
-                : LoadTestConfig.authHeaders();
+                : LoadTestConfig.authHeaders());
+        headers.putAll(LoadTestConfig.bookingCorrelationHeaders());
+        return Map.copyOf(headers);
+    }
+
+    private static String terminalErrorCode(final Session session) {
+        final String orderErrorCode = optionalString(session, "orderErrorCode");
+        return orderErrorCode.isBlank() ? optionalString(session, "selectErrorCode") : orderErrorCode;
     }
 
     private static boolean shouldRefreshSeatStatus() {

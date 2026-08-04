@@ -26,7 +26,7 @@ class BookingResultRecorderTest {
 
         final List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
         assertEquals(3, lines.size());
-        assertEquals("scenario,nodeIndex,memberId,seatId,orderKey,httpStatus,result,lastStep,startedAt,"
+        assertEquals("scenario,nodeIndex,memberId,seatId,orderKey,httpStatus,result,errorCode,selectAttemptCount,lastStep,startedAt,"
                 + "coreAdmittedAt,flowCompletedAt,coreResidenceMillis,timestamp", lines.getFirst());
         assertTrue(lines.get(1).startsWith("\"BOOKING_CAPACITY\",1,10,20,\"order,\"\"one\"\"\",200,\"SUCCESS\","));
         assertTrue(lines.get(2).startsWith("\"BOOKING_CAPACITY\",1,11,21,\"\",409,\"SOLD_OUT\","));

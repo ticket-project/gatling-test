@@ -184,13 +184,13 @@ Booking 전용 실행기는 `run-distributed-booking.ps1`이다. 원격 Gradle �
   -DresultFile=..\..\distributed-results-join\_latest\core-capacity-300.csv
 ```
 
-`external arrival`과 `core admitted`는 Gatling의 별도 dummy 지표다. Queue 없는 Core 테스트에서는 두 시계열이 거의 같아야 하고, Queue 보호 테스트에서는 외부 유입과 Core 진입의 차이가 보여야 한다.
+Core 직접 호출 테스트(03·04·05)의 Gatling 요청 통계에는 실제 HTTP API만 표시한다. 외부 유입과 Core 진입을 구분해야 하는 `QueueProtectsCoreSimulation`에서만 `external arrival` 지표를 유지하며, 실제 Core 진입률은 `booking-admissions.csv`로 판정한다.
 
 ### Core 동시 사용자 상한
 
 `CoreActiveUsersClosedSimulation`은 Closed Model이다. `users`만큼의 동시 사용자를 30초 동안 올린 뒤 `durationSeconds` 동안 유지하며, 각 사용자가 좌석 조회 → 좌석 선점 → 주문 생성을 마치면 Gatling이 즉시 새 사용자를 보충한다.
 
-이 테스트가 필요한 이유는 Open Model의 안전 입장률과 Closed Model의 동시 사용자 상한이 서로 다른 한계이기 때문이다. Open Model은 외부 도착률을 고정해 과부하를 그대로 드러내고, Closed Model은 느려진 사용자를 새 사용자로 보충하지 않으므로 처리량 저하가 가려질 수 있다. 따라서 Closed 결과를 Queue 입장률로 사용하면 안 된다. 50, 100, 200, 300명처럼 단계별로 실행하면서 API p95·p99, 5xx·timeout, DB Pool·Lock뿐 아니라 `core flow completed` 성공 완료 흐름 수/초가 함께 유지되는지 확인한다.
+이 테스트가 필요한 이유는 Open Model의 안전 입장률과 Closed Model의 동시 사용자 상한이 서로 다른 한계이기 때문이다. Open Model은 외부 도착률을 고정해 과부하를 그대로 드러내고, Closed Model은 느려진 사용자를 새 사용자로 보충하지 않으므로 처리량 저하가 가려질 수 있다. 따라서 Closed 결과를 Queue 입장률로 사용하면 안 된다. 50, 100, 200, 300명처럼 단계별로 실행하면서 API p95·p99, 5xx·timeout, DB Pool·Lock뿐 아니라 `booking-completions.csv`의 성공 완료 흐름 수/초가 함께 유지되는지 확인한다.
 
 Closed Model은 실행 중 사용자를 계속 교체하므로 `bookingFeederRows`가 `users`와 별도로 필요하다. 피더는 순환시키지 않으며 모든 행의 회원, access token, admission token은 고유해야 한다. 좌석은 실행 중 실제 잔여 좌석에서 고른다. 필요한 행 수는 응답 시간이 빨라질수록 증가하므로 예상 완료 흐름 수보다 여유 있게 준비하고, 부족하면 테스트를 실패시켜 정합성 오염을 막는다.
 
@@ -251,13 +251,15 @@ HAVING COUNT(DISTINCT o.id) > 1;
 
 새 Booking Proof 시나리오는 Gatling HTML의 요청 통계만으로 합격시키지 않는다. 다음 파일을 함께 만든다.
 
-- `booking-results.csv`: 시작한 각 회원의 최종 결과를 정확히 한 줄씩 기록한다.
-- `booking-evidence.json`: 시작 수, 종료 결과 수, 누락 수, Queue timeout 비율, 관측된 최대 Core 입장률을 기록한다.
+- `booking-results.csv`: 시작한 각 회원의 최종 결과를 정확히 한 줄씩 기록하며, 오류 코드와 좌석 선택 시도 횟수를 포함한다.
+- `booking-evidence.json`: 시작·성공·비즈니스 거절·사용자 이탈·기술 실패·누락 수와 좌석 경쟁 횟수, 관측된 최대 Core 입장률·성공 완료율을 기록한다.
 - `booking-admissions.csv`: Queue 통과 후 실제 Core 좌석 상태 흐름에 진입한 수를 초 단위로 기록한다.
+- `booking-completions.csv`: 성공적으로 예매 흐름을 끝낸 수를 초 단위로 기록한다.
 - `booking-active-users.csv`: Core 입장과 예매 흐름 종료 때마다 부하 발생기에서 관측한 활성 사용자 수를 기록한다.
+- `booking-run-config.json`: 실행 ID, 시나리오, 주입 모델, 사용자 행동 모델, 합격 기준 등 재현에 필요한 비밀 제외 설정을 기록한다.
 - `booking-db-audit.json`: 클라이언트 성공 주문 수와 DB 주문 수, 중복 좌석 주문, 활성 중복 선점, 좌석 없는 주문 등을 조회한 결과다.
 
-`booking-results.csv`에는 Core 입장·종료 시각과 개별 체류 시간이 추가되고, `booking-evidence.json`에는 최대 활성 사용자 수와 평균·p95·p99 Core 체류 시간이 추가된다. 이 두 값이 안전 입장률과 함께 Queue의 `maxActiveUsers`를 정하는 근거다.
+`booking-results.csv`에는 Core 입장·종료 시각과 개별 체류 시간이 추가되고, `booking-evidence.json`에는 최대 활성 사용자 수와 평균·p95·p99 Core 체류 시간이 추가된다. 분산 실행은 완료율과 활성 사용자 파일도 각각 `booking-completions-global.csv`, `booking-active-users-global.csv`로 합산한다. 이 값들이 안전 입장률과 함께 Queue의 `maxActiveUsers`를 정하는 근거다.
 
 Console에서는 `Queue timeout 허용률`, `Core 안전 입장률`, `입장률 측정 오차 허용`을 입력한다. Queue Protects Core의 기본 안전 입장률은 300명/초이고, 분산 실행은 노드별 값이 아니라 모든 노드의 `booking-admissions.csv`를 합산한 `booking-admissions-global.csv`로 판정한다.
 

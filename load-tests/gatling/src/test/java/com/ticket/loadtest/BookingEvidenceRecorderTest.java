@@ -26,7 +26,7 @@ class BookingEvidenceRecorderTest {
         BookingResultRecorder.append(resultFile, "COMPLETE", 0, 2L, 12L, "order-2", 201, "SUCCESS");
 
         final BookingEvidenceRecorder.EvidenceSummary summary = BookingEvidenceRecorder.verifyAndWrite(
-                resultFile, "COMPLETE", 0, 0.0, 0, 0.0
+                resultFile, "COMPLETE", 0, 0.0, 0, 0.0, 1.0
         );
 
         assertEquals(2L, summary.startedUsers());
@@ -36,6 +36,7 @@ class BookingEvidenceRecorderTest {
         assertTrue(Files.isRegularFile(resultFile.resolveSibling("booking-evidence.json")));
         assertTrue(Files.isRegularFile(resultFile.resolveSibling("booking-admissions.csv")));
         assertTrue(Files.isRegularFile(resultFile.resolveSibling("booking-active-users.csv")));
+        assertTrue(Files.isRegularFile(resultFile.resolveSibling("booking-completions.csv")));
     }
 
     @Test
@@ -45,7 +46,7 @@ class BookingEvidenceRecorderTest {
         BookingEvidenceRecorder.recordStarted(resultFile, "MISSING", 0, 1L);
 
         assertThrows(IllegalStateException.class, () -> BookingEvidenceRecorder.verifyAndWrite(
-                resultFile, "MISSING", 0, 0.0, 0, 0.0
+                resultFile, "MISSING", 0, 0.0, 0, 0.0, 1.0
         ));
     }
 
@@ -57,7 +58,7 @@ class BookingEvidenceRecorderTest {
         BookingResultRecorder.append(resultFile, "TIMEOUT", 0, 1L, 11L, null, 0, "QUEUE_TIMEOUT");
 
         assertThrows(IllegalStateException.class, () -> BookingEvidenceRecorder.verifyAndWrite(
-                resultFile, "TIMEOUT", 0, 0.0, 0, 0.0
+                resultFile, "TIMEOUT", 0, 0.0, 0, 0.0, 1.0
         ));
     }
 }

@@ -17,6 +17,7 @@ abstract class BookingProofSimulation extends Simulation {
                 scenario,
                 LoadTestConfig.nodeIndex()
         );
+        BookingRunConfigurationWriter.write(Path.of(LoadTestConfig.resultFile()), scenario);
     }
 
     @Override
@@ -28,9 +29,10 @@ abstract class BookingProofSimulation extends Simulation {
                     resultFile,
                     scenario,
                     LoadTestConfig.nodeIndex(),
-                    LoadTestConfig.queueTimeoutThresholdPercent(),
-                    LoadTestConfig.maxCoreAdmissionsPerSecond(),
-                    LoadTestConfig.admissionRateTolerancePercent()
+                    queueTimeoutThresholdPercent(),
+                    maxCoreAdmissionsPerSecond(),
+                    admissionRateTolerancePercent(),
+                    LoadTestConfig.technicalFailureThresholdPercent()
             );
         } catch (RuntimeException exception) {
             failure = exception;
@@ -55,4 +57,23 @@ abstract class BookingProofSimulation extends Simulation {
             throw failure;
         }
     }
-}
+
+    private double queueTimeoutThresholdPercent() {
+        return usesQueueFlow() ? LoadTestConfig.queueTimeoutThresholdPercent() : 0.0;
+    }
+
+    private int maxCoreAdmissionsPerSecond() {
+        return "QUEUE_PROTECTS_CORE".equals(scenario) ? LoadTestConfig.maxCoreAdmissionsPerSecond() : 0;
+    }
+
+    private double admissionRateTolerancePercent() {
+        return "QUEUE_PROTECTS_CORE".equals(scenario)
+                ? LoadTestConfig.admissionRateTolerancePercent()
+                : 0.0;
+    }
+
+    private boolean usesQueueFlow() {
+        return "TICKET_OPEN_END_TO_END".equals(scenario)
+                || "QUEUE_PROTECTS_CORE".equals(scenario);
+    }
+}

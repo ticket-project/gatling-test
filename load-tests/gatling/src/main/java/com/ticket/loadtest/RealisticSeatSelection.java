@@ -45,4 +45,16 @@ public final class RealisticSeatSelection {
     public static int maxAttempts(final boolean dynamicSeatSelection) {
         return dynamicSeatSelection ? MAX_DYNAMIC_ATTEMPTS : 2;
     }
+
+    public static int maxDynamicAttempts() {
+        return MAX_DYNAMIC_ATTEMPTS;
+    }
+
+    public static double popularSeatPoolPercent() {
+        return POPULAR_SEAT_POOL_PERCENT;
+    }
+
+    public static double popularSeatSelectionPercent() {
+        return POPULAR_SEAT_SELECTION_PERCENT;
+    }
 }
