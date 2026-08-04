@@ -67,8 +67,14 @@ class ConsoleIndexHtmlTest {
     @Test
     void exposesProofSuiteConsoleControls() throws IOException {
         final String html = Files.readString(Path.of("src/main/resources/static/index.html"));
+        final String compactHtml = html.replaceAll("\\s+", "");
         assertTrue(html.contains("'hot-seat-concurrency': ["));
-        assertTrue(html.contains("'core-admission-capacity': ["));
+        assertTrue(compactHtml.contains("'core-admission-capacity':["
+                + "['GET',`${performanceBase}/summary`],"
+                + "['GET',`${performanceBase}/seats/status`],"
+                + "['POST',`${performanceBase}/seats/{seatId}/select`],"
+                + "['POST',`${coreBaseUrl}/api/v1/orders`],"
+                + "['GET',`${coreBaseUrl}/api/v1/orders/{orderKey}`]]"));
         assertTrue(html.contains("'core-active-users-closed': ["));
         assertTrue(html.contains("'core-spike': ["));
         assertTrue(html.contains("'queue-protects-core': ["));
