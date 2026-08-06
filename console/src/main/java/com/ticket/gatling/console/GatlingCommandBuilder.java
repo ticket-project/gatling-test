@@ -108,6 +108,21 @@ public class GatlingCommandBuilder {
         return List.copyOf(command);
     }
 
+    public List<String> buildReport(
+            final LoadTestRequest request,
+            final Path gatlingReportDir,
+            final String reportDirectoryName
+    ) {
+        return List.of(
+                gradleWrapper(request),
+                "-p",
+                "load-tests/gatling",
+                "gatlingReport",
+                "-DgatlingReportDir=" + gatlingReportDir.toAbsolutePath().normalize(),
+                "-DgatlingReportName=" + reportDirectoryName
+        );
+    }
+
     private String gradleWrapper(final LoadTestRequest request) {
         final boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
         return request.ticketProjectPath().resolve(windows ? "gradlew.bat" : "gradlew").toString();

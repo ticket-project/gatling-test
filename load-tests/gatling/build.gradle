@@ -21,6 +21,33 @@ tasks.withType(io.gatling.gradle.GatlingRunTask).configureEach {
     }
 }
 
+tasks.register('gatlingReport', JavaExec) {
+    group = 'gatling'
+    description = 'Generates an HTML report from an existing Gatling simulation.log'
+    dependsOn tasks.named('gatlingClasses')
+    classpath = tasks.named('gatlingRun').get().gatlingRuntimeClasspath
+    mainClass = 'io.gatling.app.Gatling'
+    jvmArgs = gatling.jvmArgs
+    ignoreExitValue = true
+
+    doFirst {
+        final String reportName = System.getProperty('gatlingReportName')
+        final String reportRoot = System.getProperty('gatlingReportDir')
+        if (reportName == null || reportName.isBlank()) {
+            throw new GradleException('gatlingReportName system property is required')
+        }
+        if (reportRoot == null || reportRoot.isBlank()) {
+            throw new GradleException('gatlingReportDir system property is required')
+        }
+        setArgs([
+                '--reports-only', reportName,
+                '--results-folder', file(reportRoot).absolutePath,
+                '--launcher', 'gradle',
+                '--build-tool-version', gradle.gradleVersion
+        ])
+    }
+}
+
 tasks.register('generateAccessTokens', JavaExec) {
     dependsOn classes
     classpath = sourceSets.main.runtimeClasspath

@@ -365,9 +365,22 @@ public class LoadTestService {
             run.appendLog("ERROR: " + exception.getMessage());
         } finally {
             boolean createdFailureReport = false;
-            Path reportDirectory = request.distributedExecution()
-                    ? resolveDistributedReportDirectory(request, distributedRunDirectory).orElse(null)
-                    : detectReportDirectory(executionReportsRoot, beforeReports).orElse(null);
+            Path reportDirectory;
+            if (request.distributedExecution()) {
+                reportDirectory = resolveDistributedReportDirectory(request, distributedRunDirectory).orElse(null);
+            } else {
+                final Path resultDirectory = detectResultDirectory(executionReportsRoot, beforeReports).orElse(null);
+                if (resultDirectory != null
+                        && !hasHtmlReport(resultDirectory)
+                        && Files.isRegularFile(resultDirectory.resolve("simulation.log"))
+                        && exitCode != 0
+                        && !run.stopRequested()) {
+                    recoverHtmlReport(run, request, executionReportsRoot, resultDirectory);
+                }
+                reportDirectory = resultDirectory != null && hasHtmlReport(resultDirectory)
+                        ? resultDirectory
+                        : null;
+            }
             if (reportDirectory == null && exitCode != 0 && !run.stopRequested()) {
                 reportDirectory = createFailureReportDirectory(request, run, exitCode);
                 createdFailureReport = reportDirectory != null;
@@ -393,6 +406,51 @@ public class LoadTestService {
             }
             run.complete(exitCode, reportDirectory);
             runningRunId.compareAndSet(run.id(), null);
+        }
+    }
+
+    private void recoverHtmlReport(
+            final LoadTestRun run,
+            final LoadTestRequest request,
+            final Path reportsRoot,
+            final Path resultDirectory
+    ) {
+        final List<String> command = commandBuilder.buildReport(
+                request,
+                reportsRoot,
+                resultDirectory.getFileName().toString()
+        );
+        run.appendLog("Gatling HTML report was not generated. Rebuilding it from simulation.log.");
+        run.appendLog("$ " + String.join(" ", command));
+
+        Process process = null;
+        try {
+            process = new ProcessBuilder(command)
+                    .directory(request.ticketProjectPath().toFile())
+                    .redirectErrorStream(true)
+                    .start();
+            run.attachProcess(process);
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
+            )) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    run.appendLog(line);
+                }
+            }
+            final int reportExitCode = process.waitFor();
+            if (reportExitCode != 0) {
+                run.appendLog("Gatling HTML report rebuild exited with code " + reportExitCode);
+            }
+        } catch (IOException exception) {
+            run.appendLog("Gatling HTML report rebuild failed: " + exception.getMessage());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            run.appendLog("Gatling HTML report rebuild was interrupted");
+        } finally {
+            if (process != null) {
+                run.clearProcess(process);
+            }
         }
     }
 
@@ -1137,7 +1195,7 @@ public class LoadTestService {
         }
     }
 
-    private Optional<Path> detectReportDirectory(final Path reportsRoot, final Set<Path> beforeReports) {
+    private Optional<Path> detectResultDirectory(final Path reportsRoot, final Set<Path> beforeReports) {
         if (!Files.isDirectory(reportsRoot)) {
             return Optional.empty();
         }
@@ -1149,6 +1207,10 @@ public class LoadTestService {
         } catch (IOException exception) {
             return Optional.empty();
         }
+    }
+
+    private boolean hasHtmlReport(final Path resultDirectory) {
+        return Files.isRegularFile(resultDirectory.resolve("index.html"));
     }
 
     private Path renameReportDirectory(

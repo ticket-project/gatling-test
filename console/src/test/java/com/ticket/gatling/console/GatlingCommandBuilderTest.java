@@ -182,6 +182,27 @@ class GatlingCommandBuilderTest {
         assertTrue(command.contains("-DgatlingReportDir=C:\\ticket\\load-tests\\gatling\\build\\tmp\\gatling-console-runs\\run-1")
                 || command.contains("-DgatlingReportDir=C:/ticket/load-tests/gatling/build/tmp/gatling-console-runs/run-1"));
     }
+
+    @Test
+    void buildsReportRecoveryCommandForExistingSimulationLog() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
+                "ticketProjectPath", List.of("C:/ticket"),
+                "simulation", List.of("cdn-public-state")
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().buildReport(
+                request,
+                Path.of("C:/reports"),
+                "run-result-123"
+        );
+
+        assertTrue(command.contains("gatlingReport"));
+        assertTrue(command.contains("-DgatlingReportDir=C:\\reports")
+                || command.contains("-DgatlingReportDir=C:/reports"));
+        assertTrue(command.contains("-DgatlingReportName=run-result-123"));
+        assertFalse(command.contains("gatlingRun"));
+    }
+
     @Test
     void includesRunDescriptionInGatlingCommand() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
