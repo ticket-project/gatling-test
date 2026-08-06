@@ -231,7 +231,7 @@ public class TicketOpenEndToEndSimulation extends Simulation {
 
     private ChainBuilder fetchOrder() {
         return exec(http("get order")
-                .get("/api/v1/orders/#{orderKey}")
+                .get("/api/v1/orders/#{orderKey}/status")
                 .headers(LoadTestConfig.authAndAdmissionHeaders())
                 .check(status().saveAs("orderHttpStatus"))
                 .check(status().is(200))

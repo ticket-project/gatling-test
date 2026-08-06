@@ -383,7 +383,7 @@ final class CoreBookingFlow {
                 .removeAll("orderHttpStatus", "orderState")
                 .set("lastStep", "GET_ORDER"))
                 .exec(http("get order")
-                        .get("/api/v1/orders/#{orderKey}")
+                        .get("/api/v1/orders/#{orderKey}/status")
                         .headers(bookingHeaders(false))
                         .check(status().saveAs("orderHttpStatus"))
                         .check(status().is(200))
