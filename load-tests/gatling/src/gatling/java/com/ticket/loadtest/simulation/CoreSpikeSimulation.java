@@ -22,7 +22,7 @@ public class CoreSpikeSimulation extends BookingProofSimulation {
                 .acceptHeader("application/json")
                 .contentTypeHeader("application/json");
 
-        final ScenarioBuilder scenario = scenario("05-core-spike")
+        final ScenarioBuilder scenario = scenario("05 Core 순간 부하 및 회복")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.coreSpikeExpectedUsers()))
                 .exec(CoreBookingFlow.initializeRealisticSession(SCENARIO))
                 .exec(CoreBookingFlow.realisticFlow(SCENARIO));

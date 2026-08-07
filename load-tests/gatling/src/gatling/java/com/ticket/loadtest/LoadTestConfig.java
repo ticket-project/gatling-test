@@ -166,6 +166,10 @@ public final class LoadTestConfig {
         );
     }
 
+    public static Iterator<Map<String, Object>> orderLookupFeeder(final int expectedRows) {
+        return OrderLookupFeeder.load(Path.of(bookingFeederFile()), expectedRows);
+    }
+
     public static int coreP95ThresholdMs() {
         return intProperty(ConfigKey.CORE_P95_THRESHOLD_MS);
     }
@@ -423,6 +427,22 @@ public final class LoadTestConfig {
     public static Map<CharSequence, String> authHeaders() {
         return Map.of("Authorization", "Bearer #{accessToken}");
     }
+    public static Map<CharSequence, String> loadTestCorrelationHeaders() {
+        return Map.of(
+                "X-Load-Test-Run-Id", consoleRunId(),
+                "X-Load-Test-Scenario", bookingScenario()
+        );
+    }
+
+    public static Map<CharSequence, String> authAndCorrelationHeaders() {
+        return Map.of(
+                "Authorization", "Bearer #{accessToken}",
+                "X-Load-Test-Run-Id", consoleRunId(),
+                "X-Load-Test-Scenario", bookingScenario(),
+                "X-Load-Test-User-Id", "#{memberId}"
+        );
+    }
+
     public static Map<CharSequence, String> bookingCorrelationHeaders() {
         return Map.of(
                 "X-Load-Test-Run-Id", consoleRunId(),

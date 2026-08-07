@@ -66,7 +66,7 @@ public class CdnPublicStateSimulation extends Simulation {
             publicStateChain = publicStateChain.exec(LoadTestConfig.dumpFailureResponseBody("cdn-public-state"));
         }
 
-        final ScenarioBuilder scenario = scenario("cdn-public-state")
+        final ScenarioBuilder scenario = scenario("CDN 공개 대기열 상태 조회")
                 .exec(LoadTestConfig.initializeSession())
                 .repeat(LoadTestConfig.statusPolls()).on(
                         publicStateChain

@@ -34,6 +34,8 @@ class ProofSuiteSimulationTest {
         assertTrue(source(SIMULATION_ROOT.resolve("SmokeSimulation.java"))
                 .contains("CoreBookingFlow.successfulFlow(SCENARIO, true)"));
         assertTrue(source(SIMULATION_ROOT.resolve("CoreAdmissionCapacitySimulation.java"))
+                .contains("CoreBookingFlow.successfulFlowWithoutAdmission(SCENARIO, true)"));
+        assertTrue(source(SIMULATION_ROOT.resolve("CoreRealisticContentionSimulation.java"))
                 .contains("CoreBookingFlow.realisticFlowWithoutAdmission(SCENARIO)"));
         assertTrue(source(SIMULATION_ROOT.resolve("CoreActiveUsersClosedSimulation.java"))
                 .contains("CoreBookingFlow.realisticFlow(SCENARIO)"));
@@ -78,7 +80,7 @@ class ProofSuiteSimulationTest {
         assertTrue(config.contains("constantConcurrentUsers(users())"));
         assertTrue(config.contains("rows < users()"));
         assertTrue(simulation.contains("injectClosed(LoadTestConfig.coreActiveUsersInjection())"));
-        assertTrue(simulation.contains("scenario(\"04-core-active-users-closed\")"));
+        assertTrue(simulation.contains("scenario(\"04 Core 동시 사용자 한계\")"));
         assertTrue(simulation.contains("bookingFeeder(LoadTestConfig.bookingFeederRows())"));
         assertTrue(simulation.contains("CoreBookingFlow.realisticFlow(SCENARIO)"));
     }

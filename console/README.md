@@ -80,12 +80,19 @@ http://localhost:9090
 | `booking-capacity` | 사용자가 입력한 Ticket/Core URL |
 | `ticket-open-end-to-end` | 사용자가 입력한 Ticket/Core URL + Queue URL |
 | `seat-contention` | 사용자가 입력한 Ticket/Core URL |
+| `core-performance-summary-api` | `https://oneticket.site` |
+| `core-seat-status-api` | `https://oneticket.site` |
+| `core-seat-select-api` | `https://oneticket.site` |
+| `core-order-create-api` | `https://oneticket.site` |
+| `core-order-get-api` | `https://oneticket.site` |
 | `smoke` | `https://oneticket.site` |
 | `hot-seat-concurrency` | `https://oneticket.site` |
 | `core-admission-capacity` | `https://oneticket.site` |
+| `core-realistic-contention` | `https://oneticket.site` |
 | `core-active-users-closed` | `https://oneticket.site` |
 | `core-spike` | `https://oneticket.site` |
 | `queue-protects-core` | Core `https://oneticket.site` + Queue `https://queue.oneticket.site` |
+
 표의 주소는 콘솔 코드가 입력 칸을 채우는 편의 기본값이며 현재 가용성이나 운영 배포 대상을 보장하지 않는다. 특히 `legacy-queue` 주소는 비교용 구형 API이므로, 실행 전에 대상 서버 소유자와 URL·회차·허용 부하를 다시 확인한다.
 
 
@@ -171,9 +178,15 @@ com.ticket.loadtest.simulation.CdnPublicStateSimulation
 com.ticket.loadtest.simulation.BookingCapacitySimulation
 com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation
 com.ticket.loadtest.simulation.SeatContentionSimulation
+com.ticket.loadtest.simulation.CorePerformanceSummaryApiSimulation
+com.ticket.loadtest.simulation.CoreSeatStatusApiSimulation
+com.ticket.loadtest.simulation.CoreSeatSelectApiSimulation
+com.ticket.loadtest.simulation.CoreOrderCreateApiSimulation
+com.ticket.loadtest.simulation.CoreOrderGetApiSimulation
 com.ticket.loadtest.simulation.SmokeSimulation
 com.ticket.loadtest.simulation.HotSeatConcurrencySimulation
 com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation
+com.ticket.loadtest.simulation.CoreRealisticContentionSimulation
 com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation
 com.ticket.loadtest.simulation.CoreSpikeSimulation
 com.ticket.loadtest.simulation.QueueProtectsCoreSimulation
@@ -202,24 +215,37 @@ rg -n "찾을_문구" .
 - Gatling 저장소 경로는 콘솔 내부 기본값을 사용하며 UI에서 입력하지 않는다.
 - 모든 리포트와 실행 증거는 이 저장소의 `distributed-results-join` 아래에 생성된다.
 
+## Core API별 독립 성능 테스트
+
+단일 API 테스트는 콘솔 선택 목록에 실제 엔드포인트 이름으로 표시된다.
+
+- `GET /api/v1/performances/{performanceId}/summary`: 인증 없이 공연 요약만 1회 조회한다.
+- `GET /api/v1/performances/{performanceId}/seats/status`: 인증 후 좌석 상태만 1회 조회한다.
+- `POST /api/v1/performances/{performanceId}/seats/{seatId}/select`: 피더의 고유 좌석을 1회 선점한다.
+- `POST /api/v1/orders`: 해당 회원에게 미리 선점된 피더 좌석으로 주문만 1회 생성한다.
+- `GET /api/v1/orders/{orderKey}`: 피더의 회원 소유 주문을 1회 조회한다.
+
+좌석 선점과 주문 생성은 상태를 변경하므로 실행마다 Redis 선점·좌석·주문 상태를 동일하게 복원한다. 주문 생성 테스트 안에서 좌석 선점을 준비하지 않는 이유는 선점 API 부하가 주문 API 측정값에 섞이는 것을 막기 위해서다. 주문 조회 CSV 헤더는 `memberId,accessToken,orderKey`, 좌석 선점·주문 생성 CSV 헤더는 `memberId,accessToken,seatId,admissionToken`이다. 현재는 로컬 실행만 지원한다.
+
 ## Booking 예매 부하 콘솔 사용
 
-Console의 `테스트 종류`에서 다음 여섯 시나리오를 직접 선택할 수 있다.
+Console의 `테스트 종류`에서 다음 일곱 시나리오를 직접 선택할 수 있다.
 
 | 번호 | Console 선택값 | 부하 모델 | 검증 목적 |
 | --- | --- | --- | --- |
-| 01 | `01 Smoke` | 1명 즉시 실행 | 좌석 조회 → 좌석 선점 → 주문 생성 → 주문 조회 계약 확인 |
-| 02 | `02 Hot Seat Concurrency` | N명 동시 시작 | 같은 좌석의 선점 성공 1건, 주문 성공 1건, 나머지 정상 거절, 중복 0건 확인 |
-| 03 | `03 Realistic Hot Ticket Capacity (Open)` | Open Model | 인기 좌석 쏠림·충돌·다른 좌석 재시도를 포함해 Core의 안전 입장률 결정 |
-| 04 | `04 Core Active Users (Closed)` | Closed Model | Core 안에서 동시에 활동하는 사용자 수의 안전 상한 결정 |
-| 05 | `05 Core Spike` | Open Model Spike | 기준 RPS에서 5초 동안 최고 RPS로 급증한 뒤 회복하는지 확인 |
-| 06 | `06 Queue Protects Core` | Open Model | 외부 유입은 높게 유지하면서 Queue가 Core 입장률을 보호하는지 확인 |
+| 01 | `01 기본 예매 동작 확인` | 1명 즉시 실행 | 좌석 조회 → 좌석 선점 → 주문 생성 → 주문 조회 계약 확인 |
+| 02 | `02 인기 좌석 동시 경합` | N명 동시 시작 | 같은 좌석의 선점 성공 1건, 주문 성공 1건, 나머지 정상 거절, 중복 0건 확인 |
+| 03 | `03 고정 조건 Core 수용량` | Open Model | 고정 회원·고유 좌석·동일 요청 수로 Core의 안전 입장률 결정 |
+| 03-2 | `03-2 현실형 인기 좌석 경합` | Open Model | 인기 좌석 쏠림·충돌·재시도·이탈을 포함한 현실형 동작 확인 |
+| 04 | `04 Core 동시 사용자 한계` | Closed Model | Core 안에서 동시에 활동하는 사용자 수의 안전 상한 결정 |
+| 05 | `05 Core 순간 부하 및 회복` | Open Model Spike | 기준 RPS에서 5초 동안 최고 RPS로 급증한 뒤 회복하는지 확인 |
+| 06 | `06 Queue의 Core 보호` | Open Model | 외부 유입은 높게 유지하면서 Queue가 Core 입장률을 보호하는지 확인 |
 
 ### 실행 순서
 
 1. `gatling-test/console`에서 `..\gradlew.bat run`을 실행한다.
 2. 브라우저에서 `http://localhost:9090`을 연다.
-3. `테스트 종류`에서 01~06 중 하나를 선택한다. 선택과 동시에 해당 시나리오의 권장 부하 모델과 기본값이 채워진다.
+3. `테스트 종류`에서 목적에 맞는 시나리오를 선택한다. 선택과 동시에 해당 시나리오의 권장 부하 모델과 기본값이 채워진다.
 4. `Ticket/Core URL`, 필요하면 `Queue URL`, `performanceId`를 입력한다. 화면에 `Booking Feeder CSV`가 보이는 시나리오만 feeder 경로를 입력한다.
 5. feeder를 사용하는 시나리오라면 화면의 예상 사용자 수보다 많은 feeder 행이 준비됐는지 확인한다.
 6. 대상 서버와 Datadog 대시보드를 확인한 뒤 `실행`을 누른다.
@@ -227,20 +253,21 @@ Console의 `테스트 종류`에서 다음 여섯 시나리오를 직접 선택�
 
 ### 시나리오별 입력
 
-- `01 Smoke`: 기본값은 사용자 1명, `at-once-users`다. 기능 계약을 먼저 확인하는 용도이므로 이 단계에서 부하를 높이지 않는다.
-- `02 Hot Seat Concurrency`: `사용자 수`를 100 또는 1,000으로 지정하고, feeder의 모든 행에 같은 `seatId`를 넣는다. `rendezVous`가 한 JVM 안에서만 동기화되므로 반드시 로컬 실행을 사용한다. Console은 분산 실행을 거부한다.
-- `03 Realistic Hot Ticket Capacity`: Queue·Booking Feeder·Admission Token 없이 Core를 직접 호출한다. 기본값은 10명/초·60초이며 사용자의 80%가 현재 잔여 좌석 중 앞쪽 10%의 인기 좌석에 몰리고, 409 충돌 시 아직 시도하지 않은 다른 좌석으로 최대 2회 재시도한다. 로그인 API 부하를 제외하기 위해 기본 토큰 모드는 `synthetic-jwt`다. `syntheticMemberStartId`부터 예상 사용자 수만큼 ACTIVE 회원이 Core DB에 실제로 있어야 하고, 전용 테스트 환경의 `ADMISSION_TOKEN_ENFORCEMENT_ENABLED=false`가 필요하다. 10 → 25 → 50 → 100처럼 실행을 나누고 API p95/p99·5xx·timeout·DB/CPU 지표를 비교한다.
-- `04 Core Active Users (Closed)`: 주입 방식을 `동시 사용자 유지 (Closed Model)`로 사용한다. `사용자 수`는 동시에 유지할 Core 사용자 수이고, `Closed Model 피더 행 수`는 노드마다 소비할 수 있는 고유 CSV 행 수다. 피더는 순환하지 않으므로 이 값은 사용자 수 이상이어야 한다.
-- `05 Core Spike`: `초당 사용자 수`가 기준 RPS, `최고 RPS`가 spike RPS, `투입 시간`이 최고 RPS 유지 시간이다. 실행 패턴은 기준 30초 → 5초 ramp-up → 최고 RPS 유지 → 5초 ramp-down → 기준 30초다.
-- `06 Queue Protects Core`: `초당 사용자 수`는 Queue로 들어오는 외부 유입률이다. 사용자는 join → state polling → enter로 admission token을 얻은 뒤에만 Core 흐름을 실행한다. Queue/Core URL과 polling timeout을 모두 입력한다. 2,000명/초를 60초 동안 받고 Core를 300명/초로 제한하면 마지막 사용자는 약 340초 이상 기다릴 수 있으므로 기본 timeout은 600초로 설정한다.
+- `01 기본 예매 동작 확인`: 기본값은 사용자 1명, `at-once-users`다. 기능 계약을 먼저 확인하는 용도이므로 이 단계에서 부하를 높이지 않는다.
+- `02 인기 좌석 동시 경합`: `사용자 수`를 100 또는 1,000으로 지정하고, feeder의 모든 행에 같은 `seatId`를 넣는다. `rendezVous`가 한 JVM 안에서만 동기화되므로 반드시 로컬 실행을 사용한다.
+- `03 고정 조건 Core 수용량`: 사용자마다 서로 다른 ACTIVE 회원과 AVAILABLE 좌석을 feeder에 준비한다. 좌석 새로고침·무작위 선택·재시도·이탈 없이 같은 요청 흐름을 보내므로 코드 변경 전후의 1차 비교에 사용한다. Admission Token 열은 비워 두며 전용 테스트 환경의 `ADMISSION_TOKEN_ENFORCEMENT_ENABLED=false`가 필요하다. 각 실행 전 회차의 주문·선점 상태를 같은 초기 상태로 복원한다.
+- `03-2 현실형 인기 좌석 경합`: Queue·Booking Feeder·Admission Token 없이 Core를 직접 호출한다. 사용자의 80%가 인기 좌석 범위에 몰리고 409 충돌 시 다른 좌석으로 최대 2회 재시도하며 일부 사용자는 주문 전에 이탈한다. 합성 JWT의 회원 ID와 일치하는 ACTIVE 회원이 필요하다. 실행마다 충돌량과 요청 수가 달라질 수 있으므로 03의 고정 결과를 설명하는 보조 테스트로 사용한다.
+- `04 Core 동시 사용자 한계`: 주입 방식을 `동시 사용자 유지 (Closed Model)`로 사용한다. `사용자 수`는 동시에 유지할 Core 사용자 수이고, `Closed Model 피더 행 수`는 노드마다 소비할 수 있는 고유 CSV 행 수다.
+- `05 Core 순간 부하 및 회복`: `초당 사용자 수`가 기준 RPS, `최고 RPS`가 순간 최고 RPS, `투입 시간`이 최고 RPS 유지 시간이다. 실행 패턴은 기준 30초 → 5초 증가 → 최고 RPS 유지 → 5초 감소 → 기준 30초다.
+- `06 Queue의 Core 보호`: `초당 사용자 수`는 Queue로 들어오는 외부 유입률이다. 사용자는 join → state polling → enter로 Admission Token을 얻은 뒤에만 Core 흐름을 실행한다.
 
 ### Feeder 규칙
 
-`Booking Feeder CSV`는 UTF-8 no BOM 파일이다. 04·05는 `memberId,accessToken,admissionToken` 3컬럼을 권장하며 좌석은 실행 중 Core에서 자동으로 고른다. 03은 feeder를 사용하지 않는다. 나머지는 `memberId,accessToken,seatId,admissionToken` 4컬럼을 사용한다.
+`Booking Feeder CSV`는 UTF-8 no BOM 파일이다. 04·05는 `memberId,accessToken,admissionToken` 3컬럼을 권장하며 좌석은 실행 중 Core에서 자동으로 고른다. 03은 `memberId,accessToken,seatId,admissionToken` 4컬럼을 사용하고 회원과 좌석을 모두 고유하게 준비하며 Admission Token은 비워 둔다. 03-2는 feeder를 사용하지 않는다.
 
-- 03 Core Capacity는 feeder를 사용하지 않는다. 04 Closed·05 Spike는 feeder에 `seatId`가 필요 없다.
+- 03 고정 조건 Core 수용량은 고유 `seatId`가 필요하다. 03-2는 feeder를 사용하지 않고, 04·05는 feeder에 `seatId`가 필요 없다.
 - Hot Seat는 모든 행에 같은 `seatId`가 필요하다.
-- Queue Protects Core는 `enter` 응답에서 admission token을 받으므로 feeder의 `admissionToken`을 비워 둔다.
+- Queue의 Core 보호는 `enter` 응답에서 admission token을 받으므로 feeder의 `admissionToken`을 비워 둔다.
 - Open Model의 예상 행 수는 주입 패턴의 전체 사용자 수이며, 분산 실행에서는 모든 노드의 필요량을 합산한다.
 - Closed Model의 feeder 행 수는 `Closed Model 피더 행 수 × 노드 수`로 검증한다.
 
@@ -288,9 +315,9 @@ DATADOG_SITE=us5.datadoghq.com
 
 선택자는 화면에서 입력받지 않습니다. 테스트 종류에 따라 콘솔이 다음 대상을 자동 선택합니다.
 
-- Queue Join Only, Queue Enter, Legacy Queue Status, CDN Public State: Queue만 조회
-- Booking Capacity, Seat Contention: Core만 조회
-- Ticket Open End to End: Queue와 Core를 모두 조회
+- 대기열 진입 요청, 대기열 입장 처리, 기존 대기열 상태 조회, CDN 공개 대기열 상태 조회: Queue만 조회
+- 고정 좌석 예매 처리량, 동일 좌석 경합: Core만 조회
+- 예매 오픈 전체 흐름: Queue와 Core를 모두 조회
 
 현재 Datadog에서 확인된 자동 프로필은 다음과 같습니다.
 

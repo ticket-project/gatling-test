@@ -65,7 +65,7 @@ public class LoadTestService {
     private void validateInjectionMode(final LoadTestRequest request) {
         if ("ticket-open".equalsIgnoreCase(request.injectionMode())
                 && request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
-            throw new IllegalArgumentException("예매 오픈 패턴은 Queue Join Only 테스트에서만 사용할 수 있습니다.");
+            throw new IllegalArgumentException("예매 오픈 패턴은 대기열 진입 요청 테스트에서만 사용할 수 있습니다.");
         }
     }
     private void validateProofSuiteInjection(final LoadTestRequest request) {
@@ -81,10 +81,10 @@ public class LoadTestService {
         final boolean spikeScenario = request.simulationType() == SimulationType.CORE_SPIKE
                 || request.simulationType() == SimulationType.QUEUE_PROTECTS_CORE;
         if (request.simulationType() == SimulationType.CORE_SPIKE && !"spike".equals(mode)) {
-            throw new IllegalArgumentException("Core Spike requires the spike injection mode");
+            throw new IllegalArgumentException("Core 순간 부하 및 회복 requires the spike injection mode");
         }
         if ("spike".equals(mode) && !spikeScenario) {
-            throw new IllegalArgumentException("spike injection is only available for Core Spike or Queue Protects Core");
+            throw new IllegalArgumentException("spike injection is only available for Core 순간 부하 및 회복 or Queue의 Core 보호");
         }
         if ("spike".equals(mode) && request.targetUsersPerSecond() <= request.usersPerSecond()) {
             throw new IllegalArgumentException("Spike target RPS must be greater than baseline RPS");
@@ -175,15 +175,18 @@ public class LoadTestService {
         if (!request.distributedExecution()) {
             return;
         }
-        if (request.simulationType() == SimulationType.CORE_ADMISSION_CAPACITY) {
-            throw new IllegalArgumentException("03 Core capacity without a feeder currently supports local execution only");
+        if (isCoreApiIsolationSimulation(request.simulationType())) {
+            throw new IllegalArgumentException("API별 독립 성능 테스트는 현재 로컬 실행만 지원합니다");
+        }
+        if (request.simulationType() == SimulationType.CORE_REALISTIC_CONTENTION) {
+            throw new IllegalArgumentException("03-2 현실형 인기 좌석 경합은 피더 없이 동작하므로 현재 로컬 실행만 지원합니다");
         }
         if (!request.simulationType().usesBookingFeeder()
                 && request.simulationType() != SimulationType.CDN_PUBLIC_STATE
                 && request.simulationType() != SimulationType.LEGACY_QUEUE_STATUS
                 && request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
             throw new IllegalArgumentException(
-                    "Distributed execution supports only booking, Queue Join Only, CDN Public State and Legacy Queue Status"
+                    "Distributed execution supports only booking, 대기열 진입 요청, CDN 공개 대기열 상태 조회 and 기존 대기열 상태 조회"
             );
         }
         if (request.simulationType().usesBookingFeeder()) {
@@ -196,7 +199,7 @@ public class LoadTestService {
             return;
         }
         throw new IllegalArgumentException(
-                "Queue Join Only distributed execution requires synthetic JWT or generated access token file mode"
+                "대기열 진입 요청 distributed execution requires synthetic JWT or generated access token file mode"
         );
     }
 
@@ -218,7 +221,7 @@ public class LoadTestService {
 
         if (request.simulationType() == SimulationType.QUEUE_PROTECTS_CORE
                 && request.maxCoreAdmissionsPerSecond() <= 0) {
-            throw new IllegalArgumentException("Queue Protects Core requires a positive Core admission limit");
+            throw new IllegalArgumentException("Queue의 Core 보호 requires a positive Core admission limit");
         }
         if (request.dbAuditEnabled()) {
             for (String name : List.of(
@@ -279,7 +282,10 @@ public class LoadTestService {
                 case CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE -> true;
                 default -> false;
             };
-            final boolean validHeader = "memberId,accessToken,seatId,admissionToken".equals(header)
+            final boolean orderLookup = simulationType == SimulationType.CORE_ORDER_GET_API;
+            final boolean validHeader = orderLookup
+                    ? "memberId,accessToken,orderKey".equals(header)
+                    : "memberId,accessToken,seatId,admissionToken".equals(header)
                     || (dynamicSeatSelection && "memberId,accessToken,admissionToken".equals(header));
             if (!validHeader) {
                 throw new IllegalArgumentException("Booking feeder header is invalid");
@@ -288,6 +294,14 @@ public class LoadTestService {
         } catch (IOException exception) {
             throw new IllegalArgumentException("Booking feeder file cannot be read: " + feederPath, exception);
         }
+    }
+
+    private static boolean isCoreApiIsolationSimulation(final SimulationType simulationType) {
+        return switch (simulationType) {
+            case CORE_PERFORMANCE_SUMMARY_API, CORE_SEAT_STATUS_API, CORE_SEAT_SELECT_API,
+                    CORE_ORDER_CREATE_API, CORE_ORDER_GET_API -> true;
+            default -> false;
+        };
     }
 
     public synchronized List<LoadTestRun> runs() {

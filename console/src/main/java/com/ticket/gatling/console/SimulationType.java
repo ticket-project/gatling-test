@@ -5,7 +5,7 @@ import java.util.Arrays;
 public enum SimulationType {
     QUEUE_JOIN_ONLY(
             "queue-join-only",
-            "Queue Join Only",
+            "대기열 진입 요청",
             "com.ticket.loadtest.simulation.QueueJoinOnlySimulation",
             "https://queue.oneticket.site",
             false,
@@ -18,7 +18,7 @@ public enum SimulationType {
     ),
     QUEUE_ENTER(
             "queue-enter",
-            "Queue Enter",
+            "대기열 입장 처리",
             "com.ticket.loadtest.simulation.QueueEnterSimulation",
             "http://52.237.82.8:18090/legacy-queue",
             false,
@@ -31,7 +31,7 @@ public enum SimulationType {
     ),
     LEGACY_QUEUE_STATUS(
             "legacy-queue-status",
-            "Legacy Queue Status",
+            "기존 대기열 상태 조회",
             "com.ticket.loadtest.simulation.LegacyQueueStatusSimulation",
             "http://52.237.82.8:18090/legacy-queue",
             false,
@@ -44,7 +44,7 @@ public enum SimulationType {
     ),
     CDN_PUBLIC_STATE(
             "cdn-public-state",
-            "CDN Public State",
+            "CDN 공개 대기열 상태 조회",
             "com.ticket.loadtest.simulation.CdnPublicStateSimulation",
             "https://queue.oneticket.site",
             false,
@@ -57,7 +57,7 @@ public enum SimulationType {
     ),
     BOOKING_CAPACITY(
             "booking-capacity",
-            "Booking Capacity",
+            "고정 좌석 예매 처리량",
             "com.ticket.loadtest.simulation.BookingCapacitySimulation",
             "",
             false,
@@ -70,7 +70,7 @@ public enum SimulationType {
     ),
     TICKET_OPEN_END_TO_END(
             "ticket-open-end-to-end",
-            "Ticket Open End to End",
+            "예매 오픈 전체 흐름",
             "com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation",
             "",
             false,
@@ -83,7 +83,7 @@ public enum SimulationType {
     ),
     SEAT_CONTENTION(
             "seat-contention",
-            "Seat Contention",
+            "동일 좌석 경합",
             "com.ticket.loadtest.simulation.SeatContentionSimulation",
             "",
             false,
@@ -94,9 +94,74 @@ public enum SimulationType {
             false,
             "SEAT_CONTENTION"
     ),
+    CORE_PERFORMANCE_SUMMARY_API(
+            "core-performance-summary-api",
+            "GET /api/v1/performances/{performanceId}/summary",
+            "com.ticket.loadtest.simulation.CorePerformanceSummaryApiSimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            "CORE_PERFORMANCE_SUMMARY_API"
+    ),
+    CORE_SEAT_STATUS_API(
+            "core-seat-status-api",
+            "GET /api/v1/performances/{performanceId}/seats/status",
+            "com.ticket.loadtest.simulation.CoreSeatStatusApiSimulation",
+            "",
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+            "CORE_SEAT_STATUS_API"
+    ),
+    CORE_SEAT_SELECT_API(
+            "core-seat-select-api",
+            "POST /api/v1/performances/{performanceId}/seats/{seatId}/select",
+            "com.ticket.loadtest.simulation.CoreSeatSelectApiSimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "CORE_SEAT_SELECT_API"
+    ),
+    CORE_ORDER_CREATE_API(
+            "core-order-create-api",
+            "POST /api/v1/orders",
+            "com.ticket.loadtest.simulation.CoreOrderCreateApiSimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "CORE_ORDER_CREATE_API"
+    ),
+    CORE_ORDER_GET_API(
+            "core-order-get-api",
+            "GET /api/v1/orders/{orderKey}",
+            "com.ticket.loadtest.simulation.CoreOrderGetApiSimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "CORE_ORDER_GET_API"
+    ),
     SMOKE(
             "smoke",
-            "01 Smoke",
+            "01 기본 예매 동작 확인",
             "com.ticket.loadtest.simulation.SmokeSimulation",
             "",
             false,
@@ -109,7 +174,7 @@ public enum SimulationType {
     ),
     HOT_SEAT_CONCURRENCY(
             "hot-seat-concurrency",
-            "02 Hot Seat Concurrency",
+            "02 인기 좌석 동시 경합",
             "com.ticket.loadtest.simulation.HotSeatConcurrencySimulation",
             "",
             false,
@@ -122,8 +187,21 @@ public enum SimulationType {
     ),
     CORE_ADMISSION_CAPACITY(
             "core-admission-capacity",
-            "03 Realistic Hot Ticket Capacity (Open)",
+            "03 고정 조건 Core 수용량",
             "com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation",
+            "",
+            false,
+            false,
+            false,
+            false,
+            true,
+            false,
+            "CORE_ADMISSION_CAPACITY"
+    ),
+    CORE_REALISTIC_CONTENTION(
+            "core-realistic-contention",
+            "03-2 현실형 인기 좌석 경합",
+            "com.ticket.loadtest.simulation.CoreRealisticContentionSimulation",
             "",
             false,
             false,
@@ -131,11 +209,11 @@ public enum SimulationType {
             true,
             false,
             false,
-            "CORE_ADMISSION_CAPACITY"
+            "CORE_REALISTIC_CONTENTION"
     ),
     CORE_ACTIVE_USERS_CLOSED(
             "core-active-users-closed",
-            "04 Core Active Users (Closed)",
+            "04 Core 동시 사용자 한계",
             "com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation",
             "",
             false,
@@ -148,7 +226,7 @@ public enum SimulationType {
     ),
     CORE_SPIKE(
             "core-spike",
-            "05 Core Spike",
+            "05 Core 순간 부하 및 회복",
             "com.ticket.loadtest.simulation.CoreSpikeSimulation",
             "",
             false,
@@ -161,7 +239,7 @@ public enum SimulationType {
     ),
     QUEUE_PROTECTS_CORE(
             "queue-protects-core",
-            "06 Queue Protects Core",
+            "06 Queue의 Core 보호",
             "com.ticket.loadtest.simulation.QueueProtectsCoreSimulation",
             "",
             false,

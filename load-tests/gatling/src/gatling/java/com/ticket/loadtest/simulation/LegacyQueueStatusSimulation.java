@@ -49,7 +49,7 @@ public class LegacyQueueStatusSimulation extends Simulation {
             queueStatusChain = queueStatusChain.exec(LoadTestConfig.dumpFailureResponseBody("queue-status"));
         }
 
-        final ScenarioBuilder scenario = scenario("legacy-queue-status")
+        final ScenarioBuilder scenario = scenario("기존 대기열 상태 조회")
                 .exec(LoadTestConfig.initializeSession())
                 .feed(legacyQueueSessionFeeder())
                 .repeat(LoadTestConfig.statusPolls()).on(

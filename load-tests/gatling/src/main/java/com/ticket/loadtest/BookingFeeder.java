@@ -125,7 +125,9 @@ public final class BookingFeeder {
         SEAT_CONTENTION(true, false),
         SMOKE(true, true),
         HOT_SEAT_CONCURRENCY(true, false),
-        CORE_ADMISSION_CAPACITY(true, true),
+        CORE_ADMISSION_CAPACITY(false, true),
+        CORE_SEAT_SELECT_API(false, true),
+        CORE_ORDER_CREATE_API(false, true),
         CORE_ACTIVE_USERS_CLOSED(true, true),
         CORE_SPIKE(true, true),
         QUEUE_PROTECTS_CORE(false, true);

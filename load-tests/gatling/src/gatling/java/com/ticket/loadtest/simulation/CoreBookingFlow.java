@@ -67,17 +67,29 @@ final class CoreBookingFlow {
     }
 
     static ChainBuilder successfulFlow(final String scenario, final boolean verifyCreatedOrder) {
+        return successfulFlow(scenario, verifyCreatedOrder, true);
+    }
+
+    static ChainBuilder successfulFlowWithoutAdmission(final String scenario, final boolean verifyCreatedOrder) {
+        return successfulFlow(scenario, verifyCreatedOrder, false);
+    }
+
+    private static ChainBuilder successfulFlow(
+            final String scenario,
+            final boolean verifyCreatedOrder,
+            final boolean includeAdmissionToken
+    ) {
         ChainBuilder flow = recordCoreAdmission()
                 .exec(fetchPerformanceSummary())
                 .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))
-                .exec(fetchSeatStatus())
+                .exec(fetchSeatStatus(includeAdmissionToken))
                 .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(selectSeat())
+                        exec(selectSeat(includeAdmissionToken))
                                 .exec(captureExpectedStatus("SELECT_SEAT", "selectHttpStatus", 200))
                 ))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(createOrder())
+                        exec(createOrder(includeAdmissionToken))
                                 .exec(captureExpectedStatus("CREATE_ORDER", "createOrderHttpStatus", 201))
                                 .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()))
                 ));
@@ -241,11 +253,11 @@ final class CoreBookingFlow {
         });
     }
 
-    private static ChainBuilder selectSeat() {
+    private static ChainBuilder selectSeat(final boolean includeAdmissionToken) {
         return exec(session -> session.remove("selectHttpStatus").set("lastStep", "SELECT_SEAT"))
                 .exec(http("select seat")
                         .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
-                        .headers(LoadTestConfig.authAndAdmissionHeaders())
+                        .headers(bookingHeaders(includeAdmissionToken))
                         .check(status().saveAs("selectHttpStatus"))
                         .check(status().is(200)));
     }
@@ -292,13 +304,13 @@ final class CoreBookingFlow {
                 .set("lastStep", "SELECT_SEAT"));
     }
 
-    private static ChainBuilder createOrder() {
+    private static ChainBuilder createOrder(final boolean includeAdmissionToken) {
         return exec(session -> session
                 .removeAll("createOrderHttpStatus", "orderKeyHeader", "orderKeyBody")
                 .set("lastStep", "CREATE_ORDER"))
                 .exec(http("create order")
                         .post("/api/v1/orders")
-                        .headers(LoadTestConfig.authAndAdmissionHeaders())
+                        .headers(bookingHeaders(includeAdmissionToken))
                         .body(StringBody("""
                                 {
                                   "performanceId": #{performanceId},

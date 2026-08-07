@@ -22,8 +22,11 @@ public record RunEnvironmentInput(
         final DatadogTargetInput core = DatadogTargetInput.core(coreBaseUrl);
         final List<DatadogTargetInput> targets = switch (simulationType) {
             case QUEUE_JOIN_ONLY, QUEUE_ENTER, LEGACY_QUEUE_STATUS, CDN_PUBLIC_STATE -> List.of(queue);
-            case BOOKING_CAPACITY, SEAT_CONTENTION, SMOKE, HOT_SEAT_CONCURRENCY,
-                    CORE_ADMISSION_CAPACITY, CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE -> List.of(core);
+            case BOOKING_CAPACITY, SEAT_CONTENTION,
+                    CORE_PERFORMANCE_SUMMARY_API, CORE_SEAT_STATUS_API, CORE_SEAT_SELECT_API,
+                    CORE_ORDER_CREATE_API, CORE_ORDER_GET_API, SMOKE, HOT_SEAT_CONCURRENCY,
+                    CORE_ADMISSION_CAPACITY, CORE_REALISTIC_CONTENTION,
+                    CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE -> List.of(core);
             case TICKET_OPEN_END_TO_END, QUEUE_PROTECTS_CORE -> List.of(queue, core);
         };
         return new RunEnvironmentInput(true, targets);

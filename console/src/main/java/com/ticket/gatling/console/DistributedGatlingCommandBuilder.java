@@ -160,7 +160,7 @@ public class DistributedGatlingCommandBuilder {
             case CDN_PUBLIC_STATE -> "run-distributed-gatling-cdn.ps1";
             case LEGACY_QUEUE_STATUS -> "run-distributed-gatling-legacy.ps1";
             default -> throw new IllegalArgumentException(
-                    "Distributed execution supports only booking, Queue Join Only, CDN Public State and Legacy Queue Status"
+                    "Distributed execution supports only booking, 대기열 진입 요청, CDN 공개 대기열 상태 조회 and 기존 대기열 상태 조회"
             );
         };
     }

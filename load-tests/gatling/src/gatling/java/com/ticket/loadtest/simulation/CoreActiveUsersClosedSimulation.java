@@ -22,7 +22,7 @@ public class CoreActiveUsersClosedSimulation extends BookingProofSimulation {
                 .acceptHeader("application/json")
                 .contentTypeHeader("application/json");
 
-        final ScenarioBuilder scenario = scenario("04-core-active-users-closed")
+        final ScenarioBuilder scenario = scenario("04 Core 동시 사용자 한계")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.bookingFeederRows()))
                 .exec(CoreBookingFlow.initializeRealisticSession(SCENARIO))
                 .exec(CoreBookingFlow.realisticFlow(SCENARIO));

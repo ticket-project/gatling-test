@@ -20,10 +20,10 @@ public class QueueJoinOnlySimulation extends Simulation {
     private final HttpProtocolBuilder httpProtocol = buildHttpProtocol();
 
     public QueueJoinOnlySimulation() {
-        final ScenarioBuilder scenario = buildScenario("queue-join-only", "queue join", "queue-join");
+        final ScenarioBuilder scenario = buildScenario("대기열 진입 요청", "queue join", "queue-join");
         if (LoadTestConfig.ticketOpenEnabled()) {
             final ScenarioBuilder recoveryScenario =
-                    buildScenario("queue-join-recovery", "queue join recovery", "queue-join-recovery");
+                    buildScenario("대기열 진입 복구 확인", "queue join recovery", "queue-join-recovery");
             setUp(
                     scenario.injectOpen(LoadTestConfig.injection()),
                     recoveryScenario.injectOpen(LoadTestConfig.ticketOpenRecoveryInjection())

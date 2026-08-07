@@ -36,7 +36,7 @@ public class QueueProtectsCoreSimulation extends BookingProofSimulation {
                 .acceptHeader("application/json")
                 .contentTypeHeader("application/json");
 
-        final ScenarioBuilder scenario = scenario("06-queue-protects-core")
+        final ScenarioBuilder scenario = scenario("06 Queue의 Core 보호")
                 .feed(LoadTestConfig.bookingFeeder(expectedUsers))
                 .exec(CoreBookingFlow.initializeSession(SCENARIO))
                 .exec(dummy("external arrival", 0))

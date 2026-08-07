@@ -68,6 +68,11 @@ class ConsoleIndexHtmlTest {
     void exposesProofSuiteConsoleControls() throws IOException {
         final String html = Files.readString(Path.of("src/main/resources/static/index.html"));
         final String compactHtml = html.replaceAll("\\s+", "");
+        assertTrue(html.contains("'core-performance-summary-api': ["));
+        assertTrue(html.contains("'core-seat-status-api': ["));
+        assertTrue(html.contains("'core-seat-select-api': ["));
+        assertTrue(html.contains("'core-order-create-api': ["));
+        assertTrue(html.contains("'core-order-get-api': ["));
         assertTrue(html.contains("'hot-seat-concurrency': ["));
         assertTrue(compactHtml.contains("'core-admission-capacity':["
                 + "['GET',`${performanceBase}/summary`],"
@@ -75,6 +80,7 @@ class ConsoleIndexHtmlTest {
                 + "['POST',`${performanceBase}/seats/{seatId}/select`],"
                 + "['POST',`${coreBaseUrl}/api/v1/orders`],"
                 + "['GET',`${coreBaseUrl}/api/v1/orders/{orderKey}`]]"));
+        assertTrue(html.contains("'core-realistic-contention': ["));
         assertTrue(html.contains("'core-active-users-closed': ["));
         assertTrue(html.contains("'core-spike': ["));
         assertTrue(html.contains("'queue-protects-core': ["));
@@ -97,5 +103,6 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-spike.csv'"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv'"));
+        assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-realistic-contention.csv'"));
     }
 }

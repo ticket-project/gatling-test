@@ -20,7 +20,7 @@ public class QueueEnterSimulation extends Simulation {
             .contentTypeHeader("application/json");
 
     public QueueEnterSimulation() {
-        final ScenarioBuilder scenario = scenario("queue-enter")
+        final ScenarioBuilder scenario = scenario("대기열 입장 처리")
                 .exec(LoadTestConfig.initializeSession())
                 .exec(LoadTestConfig.authenticate())
                 .exec(http("queue join")

@@ -39,7 +39,7 @@ public class TicketOpenEndToEndSimulation extends Simulation {
 
     public TicketOpenEndToEndSimulation() {
         final Duration queuePollTimeout = Duration.ofSeconds(LoadTestConfig.pollingTimeoutSeconds());
-        final ScenarioBuilder scenario = scenario("ticket-open-end-to-end")
+        final ScenarioBuilder scenario = scenario("예매 오픈 전체 흐름")
                 .feed(LoadTestConfig.bookingFeeder())
                 .exec(session -> session
                         .set("performanceId", LoadTestConfig.performanceId())

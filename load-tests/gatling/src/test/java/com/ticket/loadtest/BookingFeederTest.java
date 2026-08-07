@@ -52,7 +52,8 @@ class BookingFeederTest {
         assertInvalid(HEADER + System.lineSeparator() + "1," + accessToken(1) + ",-1,");
         assertInvalid(HEADER + System.lineSeparator() + "1,,101,");
         assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "BOOKING_CAPACITY");
-        assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "CORE_ADMISSION_CAPACITY");
+        assertEquals(1, BookingFeeder.read(feeder(row(1, 101, "")),
+                "CORE_ADMISSION_CAPACITY", 1, PERFORMANCE_ID).size());
         assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "HOT_SEAT_CONCURRENCY");
         assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "SEAT_CONTENTION");
     }

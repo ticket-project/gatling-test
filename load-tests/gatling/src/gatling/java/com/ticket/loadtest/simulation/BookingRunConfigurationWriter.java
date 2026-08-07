@@ -13,9 +13,13 @@ import java.util.Set;
 
 final class BookingRunConfigurationWriter {
     private static final Set<String> REALISTIC_SCENARIOS = Set.of(
-            "CORE_ADMISSION_CAPACITY",
+            "CORE_REALISTIC_CONTENTION",
             "CORE_ACTIVE_USERS_CLOSED",
             "CORE_SPIKE"
+    );
+    private static final Set<String> ADMISSION_FREE_SCENARIOS = Set.of(
+            "CORE_ADMISSION_CAPACITY",
+            "CORE_REALISTIC_CONTENTION"
     );
     private static final Set<String> QUEUE_SCENARIOS = Set.of(
             "TICKET_OPEN_END_TO_END",
@@ -28,7 +32,7 @@ final class BookingRunConfigurationWriter {
     static void write(final Path resultFile, final String scenario) {
         final Path parent = Objects.requireNonNullElse(resultFile.toAbsolutePath().getParent(), Path.of("."));
         final Path output = parent.resolve("booking-run-config.json");
-        final boolean admissionTokenIncluded = !"CORE_ADMISSION_CAPACITY".equals(scenario);
+        final boolean admissionTokenIncluded = !ADMISSION_FREE_SCENARIOS.contains(scenario);
         final String queueBaseUrl = QUEUE_SCENARIOS.contains(scenario) ? LoadTestConfig.queueBaseUrl() : "";
         final String json = "{\n"
                 + "  \"schemaVersion\":1,\n"

@@ -30,9 +30,15 @@ final class ReportDirectoryNameFormatter {
             case BOOKING_CAPACITY -> "booking-capacity";
             case TICKET_OPEN_END_TO_END -> "ticket-open-e2e";
             case SEAT_CONTENTION -> "seat-contention";
+            case CORE_PERFORMANCE_SUMMARY_API -> "core-summary-api";
+            case CORE_SEAT_STATUS_API -> "core-seat-status-api";
+            case CORE_SEAT_SELECT_API -> "core-seat-select-api";
+            case CORE_ORDER_CREATE_API -> "core-order-create-api";
+            case CORE_ORDER_GET_API -> "core-order-get-api";
             case SMOKE -> "smoke";
             case HOT_SEAT_CONCURRENCY -> "hot-seat";
             case CORE_ADMISSION_CAPACITY -> "core-admission";
+            case CORE_REALISTIC_CONTENTION -> "core-realistic-contention";
             case CORE_ACTIVE_USERS_CLOSED -> "core-active-closed";
             case CORE_SPIKE -> "core-spike";
             case QUEUE_PROTECTS_CORE -> "queue-protects-core";

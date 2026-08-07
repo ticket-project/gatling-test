@@ -43,13 +43,28 @@ class SimulationTypeTest {
     }
     @Test
     void exposesProofSuiteSimulationsForConsoleSelection() {
+        assertEquals("GET /api/v1/performances/{performanceId}/summary",
+                SimulationType.fromKey("core-performance-summary-api").label());
+        assertFalse(SimulationType.fromKey("core-performance-summary-api").usesAccessTokens());
+        assertFalse(SimulationType.fromKey("core-performance-summary-api").usesBookingFeeder());
+        assertEquals("POST /api/v1/performances/{performanceId}/seats/{seatId}/select",
+                SimulationType.fromKey("core-seat-select-api").label());
+        assertTrue(SimulationType.fromKey("core-seat-select-api").usesBookingFeeder());
+        assertEquals("GET /api/v1/orders/{orderKey}",
+                SimulationType.fromKey("core-order-get-api").label());
+        assertTrue(SimulationType.fromKey("core-order-get-api").usesBookingFeeder());
         assertEquals("SMOKE", SimulationType.fromKey("smoke").bookingScenario());
         assertEquals("HOT_SEAT_CONCURRENCY",
                 SimulationType.fromKey("hot-seat-concurrency").bookingScenario());
         assertEquals("CORE_ADMISSION_CAPACITY",
                 SimulationType.fromKey("core-admission-capacity").bookingScenario());
-        assertFalse(SimulationType.fromKey("core-admission-capacity").usesBookingFeeder());
+        assertTrue(SimulationType.fromKey("core-admission-capacity").usesBookingFeeder());
         assertTrue(SimulationType.fromKey("core-admission-capacity").usesCoreBookingFlow());
+        assertEquals("CORE_REALISTIC_CONTENTION",
+                SimulationType.fromKey("core-realistic-contention").bookingScenario());
+        assertFalse(SimulationType.fromKey("core-realistic-contention").usesBookingFeeder());
+        assertEquals("03 고정 조건 Core 수용량",
+                SimulationType.fromKey("core-admission-capacity").label());
         assertEquals("CORE_ACTIVE_USERS_CLOSED",
                 SimulationType.fromKey("core-active-users-closed").bookingScenario());
         assertEquals("CORE_SPIKE", SimulationType.fromKey("core-spike").bookingScenario());

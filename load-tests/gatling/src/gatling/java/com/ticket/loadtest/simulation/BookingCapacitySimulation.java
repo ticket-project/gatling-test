@@ -35,7 +35,7 @@ public class BookingCapacitySimulation extends Simulation {
             .contentTypeHeader("application/json");
 
     public BookingCapacitySimulation() {
-        final ScenarioBuilder scenario = scenario("booking-capacity")
+        final ScenarioBuilder scenario = scenario("고정 좌석 예매 처리량")
                 .feed(LoadTestConfig.bookingFeeder())
                 .exec(session -> session
                         .set("performanceId", LoadTestConfig.performanceId())

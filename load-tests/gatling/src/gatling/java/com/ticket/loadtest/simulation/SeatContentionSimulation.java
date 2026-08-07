@@ -40,7 +40,7 @@ public class SeatContentionSimulation extends Simulation {
             .contentTypeHeader("application/json");
 
     public SeatContentionSimulation() {
-        final ScenarioBuilder scenario = scenario("seat-contention")
+        final ScenarioBuilder scenario = scenario("동일 좌석 경합")
                 .feed(LoadTestConfig.bookingFeeder())
                 .exec(session -> session
                         .set("performanceId", LoadTestConfig.performanceId())

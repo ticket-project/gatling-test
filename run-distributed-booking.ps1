@@ -206,7 +206,8 @@ function Import-BookingFeederRows {
         }
         if ([string]::IsNullOrWhiteSpace($columns[1])) { Stop-Validation "Invalid feeder row $($index + 1): accessToken is required" }
         $admissionTokenIndex = if ($dynamicSeatInput) { 2 } else { 3 }
-        if (-not (Test-QueueScenario) -and [string]::IsNullOrWhiteSpace($columns[$admissionTokenIndex])) {
+        if ((Get-BookingScenario) -notin @("TICKET_OPEN_END_TO_END", "QUEUE_PROTECTS_CORE", "CORE_ADMISSION_CAPACITY") -and
+                [string]::IsNullOrWhiteSpace($columns[$admissionTokenIndex])) {
             Stop-Validation "Invalid feeder row $($index + 1): admissionToken is required"
         }
         if ($members.ContainsKey($memberId)) { Stop-Validation "Invalid feeder row $($index + 1): memberId must be unique" }

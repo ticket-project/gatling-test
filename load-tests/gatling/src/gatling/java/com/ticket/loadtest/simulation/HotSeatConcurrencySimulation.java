@@ -43,7 +43,7 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
                 .acceptHeader("application/json")
                 .contentTypeHeader("application/json");
 
-        final ScenarioBuilder scenario = scenario("02-hot-seat-concurrency")
+        final ScenarioBuilder scenario = scenario("02 인기 좌석 동시 경합")
                 .feed(LoadTestConfig.bookingFeeder(users))
                 .exec(CoreBookingFlow.initializeSession(SCENARIO))
                 .rendezVous(users)
