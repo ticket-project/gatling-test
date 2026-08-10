@@ -10,13 +10,14 @@
 - 사용자가 명시적으로 요청하지 않으면 `run`, Gatling simulation, 대량 사용자 테스트를 실행하지 않는다.
 - 이 폴더의 `AGENTS.md` 기준으로 테스트 작성/실행을 자동으로 진행하지 않는다.
 - 실행 전 대상 API, 사용자 수, 투입 시간, token mode를 반드시 확인한다.
+- Queue·legacy·CDN 대상 URL은 기본값이 없으며 직접 입력한다. localhost가 아닌 대상은 실행 확인 체크 없이는 서버가 거부한다.
 
 ## 빠른 맥락
 
 - 실행 방식: Gradle `application` plugin
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
-- 대상 API 기본값: Queue join은 Cloudflare를 거치지 않는 `https://queue.oneticket.site`, legacy 계열은 `http://52.237.82.8:18090/legacy-queue`, CDN public state는 실행 시 별도 Cloudflare state endpoint 확인 필요
+- 대상 API 정책: Queue·legacy·CDN은 명시 입력, Core proof preset은 화면에 보이는 URL과 실행 확인을 함께 검토
 - Gatling 저장소 경로는 콘솔이 `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`로 고정해서 사용하므로 UI에서 입력하지 않는다.
 - 실제 Gatling 프로젝트 위치: 이 저장소의 `load-tests/gatling`
 
@@ -37,7 +38,7 @@ Browser
 전제:
 
 - JDK 25
-- 대상 API 서버가 선택한 시뮬레이션의 기본 URL에서 실행 중
+- 대상 API 서버가 실행 중이고 해당 URL·회차·허용 부하를 승인받음
 - `gatling-test` 저장소에 `gradlew.bat`과 `load-tests/gatling`이 존재
 - 자동 로그인 모드를 쓰는 경우 seed 테스트 회원이 존재
 
@@ -67,16 +68,16 @@ http://localhost:9090
 | Admission Token | 합성 생성 또는 직접 입력, issuer, audience, secret, TTL |
 | polling | 대기열 상태 조회 횟수와 간격 |
 
-## 시뮬레이션별 대상 API 자동 설정
+## 시뮬레이션별 대상 API 정책
 
-콘솔에서 테스트 종류를 바꾸면 대상 API 입력값이 아래 기본값으로 자동 변경된다.
+Queue·legacy·CDN 시뮬레이션은 테스트 종류를 바꿔도 대상 URL을 채우지 않는다. 주소를 이전 선택에서 물려받지 않으며 실행할 때마다 직접 입력한다.
 
-| 테스트 종류 | 대상 API 기본값 |
+| 테스트 종류 | 대상 API 입력/프리셋 |
 | --- | --- |
-| `queue-join-only` | `https://queue.oneticket.site` |
-| `queue-enter` | `http://52.237.82.8:18090/legacy-queue` |
-| `legacy-queue-status` | `http://52.237.82.8:18090/legacy-queue` |
-| `cdn-public-state` | `https://queue.oneticket.site` |
+| `queue-join-only` | 없음 — 승인받은 Queue origin URL을 명시 입력 |
+| `queue-enter` | 없음 — 대상 Queue URL을 명시 입력 |
+| `legacy-queue-status` | 없음 — 비교 대상 owner가 확인한 legacy URL을 명시 입력 |
+| `cdn-public-state` | 없음 — Cloudflare가 프록시하는 state endpoint를 명시 입력 |
 | `booking-capacity` | 사용자가 입력한 Ticket/Core URL |
 | `ticket-open-end-to-end` | 사용자가 입력한 Ticket/Core URL + Queue URL |
 | `seat-contention` | 사용자가 입력한 Ticket/Core URL |
@@ -93,10 +94,10 @@ http://localhost:9090
 | `core-spike` | `https://oneticket.site` |
 | `queue-protects-core` | Core `https://oneticket.site` + Queue `https://queue.oneticket.site` |
 
-표의 주소는 콘솔 코드가 입력 칸을 채우는 편의 기본값이며 현재 가용성이나 운영 배포 대상을 보장하지 않는다. 특히 `legacy-queue` 주소는 비교용 구형 API이므로, 실행 전에 대상 서버 소유자와 URL·회차·허용 부하를 다시 확인한다.
+Core proof preset의 주소는 입력 편의값일 뿐 현재 가용성이나 운영 배포 대상을 보장하지 않는다. localhost가 아닌 모든 실행은 확인 체크가 필요하다. `legacy-queue-status`는 비교 기준을 보존하기 위한 시나리오이며, 대상 서버 owner가 URL·회차·허용 부하를 확인한 경우에만 실행한다. legacy hit metric이 합의된 관찰 기간 동안 0이고 비교 결과가 보존되면 시나리오와 runner 제거를 검토한다.
 
 
-`queue-join-only`의 `https://queue.oneticket.site`는 Queue origin Nginx를 직접 호출하며 Cloudflare를 거치지 않는다. `cdn-public-state`의 기본 URL은 입력 편의를 위한 값일 뿐이다. 현재 hostname이 DNS-only이면 CDN 테스트가 아니므로, 실행 전에 Cloudflare가 프록시하는 state endpoint로 바꾸고 `CF-Ray`, `CF-Cache-Status` 헤더를 확인한다.
+`queue-join-only`는 Queue origin Nginx URL을 직접 입력해 Cloudflare를 거치지 않는다. `cdn-public-state`는 Cloudflare가 프록시하는 state endpoint를 직접 입력하고, 실행 전에 `CF-Ray`, `CF-Cache-Status` 헤더를 확인한다. DNS-only hostname이면 CDN 테스트가 아니다.
 
 ## EC2 분산 실행
 
@@ -192,7 +193,7 @@ com.ticket.loadtest.simulation.CoreSpikeSimulation
 com.ticket.loadtest.simulation.QueueProtectsCoreSimulation
 ```
 
-`CdnPublicStateSimulation`은 `https://queue.oneticket.site`를 기본 입력값으로 사용하고, 아래 public state API만 반복 조회한다. 기본 hostname이 DNS-only인 현재 구성에서는 origin 조회가 되므로, CDN 캐시를 검증할 때는 Cloudflare가 프록시하는 state endpoint를 명시해야 한다.
+`CdnPublicStateSimulation`은 명시 입력한 base URL에서 아래 public state API만 반복 조회한다. CDN 캐시를 검증할 때는 Cloudflare가 프록시하는 state endpoint를 입력해야 한다.
 
 ```text
 GET /api/v1/queue/performances/{performanceId}/state

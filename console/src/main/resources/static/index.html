@@ -694,8 +694,13 @@ ubuntu@43.203.136.184</textarea>
         <legend>대상</legend>
         <input id="ticketProjectPath" name="ticketProjectPath" type="hidden" value="C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test">
 
-        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 대상 base URL입니다. legacy-queue-status는 http://52.237.82.8:18090/legacy-queue, cdn-public-state는 https://queue.oneticket.site 를 사용합니다.">?</span></label>
-        <input id="baseUrl" name="baseUrl" value="http://52.237.82.8:18090/legacy-queue">
+        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 HTTP(S) base URL입니다. Queue·legacy·CDN 시나리오는 안전을 위해 실행할 때마다 직접 입력합니다.">?</span></label>
+        <input id="baseUrl" name="baseUrl" value="" placeholder="http://localhost:8090 또는 승인받은 대상 URL">
+
+        <label class="inline-check">
+          <input id="operationalConfirmation" name="operationalConfirmation" type="checkbox">
+          localhost가 아닌 대상에 실제 부하 요청을 보내는 것을 확인했습니다.
+        </label>
 
         <div data-option="booking" class="hidden">
           <p id="targetRouteSummary" class="target-route"></p>
@@ -715,10 +720,6 @@ ubuntu@43.203.136.184</textarea>
               <input id="admissionRateTolerancePercent" name="admissionRateTolerancePercent" type="number" min="0" step="0.1" value="10">
             </div>
           </div>
-          <label class="inline-check">
-            <input id="operationalConfirmation" name="operationalConfirmation" type="checkbox">
-            운영 API에 실제 부하 요청을 보내는 것을 확인했습니다.
-          </label>
           <div class="grid-2">
             <div>
               <label for="coreBaseUrl">Ticket/Core URL <span class="help-chip" tabindex="0" data-help="좌석 상태, 좌석 선택, 주문 API를 받을 운영 Ticket/Core base URL입니다. localhost는 분산 실행에서 허용하지 않습니다.">?</span></label>
@@ -1574,6 +1575,15 @@ function validateBeforeRun(body) {
   const admissionMode = String(body.get('admissionTokenMode') || 'synthetic');
   const admissionTokens = String(body.get('admissionTokens') || '').trim();
 
+  if (!selected?.usesCoreBookingFlow) {
+    const baseUrl = String(body.get('baseUrl') || '').trim();
+    if (!baseUrl) return '대상 API URL을 직접 입력해야 합니다.';
+    if (!isAbsoluteHttpUrl(baseUrl)) return '대상 API는 절대 HTTP(S) URL이어야 합니다.';
+    if (!isLocalhostUrl(baseUrl) && body.get('operationalConfirmation') !== 'on') {
+      return 'localhost가 아닌 대상에 부하를 보내는 실행 확인이 필요합니다.';
+    }
+  }
+
   if (selected?.usesCoreBookingFlow) {
     const coreBaseUrl = String(body.get('coreBaseUrl') || '').trim();
     const queueBaseUrl = String(body.get('queueBaseUrl') || '').trim();
@@ -1834,7 +1844,7 @@ function updateTargetRouteSummary() {
 
 function updateApiPreview() {
   const selected = selectedSimulation();
-  const baseUrl = trimTrailingSlash(baseUrlInput.value || selected?.defaultBaseUrl || 'http://52.237.82.8:18090/legacy-queue');
+  const baseUrl = trimTrailingSlash(baseUrlInput.value || selected?.defaultBaseUrl || '');
   const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || 'https://oneticket.site');
   const queueUrl = trimTrailingSlash(selected?.usesQueueBaseUrl
     ? (queueBaseUrlInput?.value || 'https://queue.oneticket.site')
@@ -1969,8 +1979,14 @@ function selectedSimulation() {
 
 function applySimulationDefaultBaseUrl() {
   const selected = selectedSimulation();
-  if (selected?.defaultBaseUrl) {
-    baseUrlInput.value = selected.defaultBaseUrl;
+  baseUrlInput.value = selected?.defaultBaseUrl || '';
+}
+
+function isAbsoluteHttpUrl(value) {
+  try {
+    return ['http:', 'https:'].includes(new URL(value).protocol);
+  } catch (error) {
+    return false;
   }
 }
 

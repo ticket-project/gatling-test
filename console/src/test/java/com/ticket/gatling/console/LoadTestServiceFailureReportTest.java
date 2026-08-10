@@ -21,7 +21,8 @@ class LoadTestServiceFailureReportTest {
     void createsReportFolderWhenRunFailsBeforeGatlingReportIsGenerated() throws Exception {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "ticketProjectPath", List.of(tempDir.toString()),
-                "simulation", List.of("cdn-public-state")
+                "simulation", List.of("cdn-public-state"),
+                "baseUrl", List.of("http://localhost:8090")
         ));
         final LoadTestService service = new LoadTestService(new ReportRegistry());
 
@@ -40,6 +41,7 @@ class LoadTestServiceFailureReportTest {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "ticketProjectPath", List.of(tempDir.toString()),
                 "simulation", List.of("queue-join-only"),
+                "baseUrl", List.of("http://localhost:8090"),
                 "accessTokenMode", List.of("synthetic-jwt")
         ));
         final LoadTestService service = new LoadTestService(new ReportRegistry());
@@ -60,6 +62,7 @@ class LoadTestServiceFailureReportTest {
                 "ticketProjectPath", List.of(tempDir.toString()),
                 "executionMode", List.of("distributed"),
                 "simulation", List.of("queue-join-only"),
+                "baseUrl", List.of("http://localhost:8090"),
                 "accessTokenMode", List.of("synthetic-jwt")
         ));
         final LoadTestService service = new LoadTestService(new ReportRegistry());

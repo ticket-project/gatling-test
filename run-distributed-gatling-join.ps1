@@ -8,7 +8,7 @@ param(
     [string]$RemoteProjectDir = "~/gatling-test",
     [string]$ConsoleRunId = "",
     [string]$RunDescription = "",
-    [string]$BaseUrl = "https://queue.oneticket.site",
+    [string]$BaseUrl = "",
     [string]$Simulation = "com.ticket.loadtest.simulation.QueueJoinOnlySimulation",
     [int]$PerformanceId = 1,
     [int]$RpsPerNode = 100,

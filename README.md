@@ -7,7 +7,9 @@ Ticket/Queue 부하 테스트와 Queue CDN public state 전환, legacy queue sta
 - `load-tests/gatling`: 실제 Gatling simulation 프로젝트
 - `console`: 로컬 브라우저에서 Gatling 실행을 도와주는 개발용 콘솔
 
-`ticket` 저장소 안에 있던 `load-tests/gatling`은 이 저장소로 통합한다.
+`ticket` 저장소 안에 있던 `load-tests/gatling`은 이 저장소로 통합되어 있다.
+
+Queue·legacy·CDN 시뮬레이션과 분산 실행 스크립트에는 실제 서버 URL 기본값이 없다. `-DbaseUrl` 또는 `-BaseUrl`을 실행마다 명시해야 하며, 콘솔에서 localhost가 아닌 대상을 실행할 때는 대상 URL·회차·허용 부하를 확인했다는 체크가 필요하다.
 
 ## 비교 대상 API
 
@@ -26,7 +28,7 @@ GET /api/v1/queue/performances/{performanceId}/state
 Header/cookie/auth 없음
 ```
 
-`/join` 부하 테스트의 `https://queue.oneticket.site`는 Cloudflare를 거치지 않고 Queue origin Nginx로 직접 요청한다. `cdn-public-state` 테스트는 별도의 Cloudflare state endpoint가 구성된 경우에만 CDN 캐시를 검증하며, 실행 전 `CF-Ray`와 `CF-Cache-Status` 응답 헤더를 확인한다.
+`/join` 부하 테스트는 승인받은 Queue origin Nginx URL을 명시해 Cloudflare를 거치지 않고 요청한다. `cdn-public-state` 테스트는 별도의 Cloudflare state endpoint가 구성된 경우에만 CDN 캐시를 검증하며, 실행 전 `CF-Ray`와 `CF-Cache-Status` 응답 헤더를 확인한다.
 
 ## `/join` 예매 오픈 패턴
 

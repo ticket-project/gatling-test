@@ -29,6 +29,8 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("id=\"pollingTimeoutSeconds\" name=\"pollingTimeoutSeconds\""));
         assertTrue(html.contains("id=\"distributedRemoteProjectDir\" name=\"distributedRemoteProjectDir\""));
         assertTrue(html.contains("id=\"operationalConfirmation\" name=\"operationalConfirmation\""));
+        assertTrue(html.contains("id=\"baseUrl\" name=\"baseUrl\" value=\"\""));
+        assertTrue(html.contains("isAbsoluteHttpUrl(baseUrl)"));
         assertTrue(html.contains("setVisible('[data-option=\"booking\"]', selected?.usesCoreBookingFlow);"));
         assertTrue(html.contains("setVisible('[data-option=\"booking-feeder\"]', selected?.usesBookingFeeder);"));
         assertTrue(html.contains("isLocalhostUrl(coreBaseUrl)"));

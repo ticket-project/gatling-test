@@ -66,11 +66,11 @@ public final class LoadTestConfig {
     }
 
     public static String coreBaseUrl() {
-        return optionalProperty(ConfigKey.CORE_BASE_URL, baseUrl());
+        return propertyOrFallback(ConfigKey.CORE_BASE_URL, ConfigKey.BASE_URL);
     }
 
     public static String queueBaseUrl() {
-        return optionalProperty(ConfigKey.QUEUE_BASE_URL, baseUrl());
+        return propertyOrFallback(ConfigKey.QUEUE_BASE_URL, ConfigKey.BASE_URL);
     }
 
     public static String performanceId() {
@@ -544,6 +544,12 @@ public final class LoadTestConfig {
         }
         return value.trim();
     }
+
+    private static String propertyOrFallback(final ConfigKey key, final ConfigKey fallbackKey) {
+        final String value = System.getProperty(key.propertyName());
+        return value == null || value.isBlank() ? property(fallbackKey) : value.trim();
+    }
+
     private static String optionalSystemProperty(final String propertyName, final String defaultValue) {
         final String value = System.getProperty(propertyName);
         if (value == null || value.isBlank()) {
@@ -980,8 +986,7 @@ public final class LoadTestConfig {
 
         private String defaultValue() {
             return switch (this) {
-                case BASE_URL -> "http://52.237.82.8:18090/legacy-queue";
-                case CORE_BASE_URL, QUEUE_BASE_URL -> null;
+                case BASE_URL, CORE_BASE_URL, QUEUE_BASE_URL -> null;
                 case PERFORMANCE_ID -> "1";
                 case STATUS_POLLS -> "3";
                 case STATUS_POLL_PAUSE_SECONDS -> "1";

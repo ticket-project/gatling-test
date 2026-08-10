@@ -8,7 +8,7 @@ param(
     [string]$RemoteProjectDir = "~/gatling-test",
     [string]$ConsoleRunId = "",
     [string]$RunDescription = "",
-    [string]$BaseUrl = "https://queue.oneticket.site",
+    [string]$BaseUrl = "",
     [string]$Simulation = "com.ticket.loadtest.simulation.CdnPublicStateSimulation",
     [int]$PerformanceId = 1,
     [int]$RpsPerNode = 100,
@@ -39,6 +39,16 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+    throw "BaseUrl must be provided explicitly"
+}
+$targetUri = $null
+if (-not [Uri]::TryCreate($BaseUrl, [UriKind]::Absolute, [ref]$targetUri) `
+        -or $targetUri.Scheme -notin @("http", "https") `
+        -or [string]::IsNullOrWhiteSpace($targetUri.Host)) {
+    throw "BaseUrl must be an absolute HTTP(S) URL: $BaseUrl"
+}
 
 function Resolve-CommandPath {
     param(

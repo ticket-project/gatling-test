@@ -16,10 +16,11 @@ class LoadTestConfigTest {
     );
 
     @Test
-    void defaultsBaseUrlToLegacyQueueVmContextPath() throws IOException {
+    void requiresBaseUrlInsteadOfDefaultingToALiveTarget() throws IOException {
         final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
 
-        assertTrue(source.contains("case BASE_URL -> \"http://52.237.82.8:18090/legacy-queue\";"));
+        assertTrue(source.contains("case BASE_URL, CORE_BASE_URL, QUEUE_BASE_URL -> null;"));
+        assertTrue(source.contains("Missing required system property: -D"));
     }
 
     @Test

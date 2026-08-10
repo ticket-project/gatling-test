@@ -27,21 +27,21 @@ class LoadTestRequestTest {
     }
 
     @Test
-    void defaultsBaseUrlToLegacyQueueVmContextPathForLegacyStatus() {
+    void leavesLegacyBaseUrlBlankUntilExplicitlyEntered() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "simulation", List.of("legacy-queue-status")
         ));
 
-        assertEquals("http://52.237.82.8:18090/legacy-queue", request.baseUrl());
+        assertEquals("", request.baseUrl());
     }
 
     @Test
-    void defaultsBaseUrlToCdnOriginForCdnPublicState() {
+    void leavesCdnBaseUrlBlankUntilExplicitlyEntered() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "simulation", List.of("cdn-public-state")
         ));
 
-        assertEquals("https://queue.oneticket.site", request.baseUrl());
+        assertEquals("", request.baseUrl());
     }
 
     @Test

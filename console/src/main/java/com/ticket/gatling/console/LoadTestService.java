@@ -46,6 +46,7 @@ public class LoadTestService {
             throw new IllegalStateException("A load test is already running");
         }
         validateInjectionMode(request);
+        validateTargetSelection(request);
         validateConfiguredTokens(request);
         validateConfiguredAdmissionTokens(request);
         validateProofSuiteInjection(request);
@@ -264,7 +265,26 @@ public class LoadTestService {
         }
     }
 
+    private void validateTargetSelection(final LoadTestRequest request) {
+        if (request.simulationType().usesCoreBookingFlow()) {
+            return;
+        }
+        final URI target = validateHttpUrl("Base URL", request.baseUrl());
+        if (!isLocalTarget(target) && !request.operationalConfirmation()) {
+            throw new IllegalArgumentException(
+                    "Operational confirmation is required for a non-local load-test target"
+            );
+        }
+    }
+
     private void validateRemoteUrl(final String name, final String value) {
+        final URI uri = validateHttpUrl(name, value);
+        if (isLocalTarget(uri)) {
+            throw new IllegalArgumentException(name + " must not point to localhost: " + value);
+        }
+    }
+
+    private URI validateHttpUrl(final String name, final String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " is required");
         }
@@ -273,13 +293,23 @@ public class LoadTestService {
             if (uri.getScheme() == null || uri.getHost() == null) {
                 throw new IllegalArgumentException(name + " must be an absolute URL: " + value);
             }
-            final String host = uri.getHost().toLowerCase(Locale.ROOT);
-            if (host.equals("localhost") || host.equals("127.0.0.1") || host.equals("::1")) {
-                throw new IllegalArgumentException(name + " must not point to localhost: " + value);
+            if (!uri.getScheme().equalsIgnoreCase("http") && !uri.getScheme().equalsIgnoreCase("https")) {
+                throw new IllegalArgumentException(name + " must use http or https: " + value);
             }
+            return uri;
         } catch (URISyntaxException exception) {
             throw new IllegalArgumentException(name + " must be an absolute URL: " + value, exception);
         }
+    }
+
+    private boolean isLocalTarget(final URI uri) {
+        final String host = uri.getHost().toLowerCase(Locale.ROOT);
+        return host.equals("localhost")
+                || host.endsWith(".localhost")
+                || host.startsWith("127.")
+                || host.equals("::1")
+                || host.equals("0:0:0:0:0:0:0:1")
+                || host.equals("0.0.0.0");
     }
 
     private int countBookingFeederRows(final Path feederPath, final SimulationType simulationType) {

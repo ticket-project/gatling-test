@@ -8,7 +8,7 @@ param(
     [string]$RemoteProjectDir = "~/gatling-test",
     [string]$ConsoleRunId = "",
     [string]$RunDescription = "",
-    [string]$BaseUrl = "http://52.237.82.8:18090/legacy-queue",
+    [string]$BaseUrl = "",
     [string]$Simulation = "com.ticket.loadtest.simulation.LegacyQueueStatusSimulation",
     [int]$PerformanceId = 1,
     [int]$RpsPerNode = 100,
