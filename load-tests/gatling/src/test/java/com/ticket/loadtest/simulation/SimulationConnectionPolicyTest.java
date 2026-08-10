@@ -69,7 +69,7 @@ class SimulationConnectionPolicyTest {
     void queueJoinOnlySimulationOnlyCallsJoin() throws IOException {
         final String source = readSimulation("QueueJoinOnlySimulation.java");
 
-        assertTrue(source.contains("buildScenario(\"queue-join-only\""));
+        assertTrue(source.contains("buildScenario(\"대기열 진입 요청\", \"queue join\", \"queue-join\")"));
         assertTrue(source.contains("queue join"));
         assertTrue(source.contains(".post(LoadTestConfig.queueBaseUrl() + \"/api/v1/queue/performances/#{performanceId}/join\")"));
         assertTrue(source.contains(".headers(LoadTestConfig.authHeaders())"));

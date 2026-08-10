@@ -20,7 +20,7 @@ class LegacyQueueStatusSimulationTest {
     void pollsLegacyQueueStatusWithQueueSessionHeaderOnly() throws IOException {
         final String source = Files.readString(SIMULATION_SOURCE, StandardCharsets.UTF_8);
 
-        assertTrue(source.contains("scenario(\"legacy-queue-status\")"));
+        assertTrue(source.contains("scenario(\"기존 대기열 상태 조회\")"));
         assertTrue(source.contains(".shareConnections()"));
         assertTrue(source.contains(".get(\"/api/v1/queue/performances/#{performanceId}/status\")"));
         assertTrue(source.contains(".headers(LoadTestConfig.queueSessionHeaders())"));

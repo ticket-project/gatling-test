@@ -20,7 +20,7 @@ class CdnPublicStateSimulationTest {
     void pollsQueueServerPublicStateThroughCachedOriginWithoutAuthentication() throws IOException {
         final String source = Files.readString(SIMULATION_SOURCE, StandardCharsets.UTF_8);
 
-        assertTrue(source.contains("scenario(\"cdn-public-state\")"));
+        assertTrue(source.contains("scenario(\"CDN 공개 대기열 상태 조회\")"));
         assertTrue(source.contains(".get(\"/api/v1/queue/performances/#{performanceId}/state\")"));
         assertTrue(source.contains(".check(status().is(200))"));
         assertTrue(source.contains(".check(header(\"X-Cache\").optional().saveAs(\"cdnXCache\"))"));
