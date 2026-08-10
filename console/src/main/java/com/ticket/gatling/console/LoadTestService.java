@@ -70,6 +70,16 @@ public class LoadTestService {
     }
     private void validateProofSuiteInjection(final LoadTestRequest request) {
         final String mode = request.injectionMode().toLowerCase(Locale.ROOT);
+        if (request.simulationType() == SimulationType.CORE_ADMISSION_CAPACITY
+                && !"constant-users-per-sec".equals(mode)) {
+            throw new IllegalArgumentException(
+                    "Core Admission Capacity requires the constant-users-per-sec injection mode"
+            );
+        }
+        if (request.simulationType() == SimulationType.CORE_ADMISSION_CAPACITY
+                && (!Double.isFinite(request.usersPerSecond()) || request.usersPerSecond() <= 0.0)) {
+            throw new IllegalArgumentException("Core Admission Capacity users/sec must be positive");
+        }
         if (request.simulationType() == SimulationType.CORE_ACTIVE_USERS_CLOSED
                 && !"closed-core".equals(mode)) {
             throw new IllegalArgumentException("Core Active Users requires the closed-core injection mode");
@@ -244,10 +254,12 @@ public class LoadTestService {
             }
             final int nodeCount = request.distributedExecution() ? request.distributedHostList().size() : 1;
             final int requiredRows = Math.multiplyExact(request.expectedBookingRowsPerNode(), nodeCount);
+            final long requiredRowsWithOffset = (long) request.bookingFeederOffset() + requiredRows;
             final int actualRows = countBookingFeederRows(feederPath, request.simulationType());
-            if (actualRows < requiredRows) {
-                throw new IllegalArgumentException("Booking feeder has fewer rows than required: required="
-                        + requiredRows + ", actual=" + actualRows);
+            if (actualRows < requiredRowsWithOffset) {
+                throw new IllegalArgumentException("Booking feeder has fewer rows than required for offset: offset="
+                        + request.bookingFeederOffset() + ", expected=" + requiredRows + ", required="
+                        + requiredRowsWithOffset + ", actual=" + actualRows);
             }
         }
     }

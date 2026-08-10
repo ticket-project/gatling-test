@@ -98,7 +98,14 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("id=\"ticketProjectPath\" name=\"ticketProjectPath\" type=\"hidden\""));
         assertTrue(html.contains("setInputContainerVisible('queueTimeoutThresholdPercent', selected?.usesQueueBaseUrl)"));
         assertFalse(html.contains("dbAuditEnabled"));
-        assertTrue(html.contains("setInputContainerVisible('resultFile', false)"));
+        assertTrue(html.contains("setInputContainerVisible('resultFile', selected?.key === 'core-admission-capacity')"));
+        assertTrue(html.contains("id=\"bookingFeederOffset\" name=\"bookingFeederOffset\""));
+        assertTrue(html.contains("id=\"technicalFailureThresholdPercent\" name=\"technicalFailureThresholdPercent\""));
+        assertTrue(html.contains("id=\"performanceSummaryP95ThresholdMs\""));
+        assertTrue(html.contains("id=\"orderGetP99ThresholdMs\""));
+        assertTrue(html.contains("id=\"capacityPreview\""));
+        assertTrue(html.contains("EXPECTED USERS"));
+        assertTrue(html.contains("window.confirm(`운영 Core에 다음 부하를 실행합니다."));
         assertTrue(html.contains("simulationSelect.value = 'smoke'"));
         assertTrue(html.contains("'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-spike.csv'"));

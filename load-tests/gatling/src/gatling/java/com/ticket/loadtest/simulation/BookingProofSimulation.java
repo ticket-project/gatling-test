@@ -24,8 +24,9 @@ abstract class BookingProofSimulation extends Simulation {
     public void after() {
         final Path resultFile = Path.of(LoadTestConfig.resultFile());
         RuntimeException failure = null;
+        BookingEvidenceRecorder.EvidenceSummary summary = null;
         try {
-            BookingEvidenceRecorder.verifyAndWrite(
+            summary = BookingEvidenceRecorder.verifyAndWrite(
                     resultFile,
                     scenario,
                     LoadTestConfig.nodeIndex(),
@@ -36,6 +37,12 @@ abstract class BookingProofSimulation extends Simulation {
             );
         } catch (RuntimeException exception) {
             failure = exception;
+        }
+        if (summary != null
+                && "CORE_ADMISSION_CAPACITY".equals(scenario)
+                && summary.startedUsers() != LoadTestConfig.expectedUsers()) {
+            failure = new IllegalStateException("Core admission capacity started-user count mismatch: expected="
+                    + LoadTestConfig.expectedUsers() + ", actual=" + summary.startedUsers());
         }
 
         if (LoadTestConfig.dbAuditEnabled()) {

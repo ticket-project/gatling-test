@@ -27,7 +27,7 @@ public class CoreAdmissionCapacitySimulation extends BookingProofSimulation {
                 .exec(CoreBookingFlow.initializeSession(SCENARIO))
                 .exec(CoreBookingFlow.successfulFlowWithoutAdmission(SCENARIO, true));
 
-        setUp(scenario.injectOpen(LoadTestConfig.injection()))
+        setUp(scenario.injectOpen(LoadTestConfig.coreAdmissionCapacityInjection()))
                 .protocols(httpProtocol)
                 .assertions(
                         global().failedRequests().percent()

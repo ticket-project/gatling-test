@@ -236,4 +236,29 @@ class GatlingCommandBuilderTest {
         assertTrue(command.contains("com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation"));
         assertTrue(command.contains("-DbookingFeederRows=10000"));
     }
+
+    @Test
+    void passesCoreCapacityOffsetAndSlos() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
+                Map.entry("ticketProjectPath", List.of("C:/ticket")),
+                Map.entry("simulation", List.of("core-admission-capacity")),
+                Map.entry("coreBaseUrl", List.of("https://api.example.com")),
+                Map.entry("bookingFeederFile", List.of("C:/feeders/capacity.csv")),
+                Map.entry("bookingFeederOffset", List.of("300")),
+                Map.entry("technicalFailureThresholdPercent", List.of("0.75")),
+                Map.entry("performanceSummaryP95ThresholdMs", List.of("250")),
+                Map.entry("performanceSummaryP99ThresholdMs", List.of("650")),
+                Map.entry("orderCreateP95ThresholdMs", List.of("700")),
+                Map.entry("orderCreateP99ThresholdMs", List.of("1400"))
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(
+                request, Path.of("C:/reports"), "capacity"
+        );
+
+        assertTrue(command.contains("-DbookingFeederOffset=300"));
+        assertTrue(command.contains("-DtechnicalFailureThresholdPercent=0.75"));
+        assertTrue(command.contains("-DperformanceSummaryP95ThresholdMs=250"));
+        assertTrue(command.contains("-DorderCreateP99ThresholdMs=1400"));
+    }
 }

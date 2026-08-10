@@ -13,6 +13,7 @@ param(
     [string]$QueueBaseUrl = "",
     [int]$PerformanceId = 1,
     [string]$FeederFile = "build/booking-feeder.csv",
+    [int]$FeederOffset = 0,
     [int]$RpsPerNode = 10,
     [int]$TargetRpsPerNode = 0,
     [int]$ConcurrentUsersPerNode = 0,
@@ -34,7 +35,17 @@ param(
     [double]$AdmissionRateTolerancePercent = 10.0,
     [switch]$DbAuditEnabled,
     [int]$QueueP99ThresholdMs = 2000,
-    [int]$TicketP99ThresholdMs = 3000
+    [int]$TicketP99ThresholdMs = 3000,
+    [int]$PerformanceSummaryP95ThresholdMs = 300,
+    [int]$PerformanceSummaryP99ThresholdMs = 700,
+    [int]$SeatStatusP95ThresholdMs = 300,
+    [int]$SeatStatusP99ThresholdMs = 700,
+    [int]$SeatSelectP95ThresholdMs = 500,
+    [int]$SeatSelectP99ThresholdMs = 1000,
+    [int]$OrderCreateP95ThresholdMs = 800,
+    [int]$OrderCreateP99ThresholdMs = 1500,
+    [int]$OrderGetP95ThresholdMs = 500,
+    [int]$OrderGetP99ThresholdMs = 1000
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,6 +66,12 @@ function Stop-Validation {
     param([string]$Message)
     Write-Error $Message
     exit 2
+}
+
+function Assert-SloPair {
+    param([string]$Name, [int]$P95, [int]$P99)
+    if ($P95 -le 0 -or $P99 -le 0) { Stop-Validation "$Name SLO values must be positive" }
+    if ($P95 -gt $P99) { Stop-Validation "$Name p95 SLO must not exceed p99 SLO" }
 }
 
 function Resolve-CommandPath {
@@ -228,8 +245,9 @@ function New-NodeFeeders {
     param([System.Collections.Generic.List[string]]$Rows, [int]$TotalNodes, [string]$RunDir)
     $rowsPerNode = Get-ExpectedUsersPerNode
     $requiredRows = [int]($rowsPerNode * $TotalNodes)
-    if ($Rows.Count -lt $requiredRows) {
-        Stop-Validation "FeederFile has fewer rows than required: required=$requiredRows, actual=$($Rows.Count), rowsPerNode=$rowsPerNode, nodes=$TotalNodes"
+    $requiredRowsWithOffset = [long]$FeederOffset + $requiredRows
+    if ($Rows.Count -lt $requiredRowsWithOffset) {
+        Stop-Validation "FeederFile has fewer rows than required for offset: offset=$FeederOffset, expected=$requiredRows, required=$requiredRowsWithOffset, actual=$($Rows.Count), rowsPerNode=$rowsPerNode, nodes=$TotalNodes"
     }
 
     $feederDir = Join-Path $RunDir "feeders"
@@ -242,7 +260,7 @@ function New-NodeFeeders {
 
 
     for ($nodeIndex = 0; $nodeIndex -lt $TotalNodes; $nodeIndex++) {
-        $start = [int]($nodeIndex * $rowsPerNode)
+        $start = [int]($FeederOffset + ($nodeIndex * $rowsPerNode))
         $endExclusive = [int]($start + $rowsPerNode)
         $nodeRows = @($script:BookingFeederHeader) + @($Rows[$start..($endExclusive - 1)])
         $nodeFile = Join-Path $feederDir "booking-feeder-node-$nodeIndex.csv"
@@ -257,6 +275,7 @@ function New-NodeFeeders {
             globalConcurrentUsers = $(if ($closedScenario) { $ConcurrentUsersPerNode * $TotalNodes } else { 0 })
             nodeConcurrentUsers = $(if ($closedScenario) { $ConcurrentUsersPerNode } else { 0 })
             injectionMode = Get-EffectiveInjectionMode
+            feederOffset = $FeederOffset
             rowStart = $start + 1
             rowEnd = $endExclusive
             feederFile = $nodeFile
@@ -351,6 +370,7 @@ function New-GatlingArgs {
         "-DqueueBaseUrl=$QueueBaseUrl",
         "-DperformanceId=$PerformanceId",
         "-DbookingFeederFile=$RemoteFeederFile",
+        "-DbookingFeederOffset=0",
         "-DbookingScenario=$(Get-BookingScenario)",
         "-DnodeIndex=$NodeIndex",
         "-DresultFile=$RemoteResultFile",
@@ -363,6 +383,17 @@ function New-GatlingArgs {
         "-DpollingTimeoutSeconds=$PollingTimeoutSeconds",
         "-DstatusPollPauseSeconds=$StatusPollPauseSeconds",
         "-DstatusPollPauseJitterSeconds=$StatusPollPauseJitterSeconds",
+        "-DtechnicalFailureThresholdPercent=$TechnicalFailureThresholdPercent",
+        "-DperformanceSummaryP95ThresholdMs=$PerformanceSummaryP95ThresholdMs",
+        "-DperformanceSummaryP99ThresholdMs=$PerformanceSummaryP99ThresholdMs",
+        "-DseatStatusP95ThresholdMs=$SeatStatusP95ThresholdMs",
+        "-DseatStatusP99ThresholdMs=$SeatStatusP99ThresholdMs",
+        "-DseatSelectP95ThresholdMs=$SeatSelectP95ThresholdMs",
+        "-DseatSelectP99ThresholdMs=$SeatSelectP99ThresholdMs",
+        "-DorderCreateP95ThresholdMs=$OrderCreateP95ThresholdMs",
+        "-DorderCreateP99ThresholdMs=$OrderCreateP99ThresholdMs",
+        "-DorderGetP95ThresholdMs=$OrderGetP95ThresholdMs",
+        "-DorderGetP99ThresholdMs=$OrderGetP99ThresholdMs",
         "-DqueueTimeoutThresholdPercent=$QueueTimeoutThresholdPercent",
         "-DmaxCoreAdmissionsPerSecond=0",
         "-DadmissionRateTolerancePercent=$AdmissionRateTolerancePercent",
@@ -608,6 +639,14 @@ try {
         Stop-Validation "RpsPerNode must be positive"
     }
     if ($DurationSeconds -le 0) { Stop-Validation "DurationSeconds must be positive" }
+    if ($FeederOffset -lt 0) { Stop-Validation "FeederOffset must be non-negative" }
+    if ((Get-BookingScenario) -eq "CORE_ADMISSION_CAPACITY" -and (Get-EffectiveInjectionMode) -ne "constant-users-per-sec") { Stop-Validation "Core Admission Capacity requires constant-users-per-sec" }
+    if ($TechnicalFailureThresholdPercent -le 0 -or $TechnicalFailureThresholdPercent -gt 100) { Stop-Validation "TechnicalFailureThresholdPercent must be greater than 0 and at most 100" }
+    Assert-SloPair -Name "Performance summary" -P95 $PerformanceSummaryP95ThresholdMs -P99 $PerformanceSummaryP99ThresholdMs
+    Assert-SloPair -Name "Seat status" -P95 $SeatStatusP95ThresholdMs -P99 $SeatStatusP99ThresholdMs
+    Assert-SloPair -Name "Seat select" -P95 $SeatSelectP95ThresholdMs -P99 $SeatSelectP99ThresholdMs
+    Assert-SloPair -Name "Order create" -P95 $OrderCreateP95ThresholdMs -P99 $OrderCreateP99ThresholdMs
+    Assert-SloPair -Name "Order get" -P95 $OrderGetP95ThresholdMs -P99 $OrderGetP99ThresholdMs
     if ($QueueTimeoutThresholdPercent -lt 0) { Stop-Validation "QueueTimeoutThresholdPercent must be non-negative" }
     if ($MaxCoreAdmissionsPerSecond -lt 0) { Stop-Validation "MaxCoreAdmissionsPerSecond must be non-negative" }
     if ($AdmissionRateTolerancePercent -lt 0) { Stop-Validation "AdmissionRateTolerancePercent must be non-negative" }

@@ -25,6 +25,7 @@ final class BookingRunConfigurationWriter {
             "TICKET_OPEN_END_TO_END",
             "QUEUE_PROTECTS_CORE"
     );
+    private static final Set<String> NO_FEEDER_SCENARIOS = Set.of("CORE_REALISTIC_CONTENTION");
 
     private BookingRunConfigurationWriter() {
     }
@@ -34,6 +35,9 @@ final class BookingRunConfigurationWriter {
         final Path output = parent.resolve("booking-run-config.json");
         final boolean admissionTokenIncluded = !ADMISSION_FREE_SCENARIOS.contains(scenario);
         final String queueBaseUrl = QUEUE_SCENARIOS.contains(scenario) ? LoadTestConfig.queueBaseUrl() : "";
+        final int feederRows = feederRows(scenario);
+        final int feederOffset = feederRows == 0 ? 0 : LoadTestConfig.bookingFeederOffset();
+        final long feederEndInclusive = feederRows == 0 ? -1L : (long) feederOffset + feederRows - 1L;
         final String json = "{\n"
                 + "  \"schemaVersion\":1,\n"
                 + "  \"runId\":\"" + json(LoadTestConfig.consoleRunId()) + "\",\n"
@@ -49,6 +53,12 @@ final class BookingRunConfigurationWriter {
                 + "\"usersPerSecond\":" + LoadTestConfig.usersPerSecond() + ","
                 + "\"targetUsersPerSecond\":" + LoadTestConfig.targetUsersPerSecond() + ","
                 + "\"expectedUsers\":" + LoadTestConfig.expectedUsers() + "},\n"
+                + "  \"feeder\":{"
+                + "\"file\":\"" + json(feederRows == 0 ? "" : LoadTestConfig.bookingFeederFile()) + "\","
+                + "\"offset\":" + feederOffset + ","
+                + "\"requiredRows\":" + feederRows + ","
+                + "\"rowStartInclusive\":" + feederOffset + ","
+                + "\"rowEndInclusive\":" + feederEndInclusive + "},\n"
                 + "  \"authentication\":{"
                 + "\"accessTokenMode\":\"" + json(LoadTestConfig.accessTokenMode()) + "\","
                 + "\"admissionTokenIncluded\":" + admissionTokenIncluded + "},\n"
@@ -93,5 +103,14 @@ final class BookingRunConfigurationWriter {
 
     private static String json(final String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static int feederRows(final String scenario) {
+        if (NO_FEEDER_SCENARIOS.contains(scenario)) {
+            return 0;
+        }
+        return "CORE_ACTIVE_USERS_CLOSED".equals(scenario)
+                ? LoadTestConfig.bookingFeederRows()
+                : LoadTestConfig.expectedUsers();
     }
 }

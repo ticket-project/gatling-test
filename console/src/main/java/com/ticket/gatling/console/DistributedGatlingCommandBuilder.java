@@ -76,6 +76,8 @@ public class DistributedGatlingCommandBuilder {
         command.add(request.queueBaseUrl());
         command.add("-FeederFile");
         command.add(request.bookingFeederFile());
+        command.add("-FeederOffset");
+        command.add(String.valueOf(request.bookingFeederOffset()));
         command.add("-InjectionMode");
         command.add(request.injectionMode());
         command.add("-PollingTimeoutSeconds");
@@ -98,6 +100,28 @@ public class DistributedGatlingCommandBuilder {
         command.add(String.valueOf(request.maxCoreAdmissionsPerSecond()));
         command.add("-AdmissionRateTolerancePercent");
         command.add(String.valueOf(request.admissionRateTolerancePercent()));
+        command.add("-TechnicalFailureThresholdPercent");
+        command.add(String.valueOf(request.technicalFailureThresholdPercent()));
+        command.add("-PerformanceSummaryP95ThresholdMs");
+        command.add(String.valueOf(request.performanceSummaryP95ThresholdMs()));
+        command.add("-PerformanceSummaryP99ThresholdMs");
+        command.add(String.valueOf(request.performanceSummaryP99ThresholdMs()));
+        command.add("-SeatStatusP95ThresholdMs");
+        command.add(String.valueOf(request.seatStatusP95ThresholdMs()));
+        command.add("-SeatStatusP99ThresholdMs");
+        command.add(String.valueOf(request.seatStatusP99ThresholdMs()));
+        command.add("-SeatSelectP95ThresholdMs");
+        command.add(String.valueOf(request.seatSelectP95ThresholdMs()));
+        command.add("-SeatSelectP99ThresholdMs");
+        command.add(String.valueOf(request.seatSelectP99ThresholdMs()));
+        command.add("-OrderCreateP95ThresholdMs");
+        command.add(String.valueOf(request.orderCreateP95ThresholdMs()));
+        command.add("-OrderCreateP99ThresholdMs");
+        command.add(String.valueOf(request.orderCreateP99ThresholdMs()));
+        command.add("-OrderGetP95ThresholdMs");
+        command.add(String.valueOf(request.orderGetP95ThresholdMs()));
+        command.add("-OrderGetP99ThresholdMs");
+        command.add(String.valueOf(request.orderGetP99ThresholdMs()));
         if (request.dbAuditEnabled()) {
             command.add("-DbAuditEnabled");
         }

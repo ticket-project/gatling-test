@@ -97,6 +97,38 @@ class BookingFeederTest {
     }
 
     @Test
+    void offsetSelectsAnExactNonOverlappingWindow() throws IOException {
+        final Path file = feeder(String.join(System.lineSeparator(),
+                row(1, 101, ""),
+                row(2, 102, ""),
+                row(3, 103, ""),
+                row(4, 104, "")
+        ));
+
+        final var rows = BookingFeeder.read(file, "CORE_ADMISSION_CAPACITY", 2, 1, PERFORMANCE_ID);
+
+        assertEquals(2L, rows.getFirst().memberId());
+        assertEquals(3L, rows.getLast().memberId());
+    }
+
+    @Test
+    void rejectsNegativeOffsetAndOffsetWindowShortageBeforeInjection() throws IOException {
+        final Path file = feeder(String.join(System.lineSeparator(),
+                row(1, 101, ""),
+                row(2, 102, ""),
+                row(3, 103, "")
+        ));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> BookingFeeder.read(file, "CORE_ADMISSION_CAPACITY", 1, -1, PERFORMANCE_ID));
+        final IllegalArgumentException shortage = assertThrows(IllegalArgumentException.class,
+                () -> BookingFeeder.read(file, "CORE_ADMISSION_CAPACITY", 2, 2, PERFORMANCE_ID));
+        assertTrue(shortage.getMessage().contains("offset=2"));
+        assertTrue(shortage.getMessage().contains("required=4"));
+        assertTrue(shortage.getMessage().contains("actual=3"));
+    }
+
+    @Test
     void acceptsDynamicSeatFeederOnlyForClosedAndSpikeScenarios() throws IOException {
         final String content = DYNAMIC_HEADER + System.lineSeparator()
                 + dynamicRow(1, admissionToken(1, PERFORMANCE_ID));

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class LoadTestRequestTest {
 
@@ -201,6 +202,39 @@ class LoadTestRequestTest {
         assertEquals("~/gatling-booking", request.distributedRemoteProjectDir());
         assertEquals(true, request.operationalConfirmation());
     }
+
+    @Test
+    void readsCoreCapacityOffsetAndSloOverrides() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
+                Map.entry("simulation", List.of("core-admission-capacity")),
+                Map.entry("bookingFeederOffset", List.of("300")),
+                Map.entry("technicalFailureThresholdPercent", List.of("0.5")),
+                Map.entry("performanceSummaryP95ThresholdMs", List.of("250")),
+                Map.entry("performanceSummaryP99ThresholdMs", List.of("650")),
+                Map.entry("orderCreateP95ThresholdMs", List.of("700")),
+                Map.entry("orderCreateP99ThresholdMs", List.of("1400"))
+        ));
+
+        assertEquals(300, request.bookingFeederOffset());
+        assertEquals(0.5, request.technicalFailureThresholdPercent());
+        assertEquals(250, request.performanceSummaryP95ThresholdMs());
+        assertEquals(650, request.performanceSummaryP99ThresholdMs());
+        assertEquals(700, request.orderCreateP95ThresholdMs());
+        assertEquals(1400, request.orderCreateP99ThresholdMs());
+    }
+
+    @Test
+    void rejectsInvalidCoreCapacityOffsetAndSloPairs() {
+        assertThrows(IllegalArgumentException.class, () -> LoadTestRequest.fromForm(Map.of(
+                "simulation", List.of("core-admission-capacity"),
+                "bookingFeederOffset", List.of("-1")
+        )));
+        assertThrows(IllegalArgumentException.class, () -> LoadTestRequest.fromForm(Map.of(
+                "simulation", List.of("core-admission-capacity"),
+                "orderCreateP95ThresholdMs", List.of("1501"),
+                "orderCreateP99ThresholdMs", List.of("1500")
+        )));
+    }
     @Test
     void usesExplicitFeederRowsForClosedCoreModel() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
@@ -225,4 +259,5 @@ class LoadTestRequestTest {
 
         assertEquals(136500, request.estimatedVirtualUsers());
 }
+
 }

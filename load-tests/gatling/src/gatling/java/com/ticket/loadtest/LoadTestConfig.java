@@ -105,6 +105,10 @@ public final class LoadTestConfig {
         return property(ConfigKey.BOOKING_FEEDER_FILE);
     }
 
+    public static int bookingFeederOffset() {
+        return nonNegativeIntProperty(ConfigKey.BOOKING_FEEDER_OFFSET);
+    }
+
     public static int bookingFeederRows() {
         final int rows = intProperty(ConfigKey.BOOKING_FEEDER_ROWS);
         if (rows < users()) {
@@ -162,6 +166,7 @@ public final class LoadTestConfig {
                 Path.of(bookingFeederFile()),
                 bookingScenario(),
                 expectedRows,
+                bookingFeederOffset(),
                 Long.parseLong(performanceId())
         );
     }
@@ -255,7 +260,12 @@ public final class LoadTestConfig {
     }
 
     public static double technicalFailureThresholdPercent() {
-        return doubleProperty(ConfigKey.TECHNICAL_FAILURE_THRESHOLD_PERCENT);
+        final double value = doubleProperty(ConfigKey.TECHNICAL_FAILURE_THRESHOLD_PERCENT);
+        if (!Double.isFinite(value) || value <= 0.0 || value > 100.0) {
+            throw new IllegalArgumentException("System property must be greater than 0 and at most 100: -D"
+                    + ConfigKey.TECHNICAL_FAILURE_THRESHOLD_PERCENT.propertyName());
+        }
+        return value;
     }
 
     public static double queueTimeoutThresholdPercent() {
@@ -296,6 +306,15 @@ public final class LoadTestConfig {
             default -> steps.add(rampUsers(users).during(Duration.ofSeconds(durationSeconds)));
         }
         return steps.toArray(OpenInjectionStep[]::new);
+    }
+
+    public static OpenInjectionStep[] coreAdmissionCapacityInjection() {
+        if (!"constant-users-per-sec".equalsIgnoreCase(injectionMode())) {
+            throw new IllegalArgumentException(
+                    "CoreAdmissionCapacitySimulation requires -DinjectionMode=constant-users-per-sec"
+            );
+        }
+        return injection();
     }
 
     public static OpenInjectionStep[] coreSpikeInjection() {
@@ -851,6 +870,7 @@ public final class LoadTestConfig {
         DUMP_FAILURE_BODY_LIMIT,
         FAILURE_BODY_DIR,
         BOOKING_FEEDER_FILE,
+        BOOKING_FEEDER_OFFSET,
         BOOKING_FEEDER_ROWS,
         BOOKING_SCENARIO,
         NODE_INDEX,
@@ -922,6 +942,7 @@ public final class LoadTestConfig {
                 case DUMP_FAILURE_BODY_LIMIT -> "dumpFailureBodyLimit";
                 case FAILURE_BODY_DIR -> "failureBodyDir";
                 case BOOKING_FEEDER_FILE -> "bookingFeederFile";
+                case BOOKING_FEEDER_OFFSET -> "bookingFeederOffset";
                 case BOOKING_FEEDER_ROWS -> "bookingFeederRows";
                 case BOOKING_SCENARIO -> "bookingScenario";
                 case NODE_INDEX -> "nodeIndex";
@@ -990,6 +1011,7 @@ public final class LoadTestConfig {
                 case DUMP_FAILURE_BODY_LIMIT -> "1";
                 case FAILURE_BODY_DIR -> "../../distributed-results-join/_latest/failure-bodies";
                 case BOOKING_FEEDER_FILE -> "build/booking-feeder.csv";
+                case BOOKING_FEEDER_OFFSET -> "0";
                 case BOOKING_SCENARIO -> "TICKET_OPEN_END_TO_END";
                 case NODE_INDEX -> "0";
                 case RESULT_FILE -> "../../distributed-results-join/_latest/booking-results.csv";

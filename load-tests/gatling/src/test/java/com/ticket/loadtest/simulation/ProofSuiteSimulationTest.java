@@ -86,6 +86,30 @@ class ProofSuiteSimulationTest {
     }
 
     @Test
+    void coreAdmissionCapacityKeepsTheFixedOpenModelContractAndCorrelationHeaders() throws IOException {
+        final String simulation = source(SIMULATION_ROOT.resolve("CoreAdmissionCapacitySimulation.java"));
+        final String flow = source(SIMULATION_ROOT.resolve("CoreBookingFlow.java"));
+        final String config = source(CONFIG);
+        final String runConfig = source(SIMULATION_ROOT.resolve("BookingRunConfigurationWriter.java"));
+
+        assertTrue(simulation.contains("bookingFeeder(LoadTestConfig.expectedUsers())"));
+        assertTrue(simulation.contains("successfulFlowWithoutAdmission(SCENARIO, true)"));
+        assertTrue(simulation.contains("injectOpen(LoadTestConfig.coreAdmissionCapacityInjection())"));
+        assertTrue(config.contains("CoreAdmissionCapacitySimulation requires -DinjectionMode=constant-users-per-sec"));
+        assertTrue(flow.contains("ChainBuilder flow = recordCoreAdmission()"));
+        assertTrue(flow.indexOf("recordCoreAdmission()") < flow.indexOf("fetchPerformanceSummary()"));
+        assertTrue(flow.contains(".exec(fetchSeatStatus(includeAdmissionToken))"));
+        assertTrue(flow.contains("exec(selectSeat(includeAdmissionToken))"));
+        assertTrue(flow.contains("exec(createOrder(includeAdmissionToken))"));
+        assertTrue(flow.contains("exec(fetchOrder())"));
+        assertTrue(config.contains("\"X-Load-Test-Run-Id\", consoleRunId()"));
+        assertTrue(config.contains("\"X-Load-Test-Scenario\", bookingScenario()"));
+        assertTrue(config.contains("\"X-Load-Test-User-Id\", \"#{memberId}\""));
+        assertTrue(runConfig.contains("\\\"feeder\\\""));
+        assertTrue(runConfig.contains("LoadTestConfig.bookingFeederOffset()"));
+    }
+
+    @Test
     void queueProtectionSeparatesExternalArrivalsFromCoreAdmissions() throws IOException {
         final String source = source(SIMULATION_ROOT.resolve("QueueProtectsCoreSimulation.java"));
 

@@ -73,4 +73,17 @@ class LoadTestConfigTest {
         assertTrue(source.contains("case ORDER_GET_P99_THRESHOLD_MS -> \"1000\";"));
     }
 
+    @Test
+    void exposesCoreCapacityOffsetAndSloProperties() throws IOException {
+        final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
+
+        assertTrue(source.contains("public static int bookingFeederOffset()"));
+        assertTrue(source.contains("case BOOKING_FEEDER_OFFSET -> \"bookingFeederOffset\";"));
+        assertTrue(source.contains("case BOOKING_FEEDER_OFFSET -> \"0\";"));
+        assertTrue(source.contains("public static double technicalFailureThresholdPercent()"));
+        assertTrue(source.contains("case PERFORMANCE_SUMMARY_P95_THRESHOLD_MS -> \"performanceSummaryP95ThresholdMs\";"));
+        assertTrue(source.contains("case ORDER_CREATE_P99_THRESHOLD_MS -> \"orderCreateP99ThresholdMs\";"));
+        assertTrue(source.contains("CoreAdmissionCapacitySimulation requires -DinjectionMode=constant-users-per-sec"));
+    }
+
 }

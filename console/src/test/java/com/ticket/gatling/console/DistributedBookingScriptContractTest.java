@@ -26,6 +26,7 @@ class DistributedBookingScriptContractTest {
         assertTrue(source.contains("[string]$QueueBaseUrl"));
         assertTrue(source.contains("[int]$PerformanceId"));
         assertTrue(source.contains("[string]$FeederFile"));
+        assertTrue(source.contains("[int]$FeederOffset = 0"));
         assertTrue(source.contains("[int]$RpsPerNode"));
         assertTrue(source.contains("[int]$DurationSeconds"));
         assertTrue(source.contains("[string]$InjectionMode"));
@@ -44,6 +45,8 @@ class DistributedBookingScriptContractTest {
         assertTrue(source.contains("$rowsPerNode = Get-ExpectedUsersPerNode"));
         assertTrue(source.contains("default { [Math]::Ceiling($RpsPerNode * $DurationSeconds) }"));
         assertTrue(source.contains("required=$requiredRows"));
+        assertTrue(source.contains("$requiredRowsWithOffset = [long]$FeederOffset + $requiredRows"));
+        assertTrue(source.contains("$start = [int]($FeederOffset + ($nodeIndex * $rowsPerNode))"));
         assertTrue(source.contains("nodeIndex"));
         assertTrue(source.contains("totalNodes"));
         assertTrue(source.contains("globalRps"));
@@ -60,10 +63,13 @@ class DistributedBookingScriptContractTest {
         assertTrue(source.contains("-DcoreBaseUrl=$CoreBaseUrl"));
         assertTrue(source.contains("-DqueueBaseUrl=$QueueBaseUrl"));
         assertTrue(source.contains("-DbookingFeederFile=$RemoteFeederFile"));
+        assertTrue(source.contains("-DbookingFeederOffset=0"));
         assertTrue(source.contains("-DbookingScenario=$(Get-BookingScenario)"));
         assertTrue(source.contains("-DnodeIndex=$NodeIndex"));
         assertTrue(source.contains("-DresultFile=$RemoteResultFile"));
         assertTrue(source.contains("-DpollingTimeoutSeconds=$PollingTimeoutSeconds"));
+        assertTrue(source.contains("-DperformanceSummaryP95ThresholdMs=$PerformanceSummaryP95ThresholdMs"));
+        assertTrue(source.contains("-DorderGetP99ThresholdMs=$OrderGetP99ThresholdMs"));
         assertFalse(source.contains("JwtSecret"));
         assertFalse(source.contains("AdmissionTokenSecret"));
     }

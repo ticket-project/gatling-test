@@ -24,11 +24,37 @@ public final class BookingFeeder {
             final int expectedRows,
             final long performanceId
     ) {
-        final List<BookingRow> rows = read(file, scenario, expectedRows, performanceId);
+        return load(file, scenario, expectedRows, 0, performanceId);
+    }
+
+    public static Iterator<Map<String, Object>> load(
+            final Path file,
+            final String scenario,
+            final int expectedRows,
+            final int offset,
+            final long performanceId
+    ) {
+        final List<BookingRow> rows = read(file, scenario, expectedRows, offset, performanceId);
         return rows.stream().map(BookingFeeder::toMap).iterator();
     }
 
     static List<BookingRow> read(final Path file, final String scenario, final int expectedRows, final long performanceId) {
+        return read(file, scenario, expectedRows, 0, performanceId);
+    }
+
+    static List<BookingRow> read(
+            final Path file,
+            final String scenario,
+            final int expectedRows,
+            final int offset,
+            final long performanceId
+    ) {
+        if (expectedRows < 0) {
+            throw new IllegalArgumentException("Booking feeder expected rows must be non-negative");
+        }
+        if (offset < 0) {
+            throw new IllegalArgumentException("Booking feeder offset must be non-negative");
+        }
         final BookingScenario bookingScenario = BookingScenario.parse(scenario);
         final List<String> lines;
         try {
@@ -88,11 +114,13 @@ public final class BookingFeeder {
             }
             rows.add(new BookingRow(memberId, accessToken, seatId, admissionToken));
         }
-        if (rows.size() < expectedRows) {
-            throw new IllegalArgumentException("Booking feeder has fewer rows than expected: expected="
-                    + expectedRows + ", actual=" + rows.size());
+        final long requiredRows = (long) offset + expectedRows;
+        if (requiredRows > rows.size()) {
+            throw new IllegalArgumentException("Booking feeder has fewer rows than required for offset: offset="
+                    + offset + ", expected=" + expectedRows + ", required=" + requiredRows
+                    + ", actual=" + rows.size());
         }
-        return List.copyOf(rows);
+        return List.copyOf(rows.subList(offset, (int) requiredRows));
     }
 
     private static long positiveLong(final String value, final int index, final String name) {

@@ -69,6 +69,7 @@ Header/cookie/auth 없음
 ## Booking capacity 시나리오
 
 새 예매 부하 테스트는 구형 예매 오픈/홀드 경합/티켓 서버 용량 시나리오를 대체한다.
+운영 Core의 안전 입장률을 단계별로 측정할 때는 [운영 Core 안전 입장률 측정 가이드](docs/core-capacity-production.md)를 먼저 확인한다.
 
 | key | Simulation | 측정 대상 |
 | --- | --- | --- |

@@ -227,6 +227,17 @@
       padding: 10px 12px;
     }
 
+    .capacity-preview {
+      margin: 12px 0 14px;
+      border: 2px solid #b45309;
+      border-radius: 8px;
+      padding: 13px 14px;
+      background: #fff7ed;
+      color: #431407;
+      white-space: pre-wrap;
+      font: 750 13px/1.55 Consolas, "Segoe UI Mono", monospace;
+    }
+
 
     .grid-2 {
       display: grid;
@@ -720,7 +731,7 @@ ubuntu@43.203.136.184</textarea>
           </div>
           <div class="grid-2" data-option="booking-feeder">
             <div>
-              <label for="bookingFeederFile">테스트 데이터 CSV <span class="help-chip" tabindex="0" data-help="03 고정 조건·좌석 선택·주문 생성은 memberId,accessToken,seatId,admissionToken을 사용합니다. 주문 조회는 memberId,accessToken,orderKey를 사용합니다. 04·05는 동적 좌석용 3컬럼도 지원합니다. UTF-8 no BOM CSV입니다.">?</span></label>
+              <label for="bookingFeederFile">테스트 데이터 CSV <span class="help-chip" tabindex="0" data-help="03 고정 조건·좌석 선택·주문 생성은 memberId,accessToken,seatId,admissionToken, 주문 조회는 memberId,accessToken,orderKey 형식입니다. UTF-8 no BOM CSV입니다.">?</span></label>
               <input id="bookingFeederFile" name="bookingFeederFile" value="build/booking-feeder.csv">
             </div>
             <div>
@@ -728,6 +739,34 @@ ubuntu@43.203.136.184</textarea>
               <input id="resultFile" name="resultFile" value="../../distributed-results-join/_latest/booking-results.csv">
             </div>
           </div>
+          <div class="hidden" data-option="capacity">
+            <div>
+              <label for="bookingFeederOffset">Feeder Offset <span class="help-chip" tabindex="0" data-help="이번 독립 실행에서 사용할 첫 번째 피더 행의 0-based 위치입니다. 이전 실행이 소비한 사용자 수만큼 증가시키면 회원·좌석이 겹치지 않습니다.">?</span></label>
+              <input id="bookingFeederOffset" name="bookingFeederOffset" type="number" min="0" step="1" value="0">
+            </div>
+          </div>
+          <div class="grid-2 hidden" data-option="capacity">
+            <div>
+              <label for="technicalFailureThresholdPercent">Technical failure 허용률(%)</label>
+              <input id="technicalFailureThresholdPercent" name="technicalFailureThresholdPercent" type="number" min="0.01" max="100" step="0.01" value="1.0">
+            </div>
+          </div>
+          <div class="hidden" data-option="capacity">
+            <p class="field-note">응답 시간 SLO (p95 / p99, ms)</p>
+            <div class="grid-2">
+              <div><label for="performanceSummaryP95ThresholdMs">공연 요약 p95</label><input id="performanceSummaryP95ThresholdMs" name="performanceSummaryP95ThresholdMs" type="number" min="1" value="300"></div>
+              <div><label for="performanceSummaryP99ThresholdMs">공연 요약 p99</label><input id="performanceSummaryP99ThresholdMs" name="performanceSummaryP99ThresholdMs" type="number" min="1" value="700"></div>
+              <div><label for="seatStatusP95ThresholdMs">좌석 상태 p95</label><input id="seatStatusP95ThresholdMs" name="seatStatusP95ThresholdMs" type="number" min="1" value="300"></div>
+              <div><label for="seatStatusP99ThresholdMs">좌석 상태 p99</label><input id="seatStatusP99ThresholdMs" name="seatStatusP99ThresholdMs" type="number" min="1" value="700"></div>
+              <div><label for="seatSelectP95ThresholdMs">좌석 선택 p95</label><input id="seatSelectP95ThresholdMs" name="seatSelectP95ThresholdMs" type="number" min="1" value="500"></div>
+              <div><label for="seatSelectP99ThresholdMs">좌석 선택 p99</label><input id="seatSelectP99ThresholdMs" name="seatSelectP99ThresholdMs" type="number" min="1" value="1000"></div>
+              <div><label for="orderCreateP95ThresholdMs">주문 생성 p95</label><input id="orderCreateP95ThresholdMs" name="orderCreateP95ThresholdMs" type="number" min="1" value="800"></div>
+              <div><label for="orderCreateP99ThresholdMs">주문 생성 p99</label><input id="orderCreateP99ThresholdMs" name="orderCreateP99ThresholdMs" type="number" min="1" value="1500"></div>
+              <div><label for="orderGetP95ThresholdMs">주문 조회 p95</label><input id="orderGetP95ThresholdMs" name="orderGetP95ThresholdMs" type="number" min="1" value="500"></div>
+              <div><label for="orderGetP99ThresholdMs">주문 조회 p99</label><input id="orderGetP99ThresholdMs" name="orderGetP99ThresholdMs" type="number" min="1" value="1000"></div>
+            </div>
+          </div>
+          <div id="capacityPreview" class="capacity-preview hidden" data-option="capacity"></div>
           <div data-option="closed-booking" class="hidden">
             <label for="bookingFeederRows">노드별 고유 피더 행 수 <span class="help-chip" tabindex="0" data-help="Closed Model은 완료된 사용자를 계속 교체하므로 동시 사용자 수보다 많은 고유 회원·좌석 행이 필요합니다. 피더를 순환시키지 않아 정합성 오염을 막습니다.">?</span></label>
             <input id="bookingFeederRows" name="bookingFeederRows" type="number" min="1" value="10000">
@@ -1086,7 +1125,7 @@ const proofSimulationDefaults = {
   'core-order-get-api': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-get-api.csv' },
   smoke: { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/smoke.csv' },
   'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/hot-seat-concurrency.csv' },
-  'core-admission-capacity': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv' },
+  'core-admission-capacity': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 5, targetUsersPerSecond: 5, bookingFeederOffset: 0, resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv' },
   'core-realistic-contention': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'synthetic-jwt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-realistic-contention.csv' },
   'core-active-users-closed': { coreBaseUrl: 'https://oneticket.site', users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000, resultFile: '../../distributed-results-join/_latest/core-active-users-closed.csv' },
   'core-spike': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 10, targetUsersPerSecond: 50, resultFile: '../../distributed-results-join/_latest/core-spike.csv' },
@@ -1172,6 +1211,11 @@ async function startRun(event) {
   const validationError = validateBeforeRun(body);
   if (validationError) {
     restoreIdleState(validationError);
+    return;
+  }
+  if (simulationSelect.value === 'core-admission-capacity'
+          && !window.confirm(`운영 Core에 다음 부하를 실행합니다.\n\n${capacityRunText(body)}\n\n계속하시겠습니까?`)) {
+    restoreIdleState('Core Admission Capacity 실행을 취소했습니다.');
     return;
   }
   try {
@@ -1389,9 +1433,10 @@ function updateVisibility() {
   setVisible('[data-option="booking-feeder"]', selected?.usesBookingFeeder);
   setVisible('[data-option="queue-url"]', selected?.usesCoreBookingFlow && selected?.usesQueueBaseUrl);
   setVisible('[data-option="queue-proof"]', selected?.key === 'queue-protects-core');
+  setVisible('[data-option="capacity"]', selected?.key === 'core-admission-capacity');
   setInputContainerVisible('queueTimeoutThresholdPercent', selected?.usesQueueBaseUrl);
   setInputContainerVisible('admissionRateTolerancePercent', false);
-  setInputContainerVisible('resultFile', false);
+  setInputContainerVisible('resultFile', selected?.key === 'core-admission-capacity');
   setInputContainerVisible('pollingTimeoutSeconds', selected?.usesQueueBaseUrl);
   setInputContainerVisible('nodeIndex', distributed);
   setVisible('[data-option="closed-booking"]', selected?.key === 'core-active-users-closed');
@@ -1462,6 +1507,61 @@ function updateSummary() {
   document.querySelector('#summaryInjection').textContent = `${executionLabel} / ${injectionMode.options[injectionMode.selectedIndex]?.text || '-'}`;
   updateTargetRouteSummary();
   updateApiPreview();
+  updateCapacityPreview(body);
+}
+
+function capacityRunDetails(body) {
+  const offset = Number(body.get('bookingFeederOffset') || 0);
+  const expectedUsers = estimateVirtualUsers(body);
+  const nodeCount = String(body.get('executionMode') || 'local') === 'distributed'
+    ? distributedNodeCount(body)
+    : 1;
+  const configuredRate = Number(body.get('usersPerSecond') || 0);
+  return {
+    target: String(body.get('coreBaseUrl') || '').trim(),
+    performanceId: String(body.get('performanceId') || '').trim(),
+    usersPerSecond: configuredRate * nodeCount,
+    perNodeUsersPerSecond: configuredRate,
+    nodeCount,
+    durationSeconds: Number(body.get('durationSeconds') || 0),
+    expectedUsers,
+    feederStart: offset,
+    feederEnd: offset + expectedUsers - 1,
+    feederFile: String(body.get('bookingFeederFile') || '').trim()
+  };
+}
+
+function capacityRunText(body) {
+  const details = capacityRunDetails(body);
+  const distributedNote = details.nodeCount > 1
+    ? ` (${details.perNodeUsersPerSecond}/sec × ${details.nodeCount} nodes)`
+    : '';
+  return [
+    'TARGET',
+    details.target || '-',
+    '',
+    'PERFORMANCE ID',
+    details.performanceId || '-',
+    '',
+    'LOAD',
+    `${details.usersPerSecond} users/sec${distributedNote}`,
+    '',
+    'DURATION',
+    `${details.durationSeconds} sec`,
+    '',
+    'EXPECTED USERS',
+    String(details.expectedUsers),
+    '',
+    'FEEDER',
+    `${details.feederStart} ~ ${details.feederEnd}`,
+    details.feederFile
+  ].join('\n');
+}
+
+function updateCapacityPreview(body) {
+  const preview = document.querySelector('#capacityPreview');
+  if (!preview || simulationSelect.value !== 'core-admission-capacity') return;
+  preview.textContent = capacityRunText(body);
 }
 
 function validateBeforeRun(body) {
@@ -1492,6 +1592,26 @@ function validateBeforeRun(body) {
     if (distributed && coreApiSimulationKeys.has(selected.key)) return 'API별 독립 성능 테스트는 현재 로컬 실행만 지원합니다.';
     if (body.get('operationalConfirmation') !== 'on') return '운영 API에 실제 좌석 선점·주문 요청을 보내는 실행 확인이 필요합니다.';
     if (distributed && distributedHostCount(body) === 0) return 'Booking 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
+    if (selected.key === 'core-admission-capacity') {
+      const offset = Number(body.get('bookingFeederOffset'));
+      const technicalFailureThreshold = Number(body.get('technicalFailureThresholdPercent'));
+      if (String(body.get('injectionMode')) !== 'constant-users-per-sec') return 'Core Admission Capacity는 constant-users-per-sec만 사용할 수 있습니다.';
+      if (!Number.isInteger(offset) || offset < 0) return 'Feeder Offset은 0 이상의 정수여야 합니다.';
+      if (!Number.isFinite(technicalFailureThreshold) || technicalFailureThreshold <= 0 || technicalFailureThreshold > 100) return 'Technical failure 허용률은 0보다 크고 100 이하여야 합니다.';
+      const sloPairs = [
+        ['공연 요약', 'performanceSummaryP95ThresholdMs', 'performanceSummaryP99ThresholdMs'],
+        ['좌석 상태', 'seatStatusP95ThresholdMs', 'seatStatusP99ThresholdMs'],
+        ['좌석 선택', 'seatSelectP95ThresholdMs', 'seatSelectP99ThresholdMs'],
+        ['주문 생성', 'orderCreateP95ThresholdMs', 'orderCreateP99ThresholdMs'],
+        ['주문 조회', 'orderGetP95ThresholdMs', 'orderGetP99ThresholdMs']
+      ];
+      for (const [label, p95Key, p99Key] of sloPairs) {
+        const p95 = Number(body.get(p95Key));
+        const p99 = Number(body.get(p99Key));
+        if (!Number.isInteger(p95) || !Number.isInteger(p99) || p95 <= 0 || p99 <= 0) return `${label} SLO는 양의 정수(ms)여야 합니다.`;
+        if (p95 > p99) return `${label} p95 SLO는 p99 SLO보다 클 수 없습니다.`;
+      }
+    }
   }
 
   const injection = String(body.get('injectionMode') || 'ramp-users');
