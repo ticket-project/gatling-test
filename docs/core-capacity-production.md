@@ -20,7 +20,7 @@ Queue Server가 제어할 값도 HTTP 요청 수가 아니라 Core로 입장시�
 
 ## 시나리오 계약
 
-`CoreAdmissionCapacitySimulation`은 Queue를 거치지 않고 Core를 직접 호출한다. 기존 Queue/Admission 우회 목적을 유지하며 Admission Token을 보내지 않는다. Admission Token 기능을 새로 추가하거나 변경하지 않는다. 현재 운영 구성이 Admission Token 검증을 요구한다면 이 테스트 전용 환경에서는 기존 방식대로 검증을 비활성화해야 한다.
+`CoreAdmissionCapacitySimulation`은 Queue를 거치지 않고 Core를 직접 호출한다. 기존 Queue/Admission 우회 목적을 유지하며 Admission Token을 보내지 않는다. Admission Token 기능을 새로 추가하거나 변경하지 않는다. 테스트 performance는 기존 정책의 `queueMode=FORCE_OFF`로 만들어 Admission Token 없이 직접 호출할 수 있어야 한다. 전역 Admission 검증 설정을 바꾸는 것보다 테스트 회차만 명시적으로 Queue 비대상으로 만드는 편이 운영 영향 범위가 작다.
 
 비교 가능한 결과를 위해 다음 조건은 고정한다.
 
@@ -46,17 +46,21 @@ Queue Server가 제어할 값도 HTTP 요청 수가 아니라 Core로 입장시�
 
 좌석 상태 API는 좌석 수에 따라 응답 크기, JSON 직렬화 비용, 네트워크 전송량과 클라이언트 파싱량이 달라진다. 100석짜리 회차는 실제 부하를 과소평가할 수 있고, 100,000석짜리 회차는 과대평가할 수 있다. 좌석 수뿐 아니라 AVAILABLE·HELD·SOLD 비율과 Core 배포 환경도 실행마다 가능한 한 같게 유지한다.
 
+운영 데이터 생성 SQL, 30개 독립 회차 배정, 자동 feeder 생성과 원복 절차는 [Core Admission Capacity 운영 파일](../scripts/core-capacity/README.md)을 따른다. 최초 SQL이 2,000개 전용 ACTIVE 회원과 물리 좌석, 30개 performance를 함께 만든다. 각 performance는 독립적인 `PERFORMANCE_SEATS`를 사용한다. 한 실행이 사용한 performance는 다음 실행에서 재사용하지 않고, 같은 회차를 여러 날 재사용할 때만 Core 비동기 작업 완료 후 Console의 원복 버튼을 사용한다.
+
+전용 회원은 `id=1..2000`의 연속 범위를 사용한다. 이 범위에 기존 회원이 하나라도 있으면 SQL은 빈 ID만 채우지 않고 전체 실행을 중단한다. 기존 계정 ID로 합성 JWT를 발급하는 일을 막기 위한 안전장치다.
+
 피더는 UTF-8 BOM 없는 CSV이고 헤더는 정확히 다음과 같다.
 
 ```csv
 memberId,accessToken,seatId,admissionToken
-10001,access-token-10001,50001,
-10002,access-token-10002,50002,
+1,access-token-1,910000001,
+2,access-token-2,910000002,
 ```
 
 `memberId`와 `seatId`는 전체 파일에서 고유해야 한다. Core Admission Capacity에서는 기존 우회 흐름에 맞춰 `admissionToken`을 비워 둔다. 피더의 회원은 Core DB에 실제 ACTIVE 회원으로 존재해야 하고, 좌석은 지정한 performance에 속한 AVAILABLE 좌석이어야 한다.
 
-### 실행별 피더 구간
+### 실행별 피더
 
 `bookingFeederOffset`은 0부터 시작하는 행 위치다. 실행 전에 다음 조건을 검사한다.
 
@@ -67,16 +71,21 @@ offset + 예상 사용자 수 <= 피더 전체 데이터 행 수
 
 조건을 만족하지 않으면 HTTP 부하를 시작하기 전에 실패한다.
 
+Console에서 `토큰 파일/목록 → 파일 자동 생성`을 선택하면 실행 직전에 예상 사용자 수만큼 JWT와 feeder를 함께 생성한다. 기본 범위는 연속된 `memberId=1..`, `seatId=910000001..`이고, Admission Token 열은 비어 있다.
+
 ```text
-5 users/sec × 60초 = 300명
-offset 0       → 행 0 ~ 299
+5 users/sec × 30초
+performanceId 910000001
+build/core-capacity-booking-feeder.csv 150행 자동 생성
+offset 0
 
-10 users/sec × 60초 = 600명
-offset 300     → 행 300 ~ 899
-
-15 users/sec × 60초 = 900명
-offset 900     → 행 900 ~ 1799
+10 users/sec × 30초
+performanceId 910000002
+build/core-capacity-booking-feeder.csv 300행 자동 재생성
+offset 0
 ```
+
+JWT secret과 issuer는 운영 Core 설정과 같아야 한다. 전용 회원은 최초 SQL이 이미 생성하므로 회원가입·로그인 API를 호출하는 별도 준비 스크립트는 없다. 동일한 물리 seat ID와 memberId를 다시 사용해도 performance가 다르면 좌석 상태와 주문 범위가 독립적이다. 하나의 큰 수동 feeder가 필요한 별도 환경에서는 기존 파일 입력과 offset 기능을 그대로 사용할 수 있다.
 
 Offset은 앞 실행의 DB·Redis 정리를 대신하지 않는다. 회원과 좌석을 겹치지 않게 만드는 안전장치이며, 이전 실행에서 생성된 주문과 선점 상태의 확인·정리는 별도로 수행한다.
 
@@ -102,21 +111,21 @@ Technical failure 허용률 기본값은 `1.0%`다. Gatling assertion은 실제 
 01 Smoke
 02 Hot Seat 정합성 확인
 
-03 Core Admission Capacity
-5 users/sec  × 60초
-10 users/sec × 60초
-15 users/sec × 60초
-20 users/sec × 60초
-30 users/sec × 60초
-40 users/sec × 60초
-50 users/sec × 60초
+03 Core Admission Capacity 최초 경계 탐색
+5 users/sec  × 30초
+10 users/sec × 30초
+15 users/sec × 30초
+20 users/sec × 30초
+30 users/sec × 30초
+40 users/sec × 30초
+50 users/sec × 30초
 ```
 
-각 줄은 독립 실행이다. 한 단계가 끝나면 리포트와 운영 상태를 확인하고, 테스트 데이터를 정리한 다음, 다음 users/sec와 새로운 offset으로 다시 실행한다.
+각 줄은 독립 실행이다. 한 단계가 끝나면 리포트와 운영 상태를 확인하고 다음 독립 performance로 이동한다. Gatling이 데이터를 정리하거나 다음 부하를 자동으로 실행하지 않는다.
 
-위 60초 표는 해당 실행에 필요한 고유 AVAILABLE 좌석이 충분하다는 전제다. 2,000석 회차에서는 `40 users/sec × 60초 = 2,400명`, `50 users/sec × 60초 = 3,000명`이므로 그대로 실행할 수 없다. 좌석 고갈이 Core 용량 실패로 섞이지 않도록, 2,000석 회차의 최초 경계 탐색은 모든 단계를 같은 30초로 줄이거나 실행마다 같은 규모의 새 전용 회차를 준비한다. 최종 5~10분 유지 테스트도 필요한 사용자·좌석 수를 먼저 계산하고 데이터가 충분할 때만 실행한다.
+2,000석 회차에서 최고 단계인 `50 users/sec × 30초`는 1,500개의 고유 좌석을 사용해 500석의 여유를 남긴다. 60초로 늘리면 3,000석이 필요하므로 같은 데이터에서는 실행하지 않는다. 좌석 고갈이 Core 용량 실패로 섞이지 않도록 최초 경계 탐색은 모든 단계를 30초로 고정한다.
 
-예를 들어 `30 PASS`, `40 FAIL`이면 `32`, `35`, `38 users/sec` 정도로 경계를 좁힌다. 최종 후보를 찾은 뒤에는 같은 값으로 5~10분 유지 테스트를 실행해 짧은 60초 결과가 우연이 아닌지 확인한다.
+예를 들어 `30 PASS`, `40 FAIL`이면 `32`, `35`, `38 users/sec` 정도로 경계를 좁힌다. 최종 5~10분 유지 테스트는 후보 입장률을 찾은 뒤 필요한 좌석 수를 다시 계산한다. 현재 Simulation은 한 실행에서 performance 하나를 사용하므로 `30 users/sec × 10분 = 18,000석`이 필요하다. 실제보다 큰 좌석 상태 응답으로 측정 의미를 바꾸거나 좌석을 자동 초기화하지 말고, 장시간 검증 데이터 구조를 별도로 승인한 후 실행한다.
 
 필요하면 그 뒤에 아래 순서로 현실성·동시 사용자·회복·Queue 보호를 추가 검증한다.
 
@@ -142,11 +151,14 @@ Closed Model의 동시 사용자 상한은 Queue 입장률과 같은 값이 아�
 ```text
 Simulation:       03 고정 조건 Core 수용량
 Core URL:         실제 운영 Core URL
-Performance ID:   부하테스트 전용 performance
+Performance ID:   910000001
 Injection:        constant-users-per-sec
 Users/sec:        5
-Duration:         60
-Feeder:           C:\loadtest\core-capacity.csv
+Duration:         30
+Access Token:     토큰 파일/목록 → 파일 자동 생성
+JWT Secret:       운영 Core와 동일한 값
+Member 시작 ID:  1
+Feeder:           build/core-capacity-booking-feeder.csv
 Feeder Offset:    0
 Result File:      ../../distributed-results-join/_latest/core-admission-capacity.csv
 Operational Confirmation: ON
@@ -159,29 +171,32 @@ TARGET
 https://...
 
 PERFORMANCE ID
-9999
+910000001
 
 LOAD
 5 users/sec
 
 DURATION
-60 sec
+30 sec
 
 EXPECTED USERS
-300
+150
 
 FEEDER
-0 ~ 299
+0 ~ 149
 ```
 
-첫 실행이 끝난 뒤 `10 users/sec × 60초`를 실행할 때는 최소한 다음을 바꾼다.
+첫 실행이 끝난 뒤 `10 users/sec × 30초`를 실행할 때는 다음을 바꾼다.
 
 ```text
-Users/sec:     10
-Feeder Offset: 300
+Performance ID: 910000002
+Users/sec:      10
+Feeder Offset:  0
 ```
 
-performanceId, Core URL, duration과 SLO는 같은 비교 조건이므로 유지한다. 두 번째 실행은 피더 행 `300 ~ 899`를 사용한다.
+Core URL, duration, JWT 설정과 SLO는 같은 비교 조건으로 유지한다. performance만 새 독립 회차로 바꾸면 Console이 300행 feeder를 다시 만든다.
+
+여러 전용 회차를 사용한 테스트 묶음이 끝나면 모든 결과를 보존하고 Core 비동기 처리가 끝난 뒤 모든 Core 인스턴스를 중지한다. 그 다음 Console의 `전체 테스트 회차 원복 창 열기` 버튼을 누른다. 별도 PowerShell 창은 `910000001..910000030` 전체를 먼저 점검하고, 30개가 모두 안전 조건을 만족한 경우에만 전체 원복 확인 문구를 요구한다. 버튼 자체가 즉시 삭제를 수행하지는 않는다.
 
 ## 결과 판독
 

@@ -14,15 +14,33 @@ public final class AccessTokenFileGenerator {
 
     public static void main(final String[] args) {
         final Path output = Path.of(requiredProperty("output"));
+        final String bookingFeederOutput = System.getProperty("bookingFeederOutput", "").trim();
         final String issuer = property("jwtIssuer", "ticket");
         final String secret = requiredProperty("jwtSecret");
         final long startMemberId = longProperty("syntheticMemberStartId", 1L);
         final int count = intProperty("tokenCount");
         final String role = property("syntheticJwtRole", "MEMBER");
         final long ttlSeconds = longProperty("syntheticTokenTtlSeconds", 3600L);
+        final long bookingSeatStartId = longProperty("bookingSeatStartId", 910000001L);
         final Instant now = Instant.now();
 
         write(output, issuer, secret, startMemberId, count, role, ttlSeconds, now);
+        if (!bookingFeederOutput.isBlank()) {
+            final Path feederOutput = Path.of(bookingFeederOutput);
+            writeBookingFeeder(
+                    feederOutput,
+                    issuer,
+                    secret,
+                    startMemberId,
+                    bookingSeatStartId,
+                    count,
+                    role,
+                    ttlSeconds,
+                    now
+            );
+            System.out.println("Generated " + count + " booking feeder rows: "
+                    + feederOutput.toAbsolutePath().normalize());
+        }
 
         System.out.println("Generated " + count + " access tokens: "
                 + output.toAbsolutePath().normalize());
@@ -60,6 +78,48 @@ public final class AccessTokenFileGenerator {
             }
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to write access token file: " + output, exception);
+        }
+    }
+
+    public static void writeBookingFeeder(
+            final Path output,
+            final String issuer,
+            final String secret,
+            final long startMemberId,
+            final long startSeatId,
+            final int count,
+            final String role,
+            final long ttlSeconds,
+            final Instant now
+    ) {
+        validate(secret, startMemberId, count, ttlSeconds);
+        if (startSeatId <= 0) {
+            throw new IllegalArgumentException("bookingSeatStartId must be positive");
+        }
+        try {
+            final Path parent = output.toAbsolutePath().normalize().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            try (BufferedWriter writer = Files.newBufferedWriter(output, StandardCharsets.UTF_8)) {
+                writer.write("memberId,accessToken,seatId,admissionToken");
+                writer.newLine();
+                for (int offset = 0; offset < count; offset++) {
+                    final long memberId = startMemberId + offset;
+                    final String accessToken = LoadTestTokens.createAccessToken(
+                            issuer,
+                            secret,
+                            memberId,
+                            role,
+                            now,
+                            ttlSeconds
+                    );
+                    writer.write(memberId + "," + accessToken + "," + (startSeatId + offset) + ",");
+                    writer.newLine();
+                }
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to write booking feeder file: " + output, exception);
         }
     }
 

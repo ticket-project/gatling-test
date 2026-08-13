@@ -193,7 +193,7 @@ public enum SimulationType {
             false,
             false,
             false,
-            false,
+            true,
             true,
             false,
             "CORE_ADMISSION_CAPACITY"

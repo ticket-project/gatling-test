@@ -247,8 +247,8 @@ Console의 `테스트 종류`에서 다음 일곱 시나리오를 직접 선택�
 1. `gatling-test/console`에서 `..\gradlew.bat run`을 실행한다.
 2. 브라우저에서 `http://localhost:9090`을 연다.
 3. `테스트 종류`에서 목적에 맞는 시나리오를 선택한다. 선택과 동시에 해당 시나리오의 권장 부하 모델과 기본값이 채워진다.
-4. `Ticket/Core URL`, 필요하면 `Queue URL`, `performanceId`를 입력한다. 화면에 `Booking Feeder CSV`가 보이는 시나리오만 feeder 경로를 입력한다.
-5. feeder를 사용하는 시나리오라면 화면의 예상 사용자 수보다 많은 feeder 행이 준비됐는지 확인한다.
+4. `Ticket/Core URL`, 필요하면 `Queue URL`, `performanceId`를 입력한다. `03 고정 조건 Core 수용량`은 기본 `파일 자동 생성`을 사용하면 JWT와 Booking Feeder를 실행 직전에 함께 만든다.
+5. 수동 feeder를 사용하는 시나리오라면 화면의 예상 사용자 수보다 많은 feeder 행이 준비됐는지 확인한다.
 6. 대상 서버와 Datadog 대시보드를 확인한 뒤 `실행`을 누른다.
 7. 완료 후 Console의 Gatling 리포트와 `booking-summary.json`을 함께 확인한다.
 
@@ -256,7 +256,7 @@ Console의 `테스트 종류`에서 다음 일곱 시나리오를 직접 선택�
 
 - `01 기본 예매 동작 확인`: 기본값은 사용자 1명, `at-once-users`다. 기능 계약을 먼저 확인하는 용도이므로 이 단계에서 부하를 높이지 않는다.
 - `02 인기 좌석 동시 경합`: `사용자 수`를 100 또는 1,000으로 지정하고, feeder의 모든 행에 같은 `seatId`를 넣는다. `rendezVous`가 한 JVM 안에서만 동기화되므로 반드시 로컬 실행을 사용한다.
-- `03 고정 조건 Core 수용량`: 사용자마다 서로 다른 ACTIVE 회원과 AVAILABLE 좌석을 feeder에 준비한다. 좌석 새로고침·무작위 선택·재시도·이탈 없이 같은 요청 흐름을 보내므로 코드 변경 전후의 1차 비교에 사용한다. Admission Token 열은 비워 두며 전용 테스트 환경의 `ADMISSION_TOKEN_ENFORCEMENT_ENABLED=false`가 필요하다. 각 실행 전 회차의 주문·선점 상태를 같은 초기 상태로 복원한다.
+- `03 고정 조건 Core 수용량`: 최초 운영 SQL이 ID `1..2000`의 전용 ACTIVE 회원과 좌석·30개 회차를 만들고, Console의 기존 JWT 파일 자동 생성기가 `sub=1..` 순서로 memberId/accessToken/seatId feeder를 실행 직전에 함께 만든다. 화면에서 전용 회차 ID와 권장 용도를 확인할 수 있다. 좌석 새로고침·무작위 선택·재시도·이탈 없이 같은 요청 흐름을 보내므로 코드 변경 전후의 1차 비교에 사용한다. Admission Token 열은 비워 두고 전용 회차의 기존 Queue 정책을 `FORCE_OFF`로 사용한다. 테스트 묶음 종료 후 결과 보존과 Core 중지를 마치고 `전체 테스트 회차 원복 창 열기` 버튼으로 30개 회차를 함께 원복한다.
 - `03-2 현실형 인기 좌석 경합`: Queue·Booking Feeder·Admission Token 없이 Core를 직접 호출한다. 사용자의 80%가 인기 좌석 범위에 몰리고 409 충돌 시 다른 좌석으로 최대 2회 재시도하며 일부 사용자는 주문 전에 이탈한다. 합성 JWT의 회원 ID와 일치하는 ACTIVE 회원이 필요하다. 실행마다 충돌량과 요청 수가 달라질 수 있으므로 03의 고정 결과를 설명하는 보조 테스트로 사용한다.
 - `04 Core 동시 사용자 한계`: 주입 방식을 `동시 사용자 유지 (Closed Model)`로 사용한다. `사용자 수`는 동시에 유지할 Core 사용자 수이고, `Closed Model 피더 행 수`는 노드마다 소비할 수 있는 고유 CSV 행 수다.
 - `05 Core 순간 부하 및 회복`: `초당 사용자 수`가 기준 RPS, `최고 RPS`가 순간 최고 RPS, `투입 시간`이 최고 RPS 유지 시간이다. 실행 패턴은 기준 30초 → 5초 증가 → 최고 RPS 유지 → 5초 감소 → 기준 30초다.
@@ -264,7 +264,7 @@ Console의 `테스트 종류`에서 다음 일곱 시나리오를 직접 선택�
 
 ### Feeder 규칙
 
-`Booking Feeder CSV`는 UTF-8 no BOM 파일이다. 04·05는 `memberId,accessToken,admissionToken` 3컬럼을 권장하며 좌석은 실행 중 Core에서 자동으로 고른다. 03은 `memberId,accessToken,seatId,admissionToken` 4컬럼을 사용하고 회원과 좌석을 모두 고유하게 준비하며 Admission Token은 비워 둔다. 03-2는 feeder를 사용하지 않는다.
+`Booking Feeder CSV`는 UTF-8 no BOM 파일이다. 04·05는 `memberId,accessToken,admissionToken` 3컬럼을 권장하며 좌석은 실행 중 Core에서 자동으로 고른다. 03은 `memberId,accessToken,seatId,admissionToken` 4컬럼을 사용하며 기본값에서는 Console이 자동 생성한다. 회원과 좌석은 실행 안에서 모두 고유하고 Admission Token은 비어 있다. 03-2는 feeder를 사용하지 않는다.
 
 - 03 고정 조건 Core 수용량은 고유 `seatId`가 필요하다. 03-2는 feeder를 사용하지 않고, 04·05는 feeder에 `seatId`가 필요 없다.
 - Hot Seat는 모든 행에 같은 `seatId`가 필요하다.

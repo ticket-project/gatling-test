@@ -59,7 +59,9 @@ tasks.register('generateAccessTokens', JavaExec) {
             'jwtIssuer',
             'syntheticMemberStartId',
             'syntheticJwtRole',
-            'syntheticTokenTtlSeconds'
+            'syntheticTokenTtlSeconds',
+            'bookingFeederOutput',
+            'bookingSeatStartId'
     ].each { propertyName ->
         def propertyValue = System.getProperty(propertyName)
         if (propertyValue != null) {

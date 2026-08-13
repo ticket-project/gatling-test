@@ -192,23 +192,23 @@ API 하나의 순수 처리량을 확인할 때는 아래 시나리오를 사용
 
 ### Core 안전 입장률 측정
 
-`CoreAdmissionCapacitySimulation`은 Queue를 완전히 우회하고, feeder에 미리 고정한 회원과 고유 좌석으로 Core만 직접 호출한다. Admission Token은 보내지 않는다. Open Model로 한 실행에 하나의 고정 입장률만 사용하며 10, 25, 50, 100, 200, 300 users/sec를 각각 별도 실행한다.
+`CoreAdmissionCapacitySimulation`은 Queue를 완전히 우회하고, feeder에 미리 고정한 회원과 고유 좌석으로 Core만 직접 호출한다. Admission Token은 보내지 않는다. Open Model로 한 실행에 하나의 고정 입장률만 사용하며 최초 경계 탐색은 5, 10, 15, 20, 30, 40, 50 users/sec를 각각 별도 실행한다.
 
-같은 테스트가 되려면 부하 값만 같아서는 부족하다. 실행마다 같은 회차, 같은 회원 수, 같은 좌석 수를 사용하고 모든 대상 좌석이 `AVAILABLE`인 상태에서 시작해야 한다. 각 실행 전 주문·선점 상태를 같은 기준 상태로 복원하지 않으면 앞 실행의 주문과 선점이 다음 실행의 충돌률과 요청 수를 바꾼다. 처음에는 60초로 동작을 확인하고, 후보 한계 구간만 5~10분 유지한다.
+같은 테스트가 되려면 부하 값만 같아서는 부족하다. 실행마다 좌석 수와 상태가 같은 독립 전용 회차를 사용하고 모든 대상 좌석이 `AVAILABLE`인 상태에서 시작해야 한다. 앞 실행의 주문·선점 상태를 자동 복원하지 않고 다음 독립 performance로 이동한다. 약 2,000석 데이터의 최초 경계 탐색은 모든 단계를 30초로 고정하고, 장시간 검증은 후보 입장률을 찾은 뒤 필요한 좌석 수와 데이터 구조를 별도로 승인한다.
 
-feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 수만큼 고유한 ACTIVE 회원과 고유한 AVAILABLE 좌석을 준비한다. 이 테스트에서는 `admissionToken` 열을 비워도 된다. Admission Token을 보내지 않으므로 전용 테스트 환경의 Core에서 `ADMISSION_TOKEN_ENFORCEMENT_ENABLED=false`여야 한다.
+feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 수만큼 고유한 ACTIVE 회원과 고유한 AVAILABLE 좌석을 사용한다. 이 테스트에서는 `admissionToken` 열을 비워도 된다. 전용 performance는 기존 Queue 정책을 `FORCE_OFF`로 설정해 Admission Token 없이 직접 Core를 호출할 수 있어야 한다. Oracle 데이터와 전용 회원 최초 생성, Console의 JWT·feeder 자동 생성, 30개 회차 배정과 원복 버튼 사용법은 [Core Admission Capacity 운영 파일](scripts/core-capacity/README.md)을 따른다.
 
 ```powershell
 .\gradlew.bat -p load-tests\gatling gatlingRun `
   --simulation com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation `
   -DcoreBaseUrl=https://api.example.com `
-  -DperformanceId=1 `
+  -DperformanceId=910000001 `
   -DbookingFeederFile=C:\path\booking-feeder.csv `
   -DbookingScenario=CORE_ADMISSION_CAPACITY `
   -DinjectionMode=constant-users-per-sec `
-  -DusersPerSecond=300 `
-  -DdurationSeconds=300 `
-  -DresultFile=..\..\distributed-results-join\_latest\core-capacity-300.csv
+  -DusersPerSecond=5 `
+  -DdurationSeconds=30 `
+  -DresultFile=..\..\distributed-results-join\_latest\core-capacity-005.csv
 ```
 
 03-2 `CoreRealisticContentionSimulation`은 기존의 인기 좌석 쏠림·충돌·재시도·이탈 모델을 보존한다. 합성 JWT를 쓰고 feeder 없이 실행하므로 실행 간 충돌량이 달라질 수 있다. 고정 03에서 한계를 찾은 뒤 실제 행동을 섞었을 때 병목이 어떻게 변하는지 확인하는 보조 테스트로 사용한다.

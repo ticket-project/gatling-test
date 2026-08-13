@@ -40,4 +40,34 @@ class AccessTokenFileGeneratorTest {
         assertEquals(101L, LoadTestTokens.readSubjectAsLong(tokens.get(1)));
         assertEquals(102L, LoadTestTokens.readSubjectAsLong(tokens.get(2)));
     }
+
+    @Test
+    void writesBookingFeederWithMatchingMembersTokensAndSeats() throws Exception {
+        Path output = tempDir.resolve("feeders").resolve("booking-feeder.csv");
+
+        AccessTokenFileGenerator.writeBookingFeeder(
+                output,
+                "ticket",
+                SECRET,
+                1L,
+                910000001L,
+                2,
+                "MEMBER",
+                3600,
+                NOW
+        );
+
+        List<String> lines = Files.readAllLines(output);
+        String[] first = lines.get(1).split(",", -1);
+        String[] second = lines.get(2).split(",", -1);
+
+        assertEquals("memberId,accessToken,seatId,admissionToken", lines.get(0));
+        assertEquals("1", first[0]);
+        assertEquals(1L, LoadTestTokens.readSubjectAsLong(first[1]));
+        assertEquals("910000001", first[2]);
+        assertEquals("", first[3]);
+        assertEquals("2", second[0]);
+        assertEquals(2L, LoadTestTokens.readSubjectAsLong(second[1]));
+        assertEquals("910000002", second[2]);
+    }
 }

@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +28,9 @@ import java.util.stream.Stream;
 
 public class LoadTestService {
     private static final int FAILURE_BODY_PREVIEW_LIMIT = 4_000;
+    private static final long CORE_CAPACITY_MEMBER_START_ID = 1L;
+    private static final long CORE_CAPACITY_SEAT_START_ID = 910000001L;
+    private static final int CORE_CAPACITY_DATA_ROWS = 2_000;
 
     private final GatlingCommandBuilder commandBuilder = new GatlingCommandBuilder();
     private final DistributedGatlingCommandBuilder distributedCommandBuilder = new DistributedGatlingCommandBuilder();
@@ -36,6 +40,7 @@ public class LoadTestService {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Map<UUID, LoadTestRun> runs = new LinkedHashMap<>();
     private final AtomicReference<UUID> runningRunId = new AtomicReference<>();
+    private final AtomicReference<Process> runningResetProcess = new AtomicReference<>();
 
     public LoadTestService(final ReportRegistry reportRegistry) {
         this.reportRegistry = reportRegistry;
@@ -44,6 +49,9 @@ public class LoadTestService {
     public synchronized LoadTestRun start(final LoadTestRequest request) {
         if (runningRunId.get() != null) {
             throw new IllegalStateException("A load test is already running");
+        }
+        if (isResetRunning()) {
+            throw new IllegalStateException("Core Capacity reset is still running. Close its PowerShell window first");
         }
         validateInjectionMode(request);
         validateTargetSelection(request);
@@ -249,6 +257,10 @@ public class LoadTestService {
             throw new IllegalArgumentException("Operational confirmation is required for every booking execution");
         }
         if (request.simulationType().usesBookingFeeder()) {
+            if (generatesCoreCapacityFeeder(request)) {
+                validateGeneratedCoreCapacityFeeder(request);
+                return;
+            }
             final Path feederPath = resolveInputPath(request.ticketProjectPath(), request.bookingFeederFile());
             if (!Files.isRegularFile(feederPath)) {
                 throw new IllegalArgumentException("Booking feeder file not found: " + request.bookingFeederFile());
@@ -262,6 +274,37 @@ public class LoadTestService {
                         + request.bookingFeederOffset() + ", expected=" + requiredRows + ", required="
                         + requiredRowsWithOffset + ", actual=" + actualRows);
             }
+        }
+    }
+
+    private boolean generatesCoreCapacityFeeder(final LoadTestRequest request) {
+        return request.simulationType() == SimulationType.CORE_ADMISSION_CAPACITY
+                && request.generatesAccessTokensFile();
+    }
+
+    private void validateGeneratedCoreCapacityFeeder(final LoadTestRequest request) {
+        if (request.distributedExecution()) {
+            throw new IllegalArgumentException(
+                    "Core Capacity automatic JWT/feeder generation currently supports local Console execution only"
+            );
+        }
+        if (request.syntheticMemberStartId() != CORE_CAPACITY_MEMBER_START_ID) {
+            throw new IllegalArgumentException(
+                    "Core Capacity automatic feeder requires Member start ID " + CORE_CAPACITY_MEMBER_START_ID
+            );
+        }
+        final long requiredRows = (long) request.bookingFeederOffset() + request.expectedBookingRowsPerNode();
+        if (request.generatedAccessTokenCount() < requiredRows) {
+            throw new IllegalArgumentException(
+                    "Core Capacity automatic feeder rows are insufficient: generated="
+                            + request.generatedAccessTokenCount() + ", required=" + requiredRows
+            );
+        }
+        if (request.generatedAccessTokenCount() > CORE_CAPACITY_DATA_ROWS) {
+            throw new IllegalArgumentException(
+                    "Core Capacity automatic feeder exceeds the dedicated 2,000 members/seats: generated="
+                            + request.generatedAccessTokenCount() + ", available=" + CORE_CAPACITY_DATA_ROWS
+            );
         }
     }
 
@@ -364,6 +407,64 @@ public class LoadTestService {
             distributedRunStopper.stop(run.request(), runId, run::appendLog);
         }
         return run;
+    }
+
+    public synchronized void launchCoreCapacityReset(final Path ticketProjectPath) throws IOException {
+        if (runningRunId.get() != null) {
+            throw new IllegalStateException("Cannot reset while a load test is running");
+        }
+        if (isResetRunning()) {
+            throw new IllegalStateException("A Core Capacity reset window is already open");
+        }
+        final Path normalizedProject = ticketProjectPath.toAbsolutePath().normalize();
+        validateLoadTestsProject(normalizedProject);
+        final Path scriptPath = normalizedProject.resolve("scripts")
+                .resolve("core-capacity")
+                .resolve("reset-core-capacity.ps1")
+                .normalize();
+        if (!scriptPath.startsWith(normalizedProject) || !Files.isRegularFile(scriptPath)) {
+            throw new IllegalArgumentException("Core Capacity reset script not found: " + scriptPath);
+        }
+        if (!System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win")) {
+            throw new IllegalStateException("Core Capacity reset Console button is available on Windows only");
+        }
+
+        final String childArguments = String.join(",", List.of(
+                powershellQuote("-NoExit"),
+                powershellQuote("-NoProfile"),
+                powershellQuote("-ExecutionPolicy"),
+                powershellQuote("Bypass"),
+                powershellQuote("-File"),
+                powershellQuote(scriptPath.toString())
+        ));
+        final String launcher = "$reset = Start-Process -FilePath 'powershell.exe' "
+                + "-WorkingDirectory " + powershellQuote(normalizedProject.toString()) + " "
+                + "-ArgumentList @(" + childArguments + ") -WindowStyle Normal -PassThru; "
+                + "$reset.WaitForExit(); exit $reset.ExitCode";
+        final String encodedLauncher = Base64.getEncoder().encodeToString(
+                launcher.getBytes(StandardCharsets.UTF_16LE)
+        );
+        final Process process = new ProcessBuilder(
+                "powershell.exe", "-NoProfile", "-EncodedCommand", encodedLauncher
+        ).directory(normalizedProject.toFile()).start();
+        runningResetProcess.set(process);
+        process.onExit().thenRun(() -> runningResetProcess.compareAndSet(process, null));
+    }
+
+    private boolean isResetRunning() {
+        final Process process = runningResetProcess.get();
+        if (process == null) {
+            return false;
+        }
+        if (process.isAlive()) {
+            return true;
+        }
+        runningResetProcess.compareAndSet(process, null);
+        return false;
+    }
+
+    private String powershellQuote(final String value) {
+        return "'" + value.replace("'", "''") + "'";
     }
 
     private void execute(final LoadTestRun run, final LoadTestRequest request) {
@@ -676,6 +777,10 @@ public class LoadTestService {
         command.add("-DsyntheticMemberStartId=" + request.syntheticMemberStartId());
         command.add("-DsyntheticJwtRole=" + request.syntheticJwtRole());
         command.add("-DsyntheticTokenTtlSeconds=" + request.syntheticTokenTtlSeconds());
+        if (generatesCoreCapacityFeeder(request)) {
+            command.add("-DbookingFeederOutput=" + request.bookingFeederFile());
+            command.add("-DbookingSeatStartId=" + CORE_CAPACITY_SEAT_START_ID);
+        }
         return List.copyOf(command);
     }
 

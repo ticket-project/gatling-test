@@ -50,6 +50,10 @@ public class ConsoleServer {
                 handleRuns(exchange);
                 return;
             }
+            if (path.equals("/api/core-capacity/reset")) {
+                handleCoreCapacityReset(exchange);
+                return;
+            }
             if (path.startsWith("/api/runs/")) {
                 handleRunApi(exchange, path);
                 return;
@@ -98,6 +102,26 @@ public class ConsoleServer {
         final LoadTestRequest request = LoadTestRequest.fromForm(FormParser.parse(body));
         final LoadTestRun run = loadTestService.start(request);
         writeJson(exchange, 202, run.toJson());
+    }
+
+    private void handleCoreCapacityReset(final HttpExchange exchange) throws IOException {
+        requireMethod(exchange, "POST");
+        final String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        final Map<String, java.util.List<String>> form = FormParser.parse(body);
+        final String projectPath = firstValue(form, "ticketProjectPath");
+        loadTestService.launchCoreCapacityReset(Path.of(projectPath));
+        writeJson(exchange, 202, "{\"launched\":true}");
+    }
+
+    private String firstValue(
+            final Map<String, java.util.List<String>> form,
+            final String name
+    ) {
+        final java.util.List<String> values = form.get(name);
+        if (values == null || values.isEmpty() || values.getFirst().isBlank()) {
+            throw new IllegalArgumentException(name + " is required");
+        }
+        return values.getFirst().trim();
     }
 
     private void handleRunApi(final HttpExchange exchange, final String path) throws IOException {
