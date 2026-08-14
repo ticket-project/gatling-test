@@ -765,6 +765,13 @@ public final class LoadTestConfig {
         return new SyntheticMemberId(SYNTHETIC_MEMBER_COUNTER.getAndIncrement());
     }
 
+    public static String syntheticAccessTokenForMember(final long memberId) {
+        if (memberId <= 0) {
+            throw new IllegalArgumentException("memberId must be positive");
+        }
+        return createSyntheticJwt(memberId);
+    }
+
     private static String createSyntheticJwt(final Long memberId) {
         return LoadTestTokens.createAccessToken(
                 property(ConfigKey.JWT_ISSUER),

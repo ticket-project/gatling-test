@@ -33,12 +33,11 @@ Describe 'Core Capacity Oracle creation contract' {
             'seats',
             'show_grades',
             'show_seats',
-            'members',
             'performances',
             'performance_queue_policies',
             'performance_seats'
         )) {
-            $createSql | Should Match ("(?i)INSERT\s+INTO\s+" + $table + "\b")
+            $createSql | Should Match ("(?i)INSERT(?:\s*/\*\+[^*]*\*/)?\s+INTO\s+" + $table + "\b")
         }
         $createSql | Should Not Match '(?im)^\s*(DELETE|UPDATE|MERGE|TRUNCATE|DROP)\b'
     }
@@ -48,10 +47,26 @@ Describe 'Core Capacity Oracle creation contract' {
         $createSql | Should Match 'c_performance_count\s+CONSTANT\s+PLS_INTEGER\s*:=\s*30'
         $createSql | Should Match "'FORCE_OFF'"
         $createSql | Should Match "'AVAILABLE'"
-        $createSql | Should Match 'c_member_count\s+CONSTANT\s+PLS_INTEGER\s*:=\s*c_seat_count'
-        $createSql | Should Match 'c_member_id_base\s+CONSTANT\s+NUMBER\s*:=\s*0'
+        $createSql | Should Not Match '(?i)INSERT\s+INTO\s+members\b'
+        $createSql | Should Match '(?is)SELECT\s+id\s+AS\s+member_id.*WHERE\s+deleted_at\s+IS\s+NULL.*role\s*=\s*''MEMBER''.*ROWNUM\s*<=\s*10000'
         $createSql | Should Match '(?im)^\s*COMMIT;'
         $createSql | Should Match '(?im)^\s*\s*ROLLBACK;'
+    }
+
+    It 'runs as one PL SQL block without SQL Plus client commands' {
+        $createSql | Should Not Match '(?im)^\s*SET\s+SERVEROUTPUT\b'
+        $createSql | Should Not Match '(?im)^\s*WHENEVER\s+SQLERROR\b'
+        $createSql | Should Match '(?is)EXCEPTION\s+WHEN\s+OTHERS\s+THEN\s+ROLLBACK;\s+RAISE;'
+        $createSql | Should Match '(?m)^\s*/\s*$'
+    }
+
+    It 'forces serial DML for tables read again before commit' {
+        $serialInsertSelects = [regex]::Matches(
+            $createSql,
+            '(?i)INSERT\s*/\*\+\s*DISABLE_PARALLEL_DML\s*\*/\s+INTO\s+(seats|show_seats|performances|performance_queue_policies|performance_seats)\b'
+        )
+
+        $serialInsertSelects.Count | Should Be 5
     }
 }
 

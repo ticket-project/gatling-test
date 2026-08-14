@@ -86,7 +86,8 @@ class GatlingCommandBuilderTest {
         final List<String> command = new GatlingCommandBuilder().build(request);
 
         assertTrue(command.contains("com.ticket.loadtest.simulation.QueueJoinOnlySimulation"));
-        assertTrue(command.contains("-DbaseUrl=https://queue.oneticket.site"));
+        assertTrue(command.contains("-DbaseUrl="));
+        assertFalse(command.stream().anyMatch(value -> value.contains("queue.oneticket.site")));
         assertTrue(command.contains("-DperformanceId=13669679"));
         assertTrue(command.contains("-DaccessTokenMode=synthetic-jwt"));
         assertFalse(command.contains("-DstatusPolls=3"));
@@ -260,5 +261,24 @@ class GatlingCommandBuilderTest {
         assertTrue(command.contains("-DtechnicalFailureThresholdPercent=0.75"));
         assertTrue(command.contains("-DperformanceSummaryP95ThresholdMs=250"));
         assertTrue(command.contains("-DorderCreateP99ThresholdMs=1400"));
+    }
+
+    @Test
+    void buildsOrderGetWithInMemorySyntheticJwtAndSafeFeeder() {
+        final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
+                Map.entry("ticketProjectPath", List.of("C:/ticket")),
+                Map.entry("simulation", List.of("core-order-get-api")),
+                Map.entry("coreBaseUrl", List.of("https://api.example.com")),
+                Map.entry("bookingFeederFile", List.of("C:/feeders/order-lookup.csv")),
+                Map.entry("accessTokenMode", List.of("synthetic-jwt")),
+                Map.entry("jwtSecret", List.of("0123456789abcdef0123456789abcdef"))
+        ));
+
+        final List<String> command = new GatlingCommandBuilder().build(request);
+
+        assertTrue(command.contains("-DbookingFeederFile=C:/feeders/order-lookup.csv"));
+        assertTrue(command.contains("-DaccessTokenMode=synthetic-jwt"));
+        assertTrue(command.contains("-DjwtSecret=0123456789abcdef0123456789abcdef"));
+        assertFalse(command.stream().anyMatch(value -> value.startsWith("-DaccessTokensFile=")));
     }
 }

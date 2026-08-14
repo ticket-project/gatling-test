@@ -140,7 +140,7 @@ API 하나의 순수 처리량을 확인할 때는 아래 시나리오를 사용
 | `GET /api/v1/performances/{performanceId}/seats/status` | 좌석 상태 조회 1회 | 인증 사용자 필요, 같은 좌석 수와 상태 비율 유지 |
 | `POST /api/v1/performances/{performanceId}/seats/{seatId}/select` | 고유 좌석 선점 1회 | `memberId,accessToken,seatId,admissionToken` CSV, 모든 좌석 AVAILABLE |
 | `POST /api/v1/orders` | 주문 생성 1회 | 같은 CSV, 각 좌석이 해당 회원에게 미리 선점된 상태 |
-| `GET /api/v1/orders/{orderKey}` | 주문 조회 1회 | `memberId,accessToken,orderKey` CSV, 회원 소유 주문 |
+| `GET /api/v1/orders/{orderKey}` | 주문 조회 1회 | `memberId,orderKey` CSV, 회원 소유 주문. JWT는 실행 중 메모리에서 생성 |
 
 단일 API 테스트 안에서는 준비용 API를 호출하지 않는다. 예를 들어 주문 생성 테스트가 좌석 선점까지 호출하면 Redis·락·좌석 검증 부하가 주문 생성의 DB 비용에 섞이기 때문이다. 따라서 상태 변경 API는 실행 전에 데이터를 준비하고 실행 후 원상 복구한다. 현재 분산 Booking 실행기는 전체 예매 증거 파일을 전제로 하므로 이 다섯 테스트는 로컬 Gatling 실행만 지원한다.
 
@@ -196,7 +196,7 @@ API 하나의 순수 처리량을 확인할 때는 아래 시나리오를 사용
 
 같은 테스트가 되려면 부하 값만 같아서는 부족하다. 실행마다 좌석 수와 상태가 같은 독립 전용 회차를 사용하고 모든 대상 좌석이 `AVAILABLE`인 상태에서 시작해야 한다. 앞 실행의 주문·선점 상태를 자동 복원하지 않고 다음 독립 performance로 이동한다. 약 2,000석 데이터의 최초 경계 탐색은 모든 단계를 30초로 고정하고, 장시간 검증은 후보 입장률을 찾은 뒤 필요한 좌석 수와 데이터 구조를 별도로 승인한다.
 
-feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 수만큼 고유한 ACTIVE 회원과 고유한 AVAILABLE 좌석을 사용한다. 이 테스트에서는 `admissionToken` 열을 비워도 된다. 전용 performance는 기존 Queue 정책을 `FORCE_OFF`로 설정해 Admission Token 없이 직접 Core를 호출할 수 있어야 한다. Oracle 데이터와 전용 회원 최초 생성, Console의 JWT·feeder 자동 생성, 30개 회차 배정과 원복 버튼 사용법은 [Core Admission Capacity 운영 파일](scripts/core-capacity/README.md)을 따른다.
+feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 수만큼 고유한 기존 ACTIVE 회원과 고유한 AVAILABLE 좌석을 사용한다. 이 테스트에서는 `admissionToken` 열을 비워도 된다. 전용 performance는 기존 Queue 정책을 `FORCE_OFF`로 설정해 Admission Token 없이 직접 Core를 호출할 수 있어야 한다. Oracle 회차·좌석 생성, 기존 회원 ID 추출, Console의 JWT·feeder 자동 생성, 30개 회차 배정과 원복 버튼 사용법은 [Core Admission Capacity 운영 파일](scripts/core-capacity/README.md)을 따른다.
 
 ```powershell
 .\gradlew.bat -p load-tests\gatling gatlingRun `

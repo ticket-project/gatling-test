@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -12,7 +13,9 @@ import java.util.Map;
 import java.util.Set;
 
 public final class OrderLookupFeeder {
-    private static final String HEADER = "memberId,accessToken,orderKey";
+    private static final String HEADER = "memberId,orderKey";
+    private static final String LEGACY_HEADER = "memberId,accessToken,orderKey";
+    private static final Object WRITE_LOCK = new Object();
 
     private OrderLookupFeeder() {
     }
@@ -21,10 +24,53 @@ public final class OrderLookupFeeder {
         return read(file, expectedRows).stream()
                 .map(row -> Map.<String, Object>of(
                         "memberId", row.memberId(),
-                        "accessToken", row.accessToken(),
                         "orderKey", row.orderKey()
                 ))
                 .iterator();
+    }
+
+    public static void initialize(final Path file) {
+        synchronized (WRITE_LOCK) {
+            try {
+                final Path parent = file.toAbsolutePath().normalize().getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                Files.writeString(
+                        file,
+                        HEADER + System.lineSeparator(),
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING
+                );
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to initialize order lookup feeder: " + file, exception);
+            }
+        }
+    }
+
+    public static void append(
+            final Path file,
+            final long memberId,
+            final String orderKey
+    ) {
+        if (orderKey == null || orderKey.isBlank() || orderKey.contains(",")) {
+            throw new IllegalArgumentException("orderKey must be a non-empty CSV-safe value");
+        }
+        final String line = memberId + "," + orderKey + System.lineSeparator();
+        synchronized (WRITE_LOCK) {
+            try {
+                Files.writeString(
+                        file,
+                        line,
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND
+                );
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to append order lookup feeder: " + file, exception);
+            }
+        }
     }
 
     static List<OrderLookupRow> read(final Path file, final int expectedRows) {
@@ -37,7 +83,8 @@ public final class OrderLookupFeeder {
         if (lines.isEmpty() || lines.getFirst().startsWith("\uFEFF")) {
             throw new IllegalArgumentException("Order lookup feeder must be BOM-free UTF-8 CSV");
         }
-        if (!HEADER.equals(lines.getFirst())) {
+        final boolean legacyFormat = LEGACY_HEADER.equals(lines.getFirst());
+        if (!HEADER.equals(lines.getFirst()) && !legacyFormat) {
             throw new IllegalArgumentException("Order lookup feeder header must be " + HEADER);
         }
 
@@ -46,15 +93,13 @@ public final class OrderLookupFeeder {
         final List<OrderLookupRow> rows = new ArrayList<>();
         for (int index = 1; index < lines.size(); index++) {
             final String[] columns = lines.get(index).split(",", -1);
-            if (columns.length != 3) {
-                throw invalidRow(index, "exactly 3 columns are required");
+            final int expectedColumns = legacyFormat ? 3 : 2;
+            if (columns.length != expectedColumns) {
+                throw invalidRow(index, "exactly " + expectedColumns + " columns are required");
             }
             final long memberId = positiveLong(columns[0], index);
-            final String accessToken = columns[1].trim();
-            final String orderKey = columns[2].trim();
-            if (accessToken.isEmpty()) {
-                throw invalidRow(index, "accessToken is required");
-            }
+            final String accessToken = legacyFormat ? columns[1].trim() : "";
+            final String orderKey = columns[legacyFormat ? 2 : 1].trim();
             if (orderKey.isEmpty()) {
                 throw invalidRow(index, "orderKey is required");
             }
@@ -64,14 +109,16 @@ public final class OrderLookupFeeder {
             if (!orderKeys.add(orderKey)) {
                 throw invalidRow(index, "orderKey must be unique");
             }
-            try {
-                if (LoadTestTokens.readSubjectAsLong(accessToken) != memberId) {
-                    throw invalidRow(index, "accessToken subject does not match memberId");
+            if (legacyFormat) {
+                try {
+                    if (LoadTestTokens.readSubjectAsLong(accessToken) != memberId) {
+                        throw invalidRow(index, "accessToken subject does not match memberId");
+                    }
+                } catch (IllegalArgumentException exception) {
+                    throw invalidRow(index, "accessToken claims are invalid");
                 }
-            } catch (IllegalArgumentException exception) {
-                throw invalidRow(index, "accessToken claims are invalid");
             }
-            rows.add(new OrderLookupRow(memberId, accessToken, orderKey));
+            rows.add(new OrderLookupRow(memberId, orderKey));
         }
         if (rows.size() < expectedRows) {
             throw new IllegalArgumentException("Order lookup feeder has fewer rows than expected: expected="
@@ -97,6 +144,6 @@ public final class OrderLookupFeeder {
                 + (zeroBasedIndex + 1) + ": " + message);
     }
 
-    record OrderLookupRow(long memberId, String accessToken, String orderKey) {
+    record OrderLookupRow(long memberId, String orderKey) {
     }
 }

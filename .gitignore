@@ -14,3 +14,7 @@ out/
 /distributed-results/
 /distributed-results-join/
 /distributed-results-legacy/
+/.gradle-user-home/
+
+# Production Core capacity member pool exported from Oracle
+/scripts/core-capacity/member-ids.txt

@@ -100,6 +100,12 @@
       border-bottom: 1px solid var(--line);
     }
 
+    .panel-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     h2 {
       margin: 0;
       font-size: 15px;
@@ -227,15 +233,23 @@
       padding: 10px 12px;
     }
 
-    .capacity-preview {
-      margin: 12px 0 14px;
-      border: 2px solid #b45309;
+    .advanced-settings {
+      margin-top: 12px;
+      border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 13px 14px;
-      background: #fff7ed;
-      color: #431407;
-      white-space: pre-wrap;
-      font: 750 13px/1.55 Consolas, "Segoe UI Mono", monospace;
+      background: var(--surface-soft);
+    }
+
+    .advanced-settings > summary {
+      padding: 11px 12px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .advanced-settings-body {
+      padding: 0 12px 12px;
     }
 
 
@@ -586,6 +600,14 @@
       display: none;
     }
 
+    .capacity-hidden {
+      display: none;
+    }
+
+    #jwtIdentitySettings.capacity-mode {
+      grid-template-columns: 1fr;
+    }
+
     @media (max-width: 1040px) {
       main {
         grid-template-columns: 1fr;
@@ -628,7 +650,10 @@
   <section class="panel">
     <div class="panel-header">
       <h2>테스트 설정</h2>
-      <button id="resetButton" class="secondary-button" type="button">초기화</button>
+      <div class="panel-header-actions">
+        <button id="capacityResetButton" class="danger-button" type="button" title="전용 테스트 회차 30개의 주문 실행 이력과 Redis hold를 전체 원복합니다.">테스트 데이터 전체 원복</button>
+        <button id="resetButton" class="secondary-button" type="button">초기화</button>
+      </div>
     </div>
 
     <form id="runForm">
@@ -730,9 +755,9 @@ ubuntu@43.203.136.184</textarea>
               <input id="queueBaseUrl" name="queueBaseUrl" value="https://queue.oneticket.site">
             </div>
           </div>
-          <div class="grid-2" data-option="booking-feeder">
+          <div class="grid-2" data-option="booking-feeder" data-capacity-auto>
             <div>
-              <label for="bookingFeederFile">테스트 데이터 CSV <span class="help-chip" tabindex="0" data-help="03 고정 조건·좌석 선택·주문 생성은 memberId,accessToken,seatId,admissionToken, 주문 조회는 memberId,accessToken,orderKey 형식입니다. UTF-8 no BOM CSV입니다.">?</span></label>
+              <label for="bookingFeederFile">테스트 데이터 CSV <span class="help-chip" tabindex="0" data-help="03 고정 조건·좌석 선택·주문 생성은 memberId,accessToken,seatId,admissionToken, 주문 조회는 memberId,orderKey 형식입니다. UTF-8 no BOM CSV입니다.">?</span></label>
               <input id="bookingFeederFile" name="bookingFeederFile" value="build/booking-feeder.csv">
             </div>
             <div>
@@ -740,43 +765,31 @@ ubuntu@43.203.136.184</textarea>
               <input id="resultFile" name="resultFile" value="../../distributed-results-join/_latest/booking-results.csv">
             </div>
           </div>
-          <div class="hidden" data-option="capacity">
-            <div>
-              <label for="bookingFeederOffset">Feeder Offset <span class="help-chip" tabindex="0" data-help="이번 독립 실행에서 사용할 첫 번째 피더 행의 0-based 위치입니다. 이전 실행이 소비한 사용자 수만큼 증가시키면 회원·좌석이 겹치지 않습니다.">?</span></label>
-              <input id="bookingFeederOffset" name="bookingFeederOffset" type="number" min="0" step="1" value="0">
+          <input id="bookingFeederOffset" name="bookingFeederOffset" type="hidden" value="0">
+          <details id="capacityAdvancedSettings" class="advanced-settings hidden" data-option="capacity">
+            <summary>판정 기준 변경 · 기본값 사용 권장</summary>
+            <div class="advanced-settings-body">
+              <div class="grid-2">
+                <div>
+                  <label for="technicalFailureThresholdPercent">Technical failure 허용률(%)</label>
+                  <input id="technicalFailureThresholdPercent" name="technicalFailureThresholdPercent" type="number" min="0.01" max="100" step="0.01" value="1.0">
+                </div>
+              </div>
+              <p class="field-note">응답 시간 SLO (p95 / p99, ms)</p>
+              <div class="grid-2">
+                <div><label for="performanceSummaryP95ThresholdMs">공연 요약 p95</label><input id="performanceSummaryP95ThresholdMs" name="performanceSummaryP95ThresholdMs" type="number" min="1" value="300"></div>
+                <div><label for="performanceSummaryP99ThresholdMs">공연 요약 p99</label><input id="performanceSummaryP99ThresholdMs" name="performanceSummaryP99ThresholdMs" type="number" min="1" value="700"></div>
+                <div><label for="seatStatusP95ThresholdMs">좌석 상태 p95</label><input id="seatStatusP95ThresholdMs" name="seatStatusP95ThresholdMs" type="number" min="1" value="300"></div>
+                <div><label for="seatStatusP99ThresholdMs">좌석 상태 p99</label><input id="seatStatusP99ThresholdMs" name="seatStatusP99ThresholdMs" type="number" min="1" value="700"></div>
+                <div><label for="seatSelectP95ThresholdMs">좌석 선택 p95</label><input id="seatSelectP95ThresholdMs" name="seatSelectP95ThresholdMs" type="number" min="1" value="500"></div>
+                <div><label for="seatSelectP99ThresholdMs">좌석 선택 p99</label><input id="seatSelectP99ThresholdMs" name="seatSelectP99ThresholdMs" type="number" min="1" value="1000"></div>
+                <div><label for="orderCreateP95ThresholdMs">주문 생성 p95</label><input id="orderCreateP95ThresholdMs" name="orderCreateP95ThresholdMs" type="number" min="1" value="800"></div>
+                <div><label for="orderCreateP99ThresholdMs">주문 생성 p99</label><input id="orderCreateP99ThresholdMs" name="orderCreateP99ThresholdMs" type="number" min="1" value="1500"></div>
+                <div><label for="orderGetP95ThresholdMs">주문 조회 p95</label><input id="orderGetP95ThresholdMs" name="orderGetP95ThresholdMs" type="number" min="1" value="500"></div>
+                <div><label for="orderGetP99ThresholdMs">주문 조회 p99</label><input id="orderGetP99ThresholdMs" name="orderGetP99ThresholdMs" type="number" min="1" value="1000"></div>
+              </div>
             </div>
-          </div>
-          <div class="grid-2 hidden" data-option="capacity">
-            <div>
-              <label for="technicalFailureThresholdPercent">Technical failure 허용률(%)</label>
-              <input id="technicalFailureThresholdPercent" name="technicalFailureThresholdPercent" type="number" min="0.01" max="100" step="0.01" value="1.0">
-            </div>
-          </div>
-          <div class="hidden" data-option="capacity">
-            <p class="field-note">응답 시간 SLO (p95 / p99, ms)</p>
-            <div class="grid-2">
-              <div><label for="performanceSummaryP95ThresholdMs">공연 요약 p95</label><input id="performanceSummaryP95ThresholdMs" name="performanceSummaryP95ThresholdMs" type="number" min="1" value="300"></div>
-              <div><label for="performanceSummaryP99ThresholdMs">공연 요약 p99</label><input id="performanceSummaryP99ThresholdMs" name="performanceSummaryP99ThresholdMs" type="number" min="1" value="700"></div>
-              <div><label for="seatStatusP95ThresholdMs">좌석 상태 p95</label><input id="seatStatusP95ThresholdMs" name="seatStatusP95ThresholdMs" type="number" min="1" value="300"></div>
-              <div><label for="seatStatusP99ThresholdMs">좌석 상태 p99</label><input id="seatStatusP99ThresholdMs" name="seatStatusP99ThresholdMs" type="number" min="1" value="700"></div>
-              <div><label for="seatSelectP95ThresholdMs">좌석 선택 p95</label><input id="seatSelectP95ThresholdMs" name="seatSelectP95ThresholdMs" type="number" min="1" value="500"></div>
-              <div><label for="seatSelectP99ThresholdMs">좌석 선택 p99</label><input id="seatSelectP99ThresholdMs" name="seatSelectP99ThresholdMs" type="number" min="1" value="1000"></div>
-              <div><label for="orderCreateP95ThresholdMs">주문 생성 p95</label><input id="orderCreateP95ThresholdMs" name="orderCreateP95ThresholdMs" type="number" min="1" value="800"></div>
-              <div><label for="orderCreateP99ThresholdMs">주문 생성 p99</label><input id="orderCreateP99ThresholdMs" name="orderCreateP99ThresholdMs" type="number" min="1" value="1500"></div>
-              <div><label for="orderGetP95ThresholdMs">주문 조회 p95</label><input id="orderGetP95ThresholdMs" name="orderGetP95ThresholdMs" type="number" min="1" value="500"></div>
-              <div><label for="orderGetP99ThresholdMs">주문 조회 p99</label><input id="orderGetP99ThresholdMs" name="orderGetP99ThresholdMs" type="number" min="1" value="1000"></div>
-            </div>
-          </div>
-          <div id="capacityPreview" class="capacity-preview hidden" data-option="capacity"></div>
-          <div class="hidden" data-option="capacity">
-            <p class="field-note">
-              토큰 파일 자동 생성을 선택하면 전용 회원과 좌석으로 위 테스트 데이터 CSV도 실행 직전에 자동 생성합니다.
-            </p>
-            <button id="capacityResetButton" class="danger-button" type="button">전체 테스트 회차 원복 창 열기</button>
-            <p class="field-note">
-              전용 Performance ID 910000001..910000030 전체를 대상으로 별도 PowerShell 창을 엽니다. 그 창에서 Oracle·Redis 접속값과 전체 원복 확인 문구를 직접 입력합니다.
-            </p>
-          </div>
+          </details>
           <div data-option="closed-booking" class="hidden">
             <label for="bookingFeederRows">노드별 고유 피더 행 수 <span class="help-chip" tabindex="0" data-help="Closed Model은 완료된 사용자를 계속 교체하므로 동시 사용자 수보다 많은 고유 회원·좌석 행이 필요합니다. 피더를 순환시키지 않아 정합성 오염을 막습니다.">?</span></label>
             <input id="bookingFeederRows" name="bookingFeederRows" type="number" min="1" value="10000">
@@ -799,39 +812,39 @@ ubuntu@43.203.136.184</textarea>
             <label for="performanceId">회차 ID <span class="help-chip" tabindex="0" data-help="테스트할 공연 회차의 ID입니다. 대기열, 좌석 상태, 홀드 API 경로에 들어갑니다. 로컬 seed 데이터에 실제 존재해야 합니다.">?</span></label>
             <input id="performanceId" name="performanceId" value="1">
             <datalist id="coreCapacityPerformanceIds">
-              <option value="910000001" label="1차 5 users/sec"></option>
-              <option value="910000002" label="1차 10 users/sec"></option>
-              <option value="910000003" label="1차 15 users/sec"></option>
-              <option value="910000004" label="1차 20 users/sec"></option>
-              <option value="910000005" label="1차 30 users/sec"></option>
-              <option value="910000006" label="1차 40 users/sec"></option>
-              <option value="910000007" label="1차 50 users/sec"></option>
-              <option value="910000008" label="2차 5 users/sec"></option>
-              <option value="910000009" label="2차 10 users/sec"></option>
-              <option value="910000010" label="2차 15 users/sec"></option>
-              <option value="910000011" label="2차 20 users/sec"></option>
-              <option value="910000012" label="2차 30 users/sec"></option>
-              <option value="910000013" label="2차 40 users/sec"></option>
-              <option value="910000014" label="2차 50 users/sec"></option>
-              <option value="910000015" label="3차 5 users/sec"></option>
-              <option value="910000016" label="3차 10 users/sec"></option>
-              <option value="910000017" label="3차 15 users/sec"></option>
-              <option value="910000018" label="3차 20 users/sec"></option>
-              <option value="910000019" label="3차 30 users/sec"></option>
-              <option value="910000020" label="3차 40 users/sec"></option>
-              <option value="910000021" label="3차 50 users/sec"></option>
-              <option value="910000022" label="경계 탐색 1"></option>
-              <option value="910000023" label="경계 탐색 2"></option>
-              <option value="910000024" label="경계 탐색 3"></option>
-              <option value="910000025" label="경계 탐색 4"></option>
-              <option value="910000026" label="경계 탐색 5"></option>
-              <option value="910000027" label="경계 탐색 6"></option>
-              <option value="910000028" label="예비 1"></option>
-              <option value="910000029" label="예비 2"></option>
-              <option value="910000030" label="예비 3"></option>
+              <option value="910000001" label="03 최초 5 users/sec"></option>
+              <option value="910000002" label="03 최초 10 users/sec"></option>
+              <option value="910000003" label="03 최초 15 users/sec"></option>
+              <option value="910000004" label="03 최초 20 users/sec"></option>
+              <option value="910000005" label="03 최초 30 users/sec"></option>
+              <option value="910000006" label="03 최초 40 users/sec"></option>
+              <option value="910000007" label="03 최초 50 users/sec"></option>
+              <option value="910000008" label="03 경계·재검증 1"></option>
+              <option value="910000009" label="03 경계·재검증 2"></option>
+              <option value="910000010" label="03 경계·재검증 3"></option>
+              <option value="910000011" label="03 경계·재검증 4"></option>
+              <option value="910000012" label="03 경계·재검증 5"></option>
+              <option value="910000013" label="03 경계·재검증 6"></option>
+              <option value="910000014" label="03 경계·재검증 7"></option>
+              <option value="910000015" label="03 재검증 1"></option>
+              <option value="910000016" label="03 재검증 2"></option>
+              <option value="910000017" label="03 재검증 3"></option>
+              <option value="910000018" label="03 재검증 4"></option>
+              <option value="910000019" label="03 재검증 5"></option>
+              <option value="910000020" label="03 재검증 6"></option>
+              <option value="910000021" label="03 재검증 7"></option>
+              <option value="910000022" label="API 단계 5 users/sec"></option>
+              <option value="910000023" label="API 단계 10 users/sec"></option>
+              <option value="910000024" label="API 단계 15 users/sec"></option>
+              <option value="910000025" label="API 단계 20 users/sec"></option>
+              <option value="910000026" label="API 단계 30 users/sec"></option>
+              <option value="910000027" label="API 단계 40 users/sec"></option>
+              <option value="910000028" label="API 단계 50 users/sec"></option>
+              <option value="910000029" label="03-2·정합성·예비 1"></option>
+              <option value="910000030" label="03-2·정합성·예비 2"></option>
             </datalist>
-            <p class="field-note hidden" data-option="capacity">
-              전용 회차: 910000001..007(1차), 008..014(2차), 015..021(3차), 022..027(경계 탐색), 028..030(예비)
+            <p class="field-note hidden" data-option="core-capacity-data">
+              전용 회차: 001..007(03 최초), 008..021(03 경계·재검증), 022..028(API 단계), 029..030(03-2·정합성·예비)
             </p>
           </div>
           <div data-option="seat">
@@ -879,8 +892,8 @@ ubuntu@43.203.136.184</textarea>
 
       <fieldset data-option="access-token">
         <legend>로그인 토큰</legend>
-        <label for="accessTokenMode">토큰 모드 <span class="help-chip" tabindex="0" data-help="자동 로그인은 seed 회원으로 로그인해서 토큰을 받고, 직접 입력은 textarea의 토큰을 그대로 씁니다. 테스트 JWT 생성은 로그인 API를 호출하지 않고 Gatling이 JWT를 직접 만듭니다. 단 Core 예매 테스트에서는 JWT memberId와 일치하는 ACTIVE 회원이 Core DB에 실제로 있어야 합니다.">?</span></label>
-        <select id="accessTokenMode" name="accessTokenMode">
+        <label for="accessTokenMode" data-capacity-auto>토큰 모드 <span class="help-chip" tabindex="0" data-help="자동 로그인은 seed 회원으로 로그인해서 토큰을 받고, 직접 입력은 textarea의 토큰을 그대로 씁니다. 테스트 JWT 생성은 로그인 API를 호출하지 않고 Gatling이 JWT를 직접 만듭니다. 단 Core 예매 테스트에서는 JWT memberId와 일치하는 ACTIVE 회원이 Core DB에 실제로 있어야 합니다.">?</span></label>
+        <select id="accessTokenMode" name="accessTokenMode" data-capacity-auto>
           <option value="login">자동 로그인</option>
           <option value="tokens">토큰 파일/목록</option>
           <option value="synthetic-jwt">테스트 JWT 생성</option>
@@ -917,17 +930,22 @@ ubuntu@43.203.136.184</textarea>
         </div>
 
         <div data-token-config="jwt" class="hidden">
-          <div class="grid-2">
+          <div id="jwtIdentitySettings" class="grid-2">
             <div>
               <label for="jwtSecret">JWT Secret <span class="help-chip" tabindex="0" data-help="테스트 JWT 생성 모드에서는 고정된 JWT_SECRET 값을 사용합니다. HS256 기준 32바이트 이상이며 실행 로그에는 마스킹됩니다.">?</span></label>
               <input id="jwtSecret" name="jwtSecret" type="password" value="0123456789abcdef0123456789abcdef" autocomplete="off">
             </div>
-            <div>
+            <div data-capacity-auto>
               <label for="jwtIssuer">JWT Issuer <span class="help-chip" tabindex="0" data-help="서버 설정 security.jwt.issuer와 같아야 합니다. 현재 기본값은 ticket입니다.">?</span></label>
               <input id="jwtIssuer" name="jwtIssuer" value="ticket">
             </div>
           </div>
-          <div class="grid-3">
+          <div data-option="member-ids-file">
+            <label for="memberIdsFile">기존 회원 ID 파일 <span class="help-chip" tabindex="0" data-help="운영 MEMBERS에서 추출한 실제 ACTIVE 회원 ID를 한 줄에 하나씩 저장한 파일입니다. ID는 연속일 필요가 없으며 이 순서대로 JWT sub와 좌석을 연결합니다.">?</span></label>
+            <input id="memberIdsFile" name="memberIdsFile" value="scripts/core-capacity/member-ids.txt">
+          </div>
+          <p class="field-note hidden" data-option="capacity">기존 회원 ID 파일과 전용 좌석을 연결해 JWT·feeder를 실행 직전에 자동 생성합니다.</p>
+          <div class="grid-3" data-capacity-auto>
             <div>
               <label for="syntheticMemberStartId">Member 시작 ID <span class="help-chip" tabindex="0" data-help="생성할 JWT의 첫 sub 값입니다. 시작 ID=1001, 사용자 수=100이면 sub 1001부터 1100까지 생성합니다.">?</span></label>
               <input id="syntheticMemberStartId" name="syntheticMemberStartId" type="number" min="1" value="1">
@@ -943,7 +961,7 @@ ubuntu@43.203.136.184</textarea>
           </div>
         </div>
 
-        <div data-token-mode="tokens" class="hidden">
+        <div data-token-mode="tokens" data-capacity-auto class="hidden">
           <label for="accessTokenSource">Access Token 준비 방식 <span class="help-chip" tabindex="0" data-help="파일 자동 생성은 실행 전에 JWT 파일을 먼저 만들고 Gatling에는 파일 경로만 넘깁니다. /join 요청 시간에는 JWT 생성이 포함되지 않습니다.">?</span></label>
           <select id="accessTokenSource" name="accessTokenSource">
             <option value="generate-file">파일 자동 생성 (추천)</option>
@@ -968,7 +986,7 @@ ubuntu@43.203.136.184</textarea>
         </div>
       </fieldset>
 
-      <fieldset>
+      <fieldset data-capacity-auto>
         <legend>시나리오</legend>
         <div class="grid-2" data-option="poll">
           <div>
@@ -1145,6 +1163,8 @@ const simulationHelpChip = document.querySelector('#simulationHelpChip');
 const copyLogButton = document.querySelector('#copyLog');
 const stopRunButton = document.querySelector('#stopRun');
 const admissionTokenMode = document.querySelector('#admissionTokenMode');
+const jwtIdentitySettings = document.querySelector('#jwtIdentitySettings');
+const capacityAdvancedSettings = document.querySelector('#capacityAdvancedSettings');
 const environmentStatus = document.querySelector('#environmentStatus');
 const environmentRows = document.querySelector('#environmentRows');
 const copyEnvironmentButton = document.querySelector('#copyEnvironment');
@@ -1166,14 +1186,14 @@ const presets = {
 
 const proofSimulationDefaults = {
   'core-performance-summary-api': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-performance-summary-api.csv' },
-  'core-seat-status-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'synthetic-jwt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-seat-status-api.csv' },
-  'core-seat-select-api': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-seat-select-api.csv' },
-  'core-order-create-api': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-create-api.csv' },
-  'core-order-get-api': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-get-api.csv' },
+  'core-seat-status-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-seat-status-api.csv' },
+  'core-seat-select-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', bookingFeederFile: 'build/core-api-member-seat-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-seat-select-api.csv' },
+  'core-order-create-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', bookingFeederFile: 'build/core-api-member-seat-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv' },
+  'core-order-get-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'synthetic-jwt', bookingFeederFile: '../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-get-api.csv' },
   smoke: { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/smoke.csv' },
   'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/hot-seat-concurrency.csv' },
-  'core-admission-capacity': { coreBaseUrl: 'https://oneticket.site', performanceId: 910000001, accessTokenMode: 'tokens', accessTokenSource: 'generate-file', syntheticMemberStartId: 1, bookingFeederFile: 'build/core-capacity-booking-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 5, targetUsersPerSecond: 5, bookingFeederOffset: 0, resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv' },
-  'core-realistic-contention': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'synthetic-jwt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-realistic-contention.csv' },
+  'core-admission-capacity': { executionMode: 'local', coreBaseUrl: 'https://oneticket.site', performanceId: 910000001, accessTokenMode: 'tokens', accessTokenSource: 'generate-file', jwtIssuer: 'ticket', syntheticMemberStartId: 1, memberIdsFile: 'scripts/core-capacity/member-ids.txt', syntheticJwtRole: 'MEMBER', syntheticTokenTtlSeconds: 3600, bookingFeederFile: 'build/core-capacity-booking-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 5, targetUsersPerSecond: 5, bookingFeederOffset: 0, resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv' },
+  'core-realistic-contention': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-realistic-contention.csv' },
   'core-active-users-closed': { coreBaseUrl: 'https://oneticket.site', users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000, resultFile: '../../distributed-results-join/_latest/core-active-users-closed.csv' },
   'core-spike': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 10, targetUsersPerSecond: 50, resultFile: '../../distributed-results-join/_latest/core-spike.csv' },
   'queue-protects-core': { coreBaseUrl: 'https://oneticket.site', queueBaseUrl: 'https://queue.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300, resultFile: '../../distributed-results-join/_latest/queue-protects-core.csv' }
@@ -1186,12 +1206,19 @@ const coreApiSimulationKeys = new Set([
   'core-order-create-api',
   'core-order-get-api'
 ]);
+const existingMemberIdSimulationKeys = new Set([
+  'core-seat-status-api',
+  'core-seat-select-api',
+  'core-order-create-api',
+  'core-admission-capacity',
+  'core-realistic-contention'
+]);
 const simulationHelp = {
   'core-performance-summary-api': '무엇을 보나요? GET 공연 요약 API 하나의 처리량과 응답 시간을 측정합니다.\n실제 흐름: 공연 요약 조회 1회입니다. 인증·좌석·주문 API는 호출하지 않습니다.\n준비: 인증이 필요 없는 읽기 전용 API이므로 같은 회차로 반복할 수 있습니다.',
   'core-seat-status-api': '무엇을 보나요? GET 좌석 상태 API 하나가 큰 좌석 응답과 동시 조회를 얼마나 감당하는지 측정합니다.\n실제 흐름: 사용자별 Access Token 준비 → 좌석 상태 조회 1회입니다. 좌석 선점과 주문은 만들지 않습니다.\n준비: 같은 회차와 같은 좌석 수로 실행해야 응답 크기가 같아집니다. 캐시 상태와 AVAILABLE·HELD·SOLD 비율도 실행마다 맞추세요.',
-  'core-seat-select-api': '무엇을 보나요? POST 좌석 선점 API 하나의 Redis·락 처리 한계를 측정합니다.\n실제 흐름: 피더의 회원과 고유 좌석으로 좌석 선점 1회만 호출합니다.\n준비: memberId,accessToken,seatId,admissionToken CSV가 필요하고 좌석은 모두 AVAILABLE이어야 합니다. Admission Token은 비울 수 있지만 Core 검증을 꺼야 합니다. 재실행 전 Redis 선점과 좌석 상태를 초기화하세요.',
-  'core-order-create-api': '무엇을 보나요? POST 주문 생성 API 하나의 DB 트랜잭션 처리 한계를 측정합니다.\n실제 흐름: 피더의 회원과 고유 좌석으로 주문 생성 1회만 호출합니다. 테스트 안에서는 좌석 선점을 호출하지 않습니다.\n준비: 각 좌석이 해당 memberId에게 미리 선점되어 있어야 합니다. memberId,accessToken,seatId,admissionToken CSV를 사용하고 재실행 전 주문과 선점 상태를 다시 준비하세요.',
-  'core-order-get-api': '무엇을 보나요? GET 주문 조회 API 하나의 DB 조회 처리량과 응답 시간을 측정합니다.\n실제 흐름: 피더의 주문 키로 주문 조회 1회만 호출합니다.\n준비: memberId,accessToken,orderKey CSV가 필요하며, 각 주문은 해당 회원이 조회할 수 있는 실제 주문이어야 합니다. 읽기 전용이므로 같은 초기 데이터로 반복할 수 있습니다.',
+  'core-seat-select-api': '무엇을 보나요? POST 좌석 선점 API 하나의 Redis·락 처리 한계를 측정합니다.\n실제 흐름: 기존 회원 ID 파일과 고유 좌석으로 자동 생성한 피더를 사용해 좌석 선점 1회만 호출합니다.\n준비: 좌석은 모두 AVAILABLE이어야 하고 users/sec × duration은 2,000 이하여야 합니다. 전용 회차의 Queue 정책 FORCE_OFF를 사용하며 전역 Admission 설정은 바꾸지 않습니다. 주문 생성 테스트를 이어서 할 때는 같은 회차와 피더를 유지하세요.',
+  'core-order-create-api': '무엇을 보나요? POST 주문 생성 API 하나의 DB 트랜잭션 처리 한계를 측정합니다.\n실제 흐름: 피더의 회원과 고유 좌석으로 주문 생성 1회만 호출합니다. 테스트 안에서는 좌석 선점을 호출하지 않습니다.\n준비: 바로 앞 좌석 선점 테스트가 같은 memberId와 seatId에 hold를 만들어 둔 상태여야 합니다. 10분 안에 같은 회차·피더로 실행하면 성공 주문을 결과 CSV에 주문 조회용 feeder로 저장합니다.',
+  'core-order-get-api': '무엇을 보나요? GET 주문 조회 API 하나의 DB 조회 처리량과 응답 시간을 측정합니다.\n실제 흐름: 피더의 주문 키로 주문 조회 1회만 호출합니다.\n준비: 주문 생성 테스트가 만든 memberId,orderKey 결과 CSV를 사용합니다. JWT는 해당 memberId로 메모리에서 생성해 결과 파일에 저장하지 않습니다. 성공 주문 행이 부족하면 HTTP 부하 전에 실패합니다.',
   'queue-join-only': '무엇을 보나요? 예매 오픈 순간 Queue의 대기 등록(/join)이 초당 몇 명까지 안정적으로 받아지는지 확인합니다.\n실제 흐름: 사용자별 Access Token으로 /join을 한 번 호출하고, queueToken·대기 순번 관련 값이 정상인지 검사합니다.\n언제 쓰나요? Queue 입구의 최대 처리량, HTTP/1.1과 HTTP/2 차이, 오픈 직후 트래픽 패턴을 비교할 때 씁니다.\n주의: 초당 사용자 수가 거의 초당 /join 요청 수입니다. 분산 3대라면 노드별 설정값을 합산해야 하며, 토큰 수도 노드별 예상 사용자 수에 맞춰 준비합니다.',
   'queue-enter': '무엇을 보나요? 대기열을 통과한 사용자가 입장 토큰을 받는 /enter API의 응답과 방어 동작을 확인합니다.\n실제 흐름: 준비된 Queue 정보로 /enter를 호출하고 성공·만료·아직 입장 불가·과부하 응답을 구분합니다.\n언제 쓰나요? 입장 전환 API만 빠르게 점검하거나 잘못된 입장 요청이 차단되는지 볼 때 씁니다.\n주의: join부터 기다리는 전체 흐름은 아닙니다. 전체 검증은 예매 오픈 전체 흐름를 사용합니다.',
   'legacy-queue-status': '무엇을 보나요? 기존 Queue의 사용자별 상태 조회(/status)가 많은 반복 조회를 감당하는지 확인합니다.\n실제 흐름: 각 사용자가 자신의 Queue 세션으로 /status를 여러 번 호출하며 응답 시간과 실패율을 측정합니다.\n언제 쓰나요? 기존 개인화 조회의 기준선을 남기거나 CDN 방식과 비교할 때 씁니다.\n주의: 사용자마다 응답이 달라 CDN 캐시 효과를 받기 어렵고, 조회 횟수와 간격이 총 요청 수를 크게 바꿉니다.',
@@ -1263,6 +1290,11 @@ async function startRun(event) {
   if (simulationSelect.value === 'core-admission-capacity'
           && !window.confirm(`운영 Core에 다음 부하를 실행합니다.\n\n${capacityRunText(body)}\n\n계속하시겠습니까?`)) {
     restoreIdleState('Core Admission Capacity 실행을 취소했습니다.');
+    return;
+  }
+  if (simulationSelect.value === 'core-order-create-api'
+          && !window.confirm('주문 생성 API는 좌석 선점을 준비하지 않습니다.\n\n바로 앞 좌석 선점 테스트와 같은 performance·회원·좌석 피더이며, hold 생성 후 10분 안인지 확인하세요.\n\n계속하시겠습니까?')) {
+    restoreIdleState('주문 생성 API 실행을 취소했습니다.');
     return;
   }
   try {
@@ -1466,7 +1498,19 @@ function updateVisibility() {
   const tokenMode = accessTokenMode.value;
   const tokenSource = accessTokenSource?.value || 'generate-file';
   const proof = Boolean(proofSimulationDefaults[selected?.key]);
-  if (selected?.key === 'core-admission-capacity') {
+  const capacity = selected?.key === 'core-admission-capacity';
+  const coreCapacityData = capacity
+    || coreApiSimulationKeys.has(selected?.key)
+    || ['smoke', 'hot-seat-concurrency', 'core-realistic-contention'].includes(selected?.key);
+  document.querySelectorAll('[data-capacity-auto]').forEach(element => {
+    element.classList.toggle('capacity-hidden', capacity);
+  });
+  document.querySelector('label[for="executionMode"]')?.classList.toggle('capacity-hidden', capacity);
+  executionMode.classList.toggle('capacity-hidden', capacity);
+  document.querySelector('#targetRouteSummary')?.classList.toggle('capacity-hidden', capacity);
+  jwtIdentitySettings?.classList.toggle('capacity-mode', capacity);
+  setVisible('[data-option="core-capacity-data"]', coreCapacityData);
+  if (coreCapacityData) {
     performanceIdInput?.setAttribute('list', 'coreCapacityPerformanceIds');
   } else {
     performanceIdInput?.removeAttribute('list');
@@ -1483,12 +1527,13 @@ function updateVisibility() {
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
   setVisible('[data-option="booking"]', selected?.usesCoreBookingFlow);
   setVisible('[data-option="booking-feeder"]', selected?.usesBookingFeeder);
+  setVisible('[data-option="member-ids-file"]', existingMemberIdSimulationKeys.has(selected?.key));
   setVisible('[data-option="queue-url"]', selected?.usesCoreBookingFlow && selected?.usesQueueBaseUrl);
   setVisible('[data-option="queue-proof"]', selected?.key === 'queue-protects-core');
-  setVisible('[data-option="capacity"]', selected?.key === 'core-admission-capacity');
+  setVisible('[data-option="capacity"]', capacity);
   setInputContainerVisible('queueTimeoutThresholdPercent', selected?.usesQueueBaseUrl);
   setInputContainerVisible('admissionRateTolerancePercent', false);
-  setInputContainerVisible('resultFile', selected?.key === 'core-admission-capacity');
+  setInputContainerVisible('resultFile', false);
   setInputContainerVisible('pollingTimeoutSeconds', selected?.usesQueueBaseUrl);
   setInputContainerVisible('nodeIndex', distributed);
   setVisible('[data-option="closed-booking"]', selected?.key === 'core-active-users-closed');
@@ -1531,6 +1576,9 @@ function applyProofSimulationDefaults() {
     const input = document.querySelector(`[name="${key}"]`);
     if (input) input.value = value;
   });
+  if (simulationSelect.value === 'core-admission-capacity' && capacityAdvancedSettings) {
+    capacityAdvancedSettings.open = false;
+  }
 }
 function applyDistributedQueueJoinDefaults() {
   const selected = selectedSimulation();
@@ -1559,7 +1607,6 @@ function updateSummary() {
   document.querySelector('#summaryInjection').textContent = `${executionLabel} / ${injectionMode.options[injectionMode.selectedIndex]?.text || '-'}`;
   updateTargetRouteSummary();
   updateApiPreview();
-  updateCapacityPreview(body);
 }
 
 async function launchCoreCapacityReset() {
@@ -1611,9 +1658,9 @@ function capacityRunDetails(body) {
     nodeCount,
     durationSeconds: Number(body.get('durationSeconds') || 0),
     expectedUsers,
-    feederStart: offset,
-    feederEnd: offset + expectedUsers - 1,
-    feederFile: String(body.get('bookingFeederFile') || '').trim()
+    memberIdsFile: String(body.get('memberIdsFile') || '').trim(),
+    seatStart: 910000001 + offset,
+    seatEnd: 910000000 + offset + expectedUsers
   };
 }
 
@@ -1638,16 +1685,11 @@ function capacityRunText(body) {
     'EXPECTED USERS',
     String(details.expectedUsers),
     '',
-    'FEEDER',
-    `${details.feederStart} ~ ${details.feederEnd}`,
-    details.feederFile
+    'TEST DATA',
+    `memberId: ${details.memberIdsFile || '-'}의 앞 ${details.expectedUsers}개`,
+    `seatId ${details.seatStart} ~ ${details.seatEnd}`,
+    '실행 직전 자동 생성'
   ].join('\n');
-}
-
-function updateCapacityPreview(body) {
-  const preview = document.querySelector('#capacityPreview');
-  if (!preview || simulationSelect.value !== 'core-admission-capacity') return;
-  preview.textContent = capacityRunText(body);
 }
 
 function validateBeforeRun(body) {
@@ -1687,6 +1729,11 @@ function validateBeforeRun(body) {
     if (distributed && coreApiSimulationKeys.has(selected.key)) return 'API별 독립 성능 테스트는 현재 로컬 실행만 지원합니다.';
     if (body.get('operationalConfirmation') !== 'on') return '운영 API에 실제 좌석 선점·주문 요청을 보내는 실행 확인이 필요합니다.';
     if (distributed && distributedHostCount(body) === 0) return 'Booking 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
+    if (['core-seat-select-api', 'core-order-create-api'].includes(selected.key)
+            && mode === 'tokens' && tokenSource === 'generate-file'
+            && estimateVirtualUsers(body) > 2000) {
+      return '좌석 선점·주문 생성 API 테스트의 예상 사용자는 전용 좌석 2,000개를 초과할 수 없습니다.';
+    }
     if (selected.key === 'core-admission-capacity') {
       const offset = Number(body.get('bookingFeederOffset'));
       const technicalFailureThreshold = Number(body.get('technicalFailureThresholdPercent'));
@@ -1695,7 +1742,7 @@ function validateBeforeRun(body) {
       if (mode === 'tokens' && tokenSource === 'generate-file') {
         const requiredRows = offset + estimateVirtualUsers(body);
         const generatedRows = Number(body.get('generatedAccessTokenCount'));
-        if (Number(body.get('syntheticMemberStartId')) !== 1) return '자동 feeder의 Member 시작 ID는 1이어야 합니다.';
+        if (!String(body.get('memberIdsFile') || '').trim()) return '기존 회원 ID 파일 경로를 입력해야 합니다.';
         if (distributed) return 'Core Capacity JWT/feeder 자동 생성은 로컬 Console 실행에서만 지원합니다.';
         if (requiredRows > 2000) return `자동 feeder에 필요한 회원·좌석 ${requiredRows}개가 전용 데이터 2,000개를 초과합니다.`;
         if (generatedRows < requiredRows) return `자동 생성할 토큰/feeder 행은 최소 ${requiredRows}개여야 합니다.`;
@@ -1765,8 +1812,12 @@ function validateBeforeRun(body) {
     if (tokenSource === 'generate-file') {
       const count = Number(body.get('generatedAccessTokenCount') || 0);
       const secret = String(body.get('jwtSecret') || '').trim();
+      const existingMemberRequired = existingMemberIdSimulationKeys.has(selected?.key);
       if (count <= 0) {
         return '생성할 토큰 수는 1 이상이어야 합니다.';
+      }
+      if (existingMemberRequired && !String(body.get('memberIdsFile') || '').trim()) {
+        return '이 Core 테스트에는 기존 회원 ID 파일 경로가 필요합니다.';
       }
       if (new TextEncoder().encode(secret).length < 32) {
         return '토큰 파일 자동 생성에는 ticket 서버와 같은 JWT Secret을 32바이트 이상으로 입력해야 합니다.';
@@ -1860,13 +1911,14 @@ function ticketOpenExpectedUsers(peakRps) {
 }
 
 function syncGeneratedAccessTokenFields(estimatedUsers) {
-  if (generatedAccessTokenCount && !generatedAccessTokenCountTouched) {
-    const capacityOffset = simulationSelect.value === 'core-admission-capacity'
+  const capacity = simulationSelect.value === 'core-admission-capacity';
+  if (generatedAccessTokenCount && (capacity || !generatedAccessTokenCountTouched)) {
+    const capacityOffset = capacity
       ? Number(document.querySelector('#bookingFeederOffset')?.value || 0)
       : 0;
     generatedAccessTokenCount.value = String(Math.max(1, estimatedUsers + capacityOffset));
   }
-  if (accessTokensFileInput && !accessTokensFileTouched) {
+  if (accessTokensFileInput && (capacity || !accessTokensFileTouched)) {
     accessTokensFileInput.value = defaultAccessTokensFilePath();
   }
 }

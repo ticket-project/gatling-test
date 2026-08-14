@@ -46,16 +46,16 @@ Queue Server가 제어할 값도 HTTP 요청 수가 아니라 Core로 입장시�
 
 좌석 상태 API는 좌석 수에 따라 응답 크기, JSON 직렬화 비용, 네트워크 전송량과 클라이언트 파싱량이 달라진다. 100석짜리 회차는 실제 부하를 과소평가할 수 있고, 100,000석짜리 회차는 과대평가할 수 있다. 좌석 수뿐 아니라 AVAILABLE·HELD·SOLD 비율과 Core 배포 환경도 실행마다 가능한 한 같게 유지한다.
 
-운영 데이터 생성 SQL, 30개 독립 회차 배정, 자동 feeder 생성과 원복 절차는 [Core Admission Capacity 운영 파일](../scripts/core-capacity/README.md)을 따른다. 최초 SQL이 2,000개 전용 ACTIVE 회원과 물리 좌석, 30개 performance를 함께 만든다. 각 performance는 독립적인 `PERFORMANCE_SEATS`를 사용한다. 한 실행이 사용한 performance는 다음 실행에서 재사용하지 않고, 같은 회차를 여러 날 재사용할 때만 Core 비동기 작업 완료 후 Console의 원복 버튼을 사용한다.
+운영 데이터 생성 SQL, 30개 독립 회차 배정, 자동 feeder 생성과 원복 절차는 [Core Admission Capacity 운영 파일](../scripts/core-capacity/README.md)을 따른다. 최초 SQL은 기존 `MEMBERS`를 변경하지 않고 물리 좌석과 30개 performance만 만든다. 각 performance는 독립적인 `PERFORMANCE_SEATS`를 사용한다. 한 실행이 사용한 performance는 다음 실행에서 재사용하지 않고, 같은 회차를 여러 날 재사용할 때만 Core 비동기 작업 완료 후 Console의 원복 버튼을 사용한다.
 
-전용 회원은 `id=1..2000`의 연속 범위를 사용한다. 이 범위에 기존 회원이 하나라도 있으면 SQL은 빈 ID만 채우지 않고 전체 실행을 중단한다. 기존 계정 ID로 합성 JWT를 발급하는 일을 막기 위한 안전장치다.
+회원은 운영에 이미 존재하는 ACTIVE MEMBER를 사용한다. 생성 SQL의 마지막 조회 결과에서 실제 ID를 `scripts/core-capacity/member-ids.txt`로 한 번 내보낸다. ID는 연속일 필요가 없고 Console은 파일의 실제 순서대로 JWT `sub`를 만든다. 운영 회원의 PK를 재정렬하거나 빈 ID를 채우지 않는다.
 
 피더는 UTF-8 BOM 없는 CSV이고 헤더는 정확히 다음과 같다.
 
 ```csv
 memberId,accessToken,seatId,admissionToken
-1,access-token-1,910000001,
-2,access-token-2,910000002,
+1,access-token-sub-1,910000001,
+5,access-token-sub-5,910000002,
 ```
 
 `memberId`와 `seatId`는 전체 파일에서 고유해야 한다. Core Admission Capacity에서는 기존 우회 흐름에 맞춰 `admissionToken`을 비워 둔다. 피더의 회원은 Core DB에 실제 ACTIVE 회원으로 존재해야 하고, 좌석은 지정한 performance에 속한 AVAILABLE 좌석이어야 한다.
@@ -71,7 +71,7 @@ offset + 예상 사용자 수 <= 피더 전체 데이터 행 수
 
 조건을 만족하지 않으면 HTTP 부하를 시작하기 전에 실패한다.
 
-Console에서 `토큰 파일/목록 → 파일 자동 생성`을 선택하면 실행 직전에 예상 사용자 수만큼 JWT와 feeder를 함께 생성한다. 기본 범위는 연속된 `memberId=1..`, `seatId=910000001..`이고, Admission Token 열은 비어 있다.
+Console에서 `토큰 파일/목록 → 파일 자동 생성`을 선택하면 실행 직전에 예상 사용자 수만큼 JWT와 feeder를 함께 생성한다. `memberId`는 Member ID 파일의 앞에서부터 필요한 만큼 사용하고, `seatId`는 `910000001`부터 순서대로 연결한다. Admission Token 열은 비어 있다.
 
 ```text
 5 users/sec × 30초
@@ -85,9 +85,71 @@ build/core-capacity-booking-feeder.csv 300행 자동 재생성
 offset 0
 ```
 
-JWT secret과 issuer는 운영 Core 설정과 같아야 한다. 전용 회원은 최초 SQL이 이미 생성하므로 회원가입·로그인 API를 호출하는 별도 준비 스크립트는 없다. 동일한 물리 seat ID와 memberId를 다시 사용해도 performance가 다르면 좌석 상태와 주문 범위가 독립적이다. 하나의 큰 수동 feeder가 필요한 별도 환경에서는 기존 파일 입력과 offset 기능을 그대로 사용할 수 있다.
+JWT secret과 issuer는 운영 Core 설정과 같아야 한다. 기존 회원을 사용하므로 회원가입·로그인 API를 호출하는 별도 준비 스크립트는 없다. 동일한 물리 seat ID와 memberId를 다시 사용해도 performance가 다르면 좌석 상태와 주문 범위가 독립적이다. 하나의 큰 수동 feeder가 필요한 별도 환경에서는 기존 파일 입력과 offset 기능을 그대로 사용할 수 있다.
 
 Offset은 앞 실행의 DB·Redis 정리를 대신하지 않는다. 회원과 좌석을 겹치지 않게 만드는 안전장치이며, 이전 실행에서 생성된 주문과 선점 상태의 확인·정리는 별도로 수행한다.
+
+## 03·03-2 전에 API별 한계 확인
+
+API별 테스트는 전체 사용자 여정을 대체하지 않는다. 병목이 공연 조회, 좌석 응답, Redis 선점, 주문 트랜잭션, 주문 조회 중 어디에서 먼저 생기는지 분리해서 확인하는 선행 진단이다. 동일 API의 단계도 자동 연속 실행하지 않고 하나씩 실행한다.
+
+### 1. 공연 요약 조회
+
+`GET /api/v1/performances/{performanceId}/summary`만 호출한다. 인증과 feeder가 필요 없고 상태를 변경하지 않으므로 같은 회차로 반복할 수 있다. 단 캐시를 자동 삭제하지 말고, 첫 실행이 cold인지 이후 실행이 warm인지 결과 메모에 남겨 서로 다른 캐시 상태를 같은 표에서 비교하지 않는다.
+
+### 2. 좌석 상태 조회
+
+`GET /api/v1/performances/{performanceId}/seats/status`만 호출한다. Console이 Member ID 파일로 실제 회원 JWT를 준비한다. 상태를 변경하지 않으므로 같은 회차로 반복할 수 있지만, 좌석 수와 AVAILABLE·HELD·SOLD 비율이 달라지면 응답 크기도 달라진다. 읽기 성능 비교용 회차는 상태 변경 테스트에 사용하기 전에 먼저 측정한다.
+
+### 3. 좌석 선점
+
+`POST /api/v1/performances/{performanceId}/seats/{seatId}/select`만 호출한다. Console이 Member ID 파일의 실제 회원과 `910000001`부터의 고유 좌석을 `build/core-api-member-seat-feeder.csv`로 자동 연결한다. 이 테스트는 Redis 선점 상태를 만들므로 새 performance를 사용하며 다음 조건을 지킨다.
+
+```text
+users/sec × durationSeconds <= 2,000
+모든 대상 좌석 AVAILABLE
+사용자별 고유 memberId와 seatId
+```
+
+주문 생성 API를 바로 이어서 측정할 예정이면 선점 결과를 원복하지 않고 같은 performance와 같은 feeder를 사용한다.
+
+### 4. 주문 생성
+
+`POST /api/v1/orders`만 호출하며 테스트 안에서 좌석 선점 API를 호출하지 않는다. 따라서 바로 앞 준비 실행이 같은 memberId와 seatId로 hold를 만들어 둔 상태여야 한다. 생성 SQL의 `hold_time`은 600초이므로 좌석 선점 완료 후 10분 안에 같은 performance와 같은 `build/core-api-member-seat-feeder.csv`로 실행한다.
+
+주문 생성 목표가 `40 users/sec × 30초 = 1,200명`이면 먼저 좌석 선점 API로 적어도 앞 1,200개 행의 hold를 성공시켜야 한다. 선점 자체의 한계를 재는 실행과 주문 준비 실행을 구분하려면, 이미 확인한 안전한 선점률로 1,200개를 준비한 뒤 주문 생성만 목표 40 users/sec로 실행한다. 준비된 hold 수가 주문 생성 예상 사용자보다 적으면 뒤쪽 사용자는 성능 문제가 아니라 데이터 부족으로 실패한다.
+
+성공한 주문은 Console의 `결과 CSV` 경로에 다음 주문 조회용 feeder로 기록된다.
+
+```csv
+memberId,orderKey
+1,ORD-...
+5,ORD-...
+```
+
+주문 조회 JWT는 각 행의 `memberId`로 실행 중 메모리에서 생성한다. 따라서 이 결과 CSV에는 JWT나 JWT secret이 기록되지 않는다.
+
+기본 경로는 `../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv`다. 주문 생성 실패로 성공 행이 예상 사용자 수보다 적으면 주문 조회 테스트가 HTTP 부하 전에 feeder 부족으로 실패한다.
+
+### 5. 주문 조회
+
+`GET /api/v1/orders/{orderKey}`만 호출한다. 바로 앞 주문 생성 테스트가 만든 주문 조회 feeder를 사용한다. 읽기 전용이므로 같은 주문으로 반복할 수 있지만, PENDING과 EXPIRED의 응답 상태나 DB 실행 계획 차이를 섞지 않도록 주문 상태를 기록한다.
+
+상태 변경 API의 가장 단순한 한 단계 실행 순서는 다음과 같다.
+
+```text
+새 performance 선택
+→ 좌석 상태 조회로 2,000 AVAILABLE 확인
+→ 좌석 선점 API 테스트
+→ 10분 안에 같은 feeder로 주문 생성 API 테스트
+→ 생성된 order lookup feeder로 주문 조회 API 테스트
+→ 결과 보존
+→ 주문 만료·Outbox·hold 해제 완료 후 전체 원복
+```
+
+7개 부하 단계의 좌석 선점·주문 생성 쌍에는 `performanceId=910000022..910000028`을 순서대로 사용한다. 03 최초 경계 탐색용 `910000001..910000007`과 섞지 않는다. 두 API는 같은 단계에서 같은 performance를 공유하므로 단계당 회차 하나만 필요하다.
+
+API별 테스트와 03·03-2는 목적이 다르다. API별 최대 RPS의 최솟값을 Queue 입장률로 바로 사용하지 않고, 최종 Queue 기준은 반드시 다섯 요청을 모두 수행하는 `CoreAdmissionCapacitySimulation`의 PASS users/sec로 정한다.
 
 ## 기본 SLO
 
@@ -110,6 +172,11 @@ Technical failure 허용률 기본값은 `1.0%`다. Gatling assertion은 실제 
 ```text
 01 Smoke
 02 Hot Seat 정합성 확인
+
+API별 분리 측정
+공연 요약 조회
+좌석 상태 조회
+좌석 선점 → 같은 회차·feeder로 주문 생성 → 생성된 feeder로 주문 조회
 
 03 Core Admission Capacity 최초 경계 탐색
 5 users/sec  × 30초
@@ -152,19 +219,16 @@ Closed Model의 동시 사용자 상한은 Queue 입장률과 같은 값이 아�
 Simulation:       03 고정 조건 Core 수용량
 Core URL:         실제 운영 Core URL
 Performance ID:   910000001
-Injection:        constant-users-per-sec
 Users/sec:        5
 Duration:         30
-Access Token:     토큰 파일/목록 → 파일 자동 생성
+Member ID File:   scripts/core-capacity/member-ids.txt
 JWT Secret:       운영 Core와 동일한 값
-Member 시작 ID:  1
-Feeder:           build/core-capacity-booking-feeder.csv
-Feeder Offset:    0
-Result File:      ../../distributed-results-join/_latest/core-admission-capacity.csv
 Operational Confirmation: ON
 ```
 
-실행 버튼을 누르면 전송 직전에 다음 내용이 강조되어 표시되고, 확인 대화상자에서도 다시 보여 준다.
+CSV 경로·토큰 수·member 시작 ID·offset·result 경로는 입력하지 않는다. 최초 SQL 결과에서 내보낸 Member ID 파일만 확인하면 Console이 예상 사용자 수로 내부 JWT와 feeder를 만든다. Technical failure와 API별 p95/p99 기준을 바꿔야 할 때만 `판정 기준 변경`을 연다.
+
+실행 버튼을 누르면 전송 직전 확인 대화상자에 다음 내용을 보여 준다.
 
 ```text
 TARGET
@@ -182,8 +246,10 @@ DURATION
 EXPECTED USERS
 150
 
-FEEDER
-0 ~ 149
+TEST DATA
+memberId: scripts/core-capacity/member-ids.txt의 앞 150개
+seatId 910000001 ~ 910000150
+실행 직전 자동 생성
 ```
 
 첫 실행이 끝난 뒤 `10 users/sec × 30초`를 실행할 때는 다음을 바꾼다.
@@ -191,12 +257,11 @@ FEEDER
 ```text
 Performance ID: 910000002
 Users/sec:      10
-Feeder Offset:  0
 ```
 
 Core URL, duration, JWT 설정과 SLO는 같은 비교 조건으로 유지한다. performance만 새 독립 회차로 바꾸면 Console이 300행 feeder를 다시 만든다.
 
-여러 전용 회차를 사용한 테스트 묶음이 끝나면 모든 결과를 보존하고 Core 비동기 처리가 끝난 뒤 모든 Core 인스턴스를 중지한다. 그 다음 Console의 `전체 테스트 회차 원복 창 열기` 버튼을 누른다. 별도 PowerShell 창은 `910000001..910000030` 전체를 먼저 점검하고, 30개가 모두 안전 조건을 만족한 경우에만 전체 원복 확인 문구를 요구한다. 버튼 자체가 즉시 삭제를 수행하지는 않는다.
+여러 전용 회차를 사용한 테스트 묶음이 끝나면 모든 결과를 보존하고 Core 비동기 처리가 끝난 뒤 모든 Core 인스턴스를 중지한다. 그 다음 Simulation 선택과 관계없이 Console 상단에 표시되는 `테스트 데이터 전체 원복` 버튼을 누른다. 별도 PowerShell 창은 `910000001..910000030` 전체를 먼저 점검하고, 30개가 모두 안전 조건을 만족한 경우에만 전체 원복 확인 문구를 요구한다. 버튼 자체가 즉시 삭제를 수행하지는 않는다.
 
 ## 결과 판독
 

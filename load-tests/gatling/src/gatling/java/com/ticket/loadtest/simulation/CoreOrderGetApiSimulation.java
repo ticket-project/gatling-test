@@ -21,6 +21,10 @@ public class CoreOrderGetApiSimulation extends Simulation {
 
         final ScenarioBuilder scenario = scenario("GET /api/v1/orders/{orderKey}")
                 .feed(LoadTestConfig.orderLookupFeeder(LoadTestConfig.expectedUsers()))
+                .exec(session -> session.set(
+                        "accessToken",
+                        LoadTestConfig.syntheticAccessTokenForMember(session.getLong("memberId"))
+                ))
                 .exec(http("get order")
                         .get("/api/v1/orders/#{orderKey}")
                         .headers(LoadTestConfig.authAndCorrelationHeaders())

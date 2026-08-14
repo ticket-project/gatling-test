@@ -28,7 +28,6 @@ import java.util.stream.Stream;
 
 public class LoadTestService {
     private static final int FAILURE_BODY_PREVIEW_LIMIT = 4_000;
-    private static final long CORE_CAPACITY_MEMBER_START_ID = 1L;
     private static final long CORE_CAPACITY_SEAT_START_ID = 910000001L;
     private static final int CORE_CAPACITY_DATA_ROWS = 2_000;
 
@@ -115,6 +114,9 @@ public class LoadTestService {
         if (!request.simulationType().usesAccessTokens()) {
             return;
         }
+        if (request.simulationType().usesFeederAccessTokens()) {
+            return;
+        }
         if (!"tokens".equalsIgnoreCase(request.accessTokenMode())) {
             return;
         }
@@ -154,6 +156,32 @@ public class LoadTestService {
         if (request.jwtSecret().getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("JWT Secret must be at least 32 bytes for synthetic JWT mode");
         }
+        if (requiresExistingMemberIds(request.simulationType())) {
+            if (!request.generatesAccessTokensFile()) {
+                throw new IllegalArgumentException(
+                        "This Core scenario requires generated JWTs from an existing Member ID file"
+                );
+            }
+            validateMemberIdsFile(request);
+        }
+    }
+
+    private boolean requiresExistingMemberIds(final SimulationType simulationType) {
+        return simulationType == SimulationType.CORE_SEAT_STATUS_API
+                || simulationType == SimulationType.CORE_SEAT_SELECT_API
+                || simulationType == SimulationType.CORE_ORDER_CREATE_API
+                || simulationType == SimulationType.CORE_ADMISSION_CAPACITY
+                || simulationType == SimulationType.CORE_REALISTIC_CONTENTION;
+    }
+
+    private void validateMemberIdsFile(final LoadTestRequest request) {
+        if (request.memberIdsFile().isBlank()) {
+            throw new IllegalArgumentException("An existing Member ID file is required");
+        }
+        final Path memberIdsFile = resolveInputPath(request.ticketProjectPath(), request.memberIdsFile());
+        if (!Files.isRegularFile(memberIdsFile)) {
+            throw new IllegalArgumentException("Member ID file not found: " + request.memberIdsFile());
+        }
     }
 
     private void validateSyntheticAdmissionToken(final LoadTestRequest request) {
@@ -170,6 +198,9 @@ public class LoadTestService {
 
     private void validateAutomaticLoginCapacity(final LoadTestRequest request) {
         if (!request.simulationType().usesAccessTokens()) {
+            return;
+        }
+        if (request.simulationType().usesFeederAccessTokens()) {
             return;
         }
         if (!"login".equalsIgnoreCase(request.accessTokenMode())) {
@@ -257,8 +288,8 @@ public class LoadTestService {
             throw new IllegalArgumentException("Operational confirmation is required for every booking execution");
         }
         if (request.simulationType().usesBookingFeeder()) {
-            if (generatesCoreCapacityFeeder(request)) {
-                validateGeneratedCoreCapacityFeeder(request);
+            if (generatesMemberSeatFeeder(request)) {
+                validateGeneratedMemberSeatFeeder(request);
                 return;
             }
             final Path feederPath = resolveInputPath(request.ticketProjectPath(), request.bookingFeederFile());
@@ -277,32 +308,30 @@ public class LoadTestService {
         }
     }
 
-    private boolean generatesCoreCapacityFeeder(final LoadTestRequest request) {
-        return request.simulationType() == SimulationType.CORE_ADMISSION_CAPACITY
-                && request.generatesAccessTokensFile();
+    private boolean generatesMemberSeatFeeder(final LoadTestRequest request) {
+        return request.generatesAccessTokensFile()
+                && (request.simulationType() == SimulationType.CORE_ADMISSION_CAPACITY
+                || request.simulationType() == SimulationType.CORE_SEAT_SELECT_API
+                || request.simulationType() == SimulationType.CORE_ORDER_CREATE_API);
     }
 
-    private void validateGeneratedCoreCapacityFeeder(final LoadTestRequest request) {
+    private void validateGeneratedMemberSeatFeeder(final LoadTestRequest request) {
         if (request.distributedExecution()) {
             throw new IllegalArgumentException(
-                    "Core Capacity automatic JWT/feeder generation currently supports local Console execution only"
+                    "Automatic JWT/member-seat feeder generation currently supports local Console execution only"
             );
         }
-        if (request.syntheticMemberStartId() != CORE_CAPACITY_MEMBER_START_ID) {
-            throw new IllegalArgumentException(
-                    "Core Capacity automatic feeder requires Member start ID " + CORE_CAPACITY_MEMBER_START_ID
-            );
-        }
+        validateMemberIdsFile(request);
         final long requiredRows = (long) request.bookingFeederOffset() + request.expectedBookingRowsPerNode();
         if (request.generatedAccessTokenCount() < requiredRows) {
             throw new IllegalArgumentException(
-                    "Core Capacity automatic feeder rows are insufficient: generated="
+                    "Automatic member-seat feeder rows are insufficient: generated="
                             + request.generatedAccessTokenCount() + ", required=" + requiredRows
             );
         }
         if (request.generatedAccessTokenCount() > CORE_CAPACITY_DATA_ROWS) {
             throw new IllegalArgumentException(
-                    "Core Capacity automatic feeder exceeds the dedicated 2,000 members/seats: generated="
+                    "Automatic member-seat feeder exceeds the dedicated 2,000 seats: generated="
                             + request.generatedAccessTokenCount() + ", available=" + CORE_CAPACITY_DATA_ROWS
             );
         }
@@ -369,7 +398,7 @@ public class LoadTestService {
             };
             final boolean orderLookup = simulationType == SimulationType.CORE_ORDER_GET_API;
             final boolean validHeader = orderLookup
-                    ? "memberId,accessToken,orderKey".equals(header)
+                    ? "memberId,orderKey".equals(header) || "memberId,accessToken,orderKey".equals(header)
                     : "memberId,accessToken,seatId,admissionToken".equals(header)
                     || (dynamicSeatSelection && "memberId,accessToken,admissionToken".equals(header));
             if (!validHeader) {
@@ -775,9 +804,13 @@ public class LoadTestService {
         command.add("-DjwtSecret=" + request.jwtSecret());
         command.add("-DjwtIssuer=" + request.jwtIssuer());
         command.add("-DsyntheticMemberStartId=" + request.syntheticMemberStartId());
+        if (requiresExistingMemberIds(request.simulationType())) {
+            command.add("-DmemberIdsFile=" + resolveInputPath(
+                    request.ticketProjectPath(), request.memberIdsFile()));
+        }
         command.add("-DsyntheticJwtRole=" + request.syntheticJwtRole());
         command.add("-DsyntheticTokenTtlSeconds=" + request.syntheticTokenTtlSeconds());
-        if (generatesCoreCapacityFeeder(request)) {
+        if (generatesMemberSeatFeeder(request)) {
             command.add("-DbookingFeederOutput=" + request.bookingFeederFile());
             command.add("-DbookingSeatStartId=" + CORE_CAPACITY_SEAT_START_ID);
         }

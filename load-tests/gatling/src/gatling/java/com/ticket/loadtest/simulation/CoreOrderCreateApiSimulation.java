@@ -1,20 +1,26 @@
 package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.LoadTestConfig;
+import com.ticket.loadtest.OrderLookupFeeder;
 import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
+
+import java.nio.file.Path;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.http;
+import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.status;
 
 public class CoreOrderCreateApiSimulation extends Simulation {
 
     public CoreOrderCreateApiSimulation() {
+        final Path orderLookupFeeder = Path.of(LoadTestConfig.resultFile());
+        OrderLookupFeeder.initialize(orderLookupFeeder);
         final HttpProtocolBuilder httpProtocol = http
                 .baseUrl(LoadTestConfig.coreBaseUrl())
                 .shareConnections()
@@ -35,7 +41,18 @@ public class CoreOrderCreateApiSimulation extends Simulation {
                                   "seatIds": #{seatIdsJson}
                                 }
                                 """))
-                        .check(status().is(201)));
+                        .check(status().is(201))
+                        .check(header("X-Order-Key").saveAs("orderKey")))
+                .exec(session -> {
+                    if (session.contains("orderKey")) {
+                        OrderLookupFeeder.append(
+                                orderLookupFeeder,
+                                session.getLong("memberId"),
+                                session.getString("orderKey")
+                        );
+                    }
+                    return session;
+                });
 
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)

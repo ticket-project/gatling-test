@@ -53,6 +53,7 @@ class SimulationTypeTest {
         assertTrue(SimulationType.fromKey("core-seat-select-api").usesBookingFeeder());
         assertEquals("GET /api/v1/orders/{orderKey}",
                 SimulationType.fromKey("core-order-get-api").label());
+        assertTrue(SimulationType.fromKey("core-order-get-api").usesAccessTokens());
         assertTrue(SimulationType.fromKey("core-order-get-api").usesBookingFeeder());
         assertEquals("SMOKE", SimulationType.fromKey("smoke").bookingScenario());
         assertEquals("HOT_SEAT_CONCURRENCY",

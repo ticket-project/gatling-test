@@ -77,7 +77,8 @@ public class GatlingCommandBuilder {
         if (request.http2Enabled()) {
             command.add("-Dhttp2Enabled=true");
         }
-        if (request.simulationType().usesAccessTokens()) {
+        if (request.simulationType().usesAccessTokens()
+                && !request.simulationType().usesFeederAccessTokens()) {
             command.add("-DaccessTokenMode=" + request.accessTokenMode());
             command.add("-DloginEmailPrefix=" + request.loginEmailPrefix());
             command.add("-DloginEmailDomain=" + request.loginEmailDomain());

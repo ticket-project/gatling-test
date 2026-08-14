@@ -42,6 +42,7 @@ public record LoadTestRequest(
         String jwtSecret,
         String jwtIssuer,
         long syntheticMemberStartId,
+        String memberIdsFile,
         String syntheticJwtRole,
         int syntheticTokenTtlSeconds,
         String admissionTokenMode,
@@ -182,6 +183,7 @@ public record LoadTestRequest(
         loginPassword = defaultIfBlank(loginPassword, "password1234");
         jwtSecret = defaultIfBlank(jwtSecret, SYNTHETIC_JWT_SECRET);
         jwtIssuer = defaultIfBlank(jwtIssuer, "ticket");
+        memberIdsFile = memberIdsFile == null ? "" : memberIdsFile.trim();
         syntheticJwtRole = defaultIfBlank(syntheticJwtRole, "MEMBER");
         admissionTokenMode = normalizeAdmissionTokenMode(admissionTokenMode);
         admissionTokenIssuer = defaultIfBlank(admissionTokenIssuer, "ticket-queue");
@@ -260,6 +262,7 @@ public record LoadTestRequest(
                 value(form, "jwtSecret", SYNTHETIC_JWT_SECRET),
                 value(form, "jwtIssuer", "ticket"),
                 longValue(form, "syntheticMemberStartId", 1L),
+                value(form, "memberIdsFile", ""),
                 value(form, "syntheticJwtRole", "MEMBER"),
                 intValue(form, "syntheticTokenTtlSeconds", 3600),
                 value(form, "admissionTokenMode", "synthetic"),

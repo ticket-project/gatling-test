@@ -110,6 +110,25 @@ class ProofSuiteSimulationTest {
     }
 
     @Test
+    void orderCreateApiProducesTheOrderGetFeederWithoutCallingSeatSelection() throws IOException {
+        final String source = source(SIMULATION_ROOT.resolve("CoreOrderCreateApiSimulation.java"));
+
+        assertFalse(source.contains("/seats/#{seatId}/select"));
+        assertTrue(source.contains("OrderLookupFeeder.initialize("));
+        assertTrue(source.contains("header(\"X-Order-Key\").saveAs(\"orderKey\")"));
+        assertTrue(source.contains("OrderLookupFeeder.append("));
+    }
+
+    @Test
+    void orderGetApiCreatesJwtInMemoryFromTheSafeOrderFeeder() throws IOException {
+        final String source = source(SIMULATION_ROOT.resolve("CoreOrderGetApiSimulation.java"));
+
+        assertTrue(source.contains("orderLookupFeeder(LoadTestConfig.expectedUsers())"));
+        assertTrue(source.contains("syntheticAccessTokenForMember(session.getLong(\"memberId\"))"));
+        assertTrue(source.contains("LoadTestConfig.authAndCorrelationHeaders()"));
+    }
+
+    @Test
     void queueProtectionSeparatesExternalArrivalsFromCoreAdmissions() throws IOException {
         final String source = source(SIMULATION_ROOT.resolve("QueueProtectsCoreSimulation.java"));
 

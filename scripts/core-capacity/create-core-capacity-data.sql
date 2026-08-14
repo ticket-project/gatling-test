@@ -6,27 +6,27 @@
 --   SEATS                    2,000행
 --   SHOW_GRADES                  4행
 --   SHOW_SEATS               2,000행
---   MEMBERS                  2,000행 (JWT subject와 일치하는 ACTIVE 전용 회원)
 --   PERFORMANCES                30행
 --   PERFORMANCE_QUEUE_POLICIES  30행 (FORCE_OFF)
 --   PERFORMANCE_SEATS       60,000행 (전부 AVAILABLE)
 --
 -- 중요
---   1. SQL*Plus, SQLcl 또는 SQL Developer의 Run Script로 실행한다.
+--   1. JetBrains Database Console에서는 전체 선택 후 일반 Execute(Ctrl+Enter)로 실행한다.
+--      "Execute Selection as Single Statement"는 사용하지 않는다.
+--      DBMS_OUTPUT 성공 메시지가 필요하면 Console의 Enable DBMS_OUTPUT을 켠다.
+--      SQL Developer에서는 Run Script(F5), SQL*Plus/SQLcl에서는 @파일경로로 실행한다.
 --   2. 고정 ID 영역 910000001부터를 사용한다. 실행 전 운영 DB 충돌 여부를 검토한다.
---   3. 전용 회원은 이 SQL에서 최초 1회 생성하며, 주문과 Redis 데이터는 건드리지 않는다.
+--   3. MEMBERS는 변경하지 않는다. 기존 ACTIVE MEMBER ID를 마지막 조회 결과로 제공한다.
 --   4. 중간 검증이 하나라도 실패하면 전체 트랜잭션을 ROLLBACK한다.
-
-SET SERVEROUTPUT ON
-WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
+--   5. JDBC Console 호환성을 위해 SET/WHENEVER 같은 SQL*Plus 전용 명령은 넣지 않는다.
+--      아래 단일 PL/SQL 블록이 오류 시 직접 ROLLBACK하고 오류를 다시 발생시킨다.
+--   6. 생성한 테이블을 COMMIT 전에 다시 읽어 검증하므로 INSERT SELECT는 직렬 DML로 실행한다.
 
 DECLARE
     c_id_base              CONSTANT NUMBER := 910000000;
     c_venue_id             CONSTANT NUMBER := c_id_base + 1;
     c_show_id              CONSTANT NUMBER := c_id_base + 1;
     c_seat_count           CONSTANT PLS_INTEGER := 2000;
-    c_member_id_base       CONSTANT NUMBER := 0;
-    c_member_count         CONSTANT PLS_INTEGER := c_seat_count;
     c_performance_count    CONSTANT PLS_INTEGER := 30;
     c_created_by           CONSTANT VARCHAR2(255) := 'CORE_CAPACITY_20260812';
 
@@ -68,13 +68,14 @@ BEGIN
 
     SELECT COUNT(*) INTO v_count
     FROM members
-    WHERE id BETWEEN c_member_id_base + 1 AND c_member_id_base + c_member_count;
-    fail_if_not_zero(v_count, 'MEMBERS');
-
-    SELECT COUNT(*) INTO v_count
-    FROM members
-    WHERE email LIKE 'core-capacity-%@loadtest.invalid';
-    fail_if_not_zero(v_count, 'MEMBERS email');
+    WHERE deleted_at IS NULL
+      AND role = 'MEMBER';
+    IF v_count < c_seat_count THEN
+        RAISE_APPLICATION_ERROR(
+            -20003,
+            'ACTIVE MEMBER가 2,000명보다 적습니다. actual=' || v_count
+        );
+    END IF;
 
     SELECT COUNT(*) INTO v_count
     FROM shows
@@ -133,7 +134,7 @@ BEGIN
 
     -- 10개 구역 × 20개 행 × 10개 좌석 = 2,000석이다.
     -- 좌표는 500 × 356 viewBox 안의 50열 × 40행으로 배치한다.
-    INSERT INTO seats (
+    INSERT /*+ DISABLE_PARALLEL_DML */ INTO seats (
         id, section, row_no, seat_no, floor, x, y, created_at, created_by
     )
     SELECT
@@ -148,24 +149,6 @@ BEGIN
         c_created_by
     FROM dual
     CONNECT BY LEVEL <= c_seat_count;
-
-    -- Console이 같은 memberId 범위로 운영 JWT와 booking feeder를 자동 생성한다.
-    -- 비밀번호가 없는 소셜 회원 형태이며, deleted_at이 NULL이므로 주문 검증상 ACTIVE 회원이다.
-    INSERT INTO members (
-        id, email, password, name, role, deleted_at,
-        created_at, created_by
-    )
-    SELECT
-        c_member_id_base + LEVEL,
-        'core-capacity-' || TO_CHAR(LEVEL, 'FM0000') || '@loadtest.invalid',
-        NULL,
-        '[LOAD TEST] Core Capacity ' || TO_CHAR(LEVEL, 'FM0000'),
-        'MEMBER',
-        NULL,
-        LOCALTIMESTAMP,
-        c_created_by
-    FROM dual
-    CONNECT BY LEVEL <= c_member_count;
 
     INSERT INTO show_grades (
         show_id, grade_code, grade_name, price, sort_order, created_at, created_by
@@ -183,7 +166,7 @@ BEGIN
         show_id, grade_code, grade_name, price, sort_order, created_at, created_by
     ) VALUES (c_show_id, 'A', 'A석', 60000, 4, LOCALTIMESTAMP, c_created_by);
 
-    INSERT INTO show_seats (
+    INSERT /*+ DISABLE_PARALLEL_DML */ INTO show_seats (
         show_id, seat_id, show_grade_id, created_at, created_by
     )
     SELECT
@@ -205,7 +188,7 @@ BEGIN
 
     -- performance_no별 용도와 부하 단계는 같은 폴더의 README 표를 따른다.
     -- 모든 회차는 스크립트 실행 시점부터 30일간 주문 가능하다.
-    INSERT INTO performances (
+    INSERT /*+ DISABLE_PARALLEL_DML */ INTO performances (
         id, show_id, performance_no,
         start_time, end_time,
         order_open_time, order_close_time,
@@ -228,7 +211,7 @@ BEGIN
     CONNECT BY LEVEL <= c_performance_count;
 
     -- Admission Token 기능을 바꾸지 않고 기존 정책으로 Queue 비대상 회차를 만든다.
-    INSERT INTO performance_queue_policies (
+    INSERT /*+ DISABLE_PARALLEL_DML */ INTO performance_queue_policies (
         performance_id, queue_mode, queue_level,
         preopen_queue_start_at, waiting_room_message, reason,
         created_at, created_by
@@ -245,7 +228,7 @@ BEGIN
     FROM performances p
     WHERE p.id BETWEEN c_id_base + 1 AND c_id_base + c_performance_count;
 
-    INSERT INTO performance_seats (
+    INSERT /*+ DISABLE_PARALLEL_DML */ INTO performance_seats (
         performance_id, seat_id, state, price, created_at, created_by
     )
     SELECT
@@ -280,13 +263,6 @@ BEGIN
     assert_count(v_count, c_performance_count, 'PERFORMANCES');
 
     SELECT COUNT(*) INTO v_count
-    FROM members
-    WHERE id BETWEEN c_member_id_base + 1 AND c_member_id_base + c_member_count
-      AND deleted_at IS NULL
-      AND role = 'MEMBER';
-    assert_count(v_count, c_member_count, 'MEMBERS');
-
-    SELECT COUNT(*) INTO v_count
     FROM performance_queue_policies
     WHERE performance_id BETWEEN c_id_base + 1 AND c_id_base + c_performance_count
       AND queue_mode = 'FORCE_OFF';
@@ -317,12 +293,21 @@ BEGIN
         'performanceId=' || (c_id_base + 1) || '..' || (c_id_base + c_performance_count)
     );
     DBMS_OUTPUT.PUT_LINE('seatId=' || (c_id_base + 1) || '..' || (c_id_base + c_seat_count));
-    DBMS_OUTPUT.PUT_LINE(
-        'memberId=' || (c_member_id_base + 1) || '..' || (c_member_id_base + c_member_count)
-    );
 EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK;
         RAISE;
 END;
 /
+
+-- 아래 결과의 MEMBER_ID 열만 scripts/core-capacity/member-ids.txt로 내보낸다.
+-- ID는 연속일 필요가 없으며 Console은 실제 순서 그대로 JWT subject로 사용한다.
+SELECT id AS member_id
+FROM (
+    SELECT id
+    FROM members
+    WHERE deleted_at IS NULL
+      AND role = 'MEMBER'
+    ORDER BY id
+)
+WHERE ROWNUM <= 10000;

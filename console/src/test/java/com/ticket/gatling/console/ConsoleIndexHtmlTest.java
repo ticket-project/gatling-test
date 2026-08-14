@@ -44,6 +44,9 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("${coreBaseUrl}/api/v1/orders/{orderKey}"));
         assertFalse(html.contains("${coreBaseUrl}/api/v1/members"));
         assertTrue(html.contains("id=\"jwtSecret\" name=\"jwtSecret\" type=\"password\" value=\"0123456789abcdef0123456789abcdef\" autocomplete=\"off\""));
+        assertTrue(html.contains("id=\"memberIdsFile\" name=\"memberIdsFile\" value=\"scripts/core-capacity/member-ids.txt\""));
+        assertTrue(html.contains("value=\"910000022\" label=\"API 단계 5 users/sec\""));
+        assertTrue(html.contains("setVisible('[data-option=\"core-capacity-data\"]', coreCapacityData)"));
         assertFalse(html.contains("id=\"jwtSecret\" name=\"jwtSecret\" type=\"password\" value=\"0123456789abcdef0123456789abcdef\" readonly"));
         assertTrue(html.contains("id=\"stopRun\""));
         assertTrue(html.contains("/api/runs/${selectedRunId}/stop"));
@@ -100,18 +103,29 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("id=\"ticketProjectPath\" name=\"ticketProjectPath\" type=\"hidden\""));
         assertTrue(html.contains("setInputContainerVisible('queueTimeoutThresholdPercent', selected?.usesQueueBaseUrl)"));
         assertFalse(html.contains("dbAuditEnabled"));
-        assertTrue(html.contains("setInputContainerVisible('resultFile', selected?.key === 'core-admission-capacity')"));
+        assertTrue(html.contains("setInputContainerVisible('resultFile', false)"));
         assertTrue(html.contains("id=\"bookingFeederOffset\" name=\"bookingFeederOffset\""));
+        assertTrue(html.contains("id=\"bookingFeederOffset\" name=\"bookingFeederOffset\" type=\"hidden\" value=\"0\""));
         assertTrue(html.contains("id=\"technicalFailureThresholdPercent\" name=\"technicalFailureThresholdPercent\""));
         assertTrue(html.contains("id=\"performanceSummaryP95ThresholdMs\""));
         assertTrue(html.contains("id=\"orderGetP99ThresholdMs\""));
-        assertTrue(html.contains("id=\"capacityPreview\""));
+        assertTrue(html.contains("id=\"capacityAdvancedSettings\" class=\"advanced-settings hidden\""));
+        assertFalse(html.contains("id=\"capacityPreview\""));
+        assertTrue(html.contains("data-option=\"booking-feeder\" data-capacity-auto"));
+        assertTrue(html.contains("data-token-mode=\"tokens\" data-capacity-auto"));
+        final int resetButtonIndex = html.indexOf("id=\"capacityResetButton\"");
+        assertTrue(resetButtonIndex >= 0);
+        assertTrue(resetButtonIndex < html.indexOf("<form id=\"runForm\">"));
+        assertTrue(html.contains(">테스트 데이터 전체 원복</button>"));
         assertTrue(html.contains("EXPECTED USERS"));
+        assertTrue(html.contains("실행 직전 자동 생성"));
         assertTrue(html.contains("window.confirm(`운영 Core에 다음 부하를 실행합니다."));
         assertTrue(html.contains("simulationSelect.value = 'smoke'"));
         assertTrue(html.contains("'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-spike.csv'"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv'"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-realistic-contention.csv'"));
+        assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv'"));
+        assertTrue(html.contains("bookingFeederFile: '../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv'"));
     }
 }

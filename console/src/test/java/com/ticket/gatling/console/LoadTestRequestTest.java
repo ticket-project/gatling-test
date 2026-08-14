@@ -208,6 +208,7 @@ class LoadTestRequestTest {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
                 Map.entry("simulation", List.of("core-admission-capacity")),
                 Map.entry("bookingFeederOffset", List.of("300")),
+                Map.entry("memberIdsFile", List.of("C:/loadtest/member-ids.txt")),
                 Map.entry("technicalFailureThresholdPercent", List.of("0.5")),
                 Map.entry("performanceSummaryP95ThresholdMs", List.of("250")),
                 Map.entry("performanceSummaryP99ThresholdMs", List.of("650")),
@@ -216,6 +217,7 @@ class LoadTestRequestTest {
         ));
 
         assertEquals(300, request.bookingFeederOffset());
+        assertEquals("C:/loadtest/member-ids.txt", request.memberIdsFile());
         assertEquals(0.5, request.technicalFailureThresholdPercent());
         assertEquals(250, request.performanceSummaryP95ThresholdMs());
         assertEquals(650, request.performanceSummaryP99ThresholdMs());

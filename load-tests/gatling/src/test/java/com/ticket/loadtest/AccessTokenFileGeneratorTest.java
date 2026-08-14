@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AccessTokenFileGeneratorTest {
 
@@ -69,5 +70,28 @@ class AccessTokenFileGeneratorTest {
         assertEquals("2", second[0]);
         assertEquals(2L, LoadTestTokens.readSubjectAsLong(second[1]));
         assertEquals("910000002", second[2]);
+    }
+
+    @Test
+    void readsNonConsecutiveExistingMemberIdsFromOracleExport() throws Exception {
+        Path memberIds = tempDir.resolve("member-ids.txt");
+        Files.writeString(memberIds, "MEMBER_ID\n1\n5\n11\n");
+
+        List<Long> loaded = AccessTokenFileGenerator.readMemberIds(memberIds, 3);
+
+        assertEquals(List.of(1L, 5L, 11L), loaded);
+    }
+
+    @Test
+    void rejectsMemberIdFileShortageBeforeTokenGeneration() throws Exception {
+        Path memberIds = tempDir.resolve("member-ids.txt");
+        Files.writeString(memberIds, "memberId\n1\n5\n");
+
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> AccessTokenFileGenerator.readMemberIds(memberIds, 3)
+        );
+
+        assertEquals("Member ID file has fewer IDs than required: required=3, actual=2", failure.getMessage());
     }
 }

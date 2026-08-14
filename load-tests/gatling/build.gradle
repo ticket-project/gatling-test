@@ -58,6 +58,7 @@ tasks.register('generateAccessTokens', JavaExec) {
             'jwtSecret',
             'jwtIssuer',
             'syntheticMemberStartId',
+            'memberIdsFile',
             'syntheticJwtRole',
             'syntheticTokenTtlSeconds',
             'bookingFeederOutput',

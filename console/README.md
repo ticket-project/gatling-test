@@ -123,6 +123,8 @@ join 분산 스크립트는 기본적으로 로컬 `gatling-test` 프로젝트�
 
 토큰 파일은 UTF-8 텍스트이고 JWT를 한 줄에 하나씩 둔다. 이미 만든 파일이 있으면 `기존 파일 사용`, 소량 확인이면 `토큰 목록 붙여넣기`를 선택한다.
 
+Core 예매 테스트에서는 `기존 회원 ID 파일`을 함께 지정한다. 파일은 한 줄에 실제 ACTIVE Member ID 하나를 두며 ID가 비연속이어도 된다. 이 파일이 있으면 `syntheticMemberStartId` 연속 범위 대신 파일 순서대로 JWT `sub`를 만든다.
+
 콘솔 밖에서 미리 생성해야 할 때는 아래 명령을 사용할 수 있다.
 
 ```powershell
@@ -130,6 +132,7 @@ join 분산 스크립트는 기본적으로 로컬 `gatling-test` 프로젝트�
   -Doutput=load-tests\gatling\build\tokens\access-tokens.txt `
   -DjwtSecret=0123456789abcdef0123456789abcdef `
   -DjwtIssuer=ticket `
+  -DmemberIdsFile=scripts\core-capacity\member-ids.txt `
   -DsyntheticMemberStartId=1 `
   -DsyntheticJwtRole=MEMBER `
   -DsyntheticTokenTtlSeconds=3600 `
@@ -222,11 +225,11 @@ rg -n "찾을_문구" .
 
 - `GET /api/v1/performances/{performanceId}/summary`: 인증 없이 공연 요약만 1회 조회한다.
 - `GET /api/v1/performances/{performanceId}/seats/status`: 인증 후 좌석 상태만 1회 조회한다.
-- `POST /api/v1/performances/{performanceId}/seats/{seatId}/select`: 피더의 고유 좌석을 1회 선점한다.
-- `POST /api/v1/orders`: 해당 회원에게 미리 선점된 피더 좌석으로 주문만 1회 생성한다.
-- `GET /api/v1/orders/{orderKey}`: 피더의 회원 소유 주문을 1회 조회한다.
+- `POST /api/v1/performances/{performanceId}/seats/{seatId}/select`: 실제 Member ID 파일과 고유 좌석으로 자동 생성한 피더를 사용해 1회 선점한다.
+- `POST /api/v1/orders`: 바로 앞 선점 테스트와 같은 회원·좌석 피더로 주문만 1회 생성하고 주문 조회용 피더를 결과 경로에 남긴다.
+- `GET /api/v1/orders/{orderKey}`: 주문 생성 테스트가 남긴 회원 소유 주문 피더로 1회 조회한다.
 
-좌석 선점과 주문 생성은 상태를 변경하므로 실행마다 Redis 선점·좌석·주문 상태를 동일하게 복원한다. 주문 생성 테스트 안에서 좌석 선점을 준비하지 않는 이유는 선점 API 부하가 주문 API 측정값에 섞이는 것을 막기 위해서다. 주문 조회 CSV 헤더는 `memberId,accessToken,orderKey`, 좌석 선점·주문 생성 CSV 헤더는 `memberId,accessToken,seatId,admissionToken`이다. 현재는 로컬 실행만 지원한다.
+좌석 선점과 주문 생성은 상태를 변경한다. 주문 생성 테스트 안에서 좌석 선점을 준비하지 않는 이유는 선점 API 부하가 주문 API 측정값에 섞이는 것을 막기 위해서다. `좌석 선점 → 10분 안에 같은 performance·피더로 주문 생성 → 생성된 주문 조회 피더로 주문 조회` 순서로 실행한다. 새로 생성되는 주문 조회 CSV 헤더는 `memberId,orderKey`이며 JWT는 주문 조회 실행 중 메모리에서 생성하므로 결과 파일에 남지 않는다. 좌석 선점·주문 생성 CSV 헤더는 `memberId,accessToken,seatId,admissionToken`이다. 현재는 로컬 실행만 지원한다.
 
 ## Booking 예매 부하 콘솔 사용
 
@@ -256,8 +259,8 @@ Console의 `테스트 종류`에서 다음 일곱 시나리오를 직접 선택�
 
 - `01 기본 예매 동작 확인`: 기본값은 사용자 1명, `at-once-users`다. 기능 계약을 먼저 확인하는 용도이므로 이 단계에서 부하를 높이지 않는다.
 - `02 인기 좌석 동시 경합`: `사용자 수`를 100 또는 1,000으로 지정하고, feeder의 모든 행에 같은 `seatId`를 넣는다. `rendezVous`가 한 JVM 안에서만 동기화되므로 반드시 로컬 실행을 사용한다.
-- `03 고정 조건 Core 수용량`: 최초 운영 SQL이 ID `1..2000`의 전용 ACTIVE 회원과 좌석·30개 회차를 만들고, Console의 기존 JWT 파일 자동 생성기가 `sub=1..` 순서로 memberId/accessToken/seatId feeder를 실행 직전에 함께 만든다. 화면에서 전용 회차 ID와 권장 용도를 확인할 수 있다. 좌석 새로고침·무작위 선택·재시도·이탈 없이 같은 요청 흐름을 보내므로 코드 변경 전후의 1차 비교에 사용한다. Admission Token 열은 비워 두고 전용 회차의 기존 Queue 정책을 `FORCE_OFF`로 사용한다. 테스트 묶음 종료 후 결과 보존과 Core 중지를 마치고 `전체 테스트 회차 원복 창 열기` 버튼으로 30개 회차를 함께 원복한다.
-- `03-2 현실형 인기 좌석 경합`: Queue·Booking Feeder·Admission Token 없이 Core를 직접 호출한다. 사용자의 80%가 인기 좌석 범위에 몰리고 409 충돌 시 다른 좌석으로 최대 2회 재시도하며 일부 사용자는 주문 전에 이탈한다. 합성 JWT의 회원 ID와 일치하는 ACTIVE 회원이 필요하다. 실행마다 충돌량과 요청 수가 달라질 수 있으므로 03의 고정 결과를 설명하는 보조 테스트로 사용한다.
+- `03 고정 조건 Core 수용량`: 최초 운영 SQL은 기존 회원을 건드리지 않고 좌석·30개 회차를 만든다. SQL의 마지막 결과에서 내보낸 실제 ACTIVE Member ID 파일로 JWT와 memberId/accessToken/seatId feeder를 실행 직전에 자동 생성한다. CSV 경로·토큰 수·offset은 사용자가 입력하지 않는다. 화면에서 전용 회차 ID와 권장 용도를 확인할 수 있으며, 판정 기준을 바꿔야 할 때만 접힌 `판정 기준 변경`을 연다. 좌석 새로고침·무작위 선택·재시도·이탈 없이 같은 요청 흐름을 보내므로 코드 변경 전후의 1차 비교에 사용한다. Admission Token 열은 비워 두고 전용 회차의 기존 Queue 정책을 `FORCE_OFF`로 사용한다. 테스트 묶음 종료 후 결과 보존과 Core 중지를 마치고 화면 상단의 `테스트 데이터 전체 원복` 버튼으로 30개 회차를 함께 원복한다.
+- `03-2 현실형 인기 좌석 경합`: Queue·Booking Feeder·Admission Token 없이 Core를 직접 호출한다. 사용자의 80%가 인기 좌석 범위에 몰리고 409 충돌 시 다른 좌석으로 최대 2회 재시도하며 일부 사용자는 주문 전에 이탈한다. Console은 같은 실제 Member ID 파일로 JWT를 만든다. 실행마다 충돌량과 요청 수가 달라질 수 있으므로 03의 고정 결과를 설명하는 보조 테스트로 사용한다.
 - `04 Core 동시 사용자 한계`: 주입 방식을 `동시 사용자 유지 (Closed Model)`로 사용한다. `사용자 수`는 동시에 유지할 Core 사용자 수이고, `Closed Model 피더 행 수`는 노드마다 소비할 수 있는 고유 CSV 행 수다.
 - `05 Core 순간 부하 및 회복`: `초당 사용자 수`가 기준 RPS, `최고 RPS`가 순간 최고 RPS, `투입 시간`이 최고 RPS 유지 시간이다. 실행 패턴은 기준 30초 → 5초 증가 → 최고 RPS 유지 → 5초 감소 → 기준 30초다.
 - `06 Queue의 Core 보호`: `초당 사용자 수`는 Queue로 들어오는 외부 유입률이다. 사용자는 join → state polling → enter로 Admission Token을 얻은 뒤에만 Core 흐름을 실행한다.

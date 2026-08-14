@@ -128,7 +128,7 @@ public enum SimulationType {
             false,
             false,
             false,
-            false,
+            true,
             true,
             false,
             "CORE_SEAT_SELECT_API"
@@ -141,7 +141,7 @@ public enum SimulationType {
             false,
             false,
             false,
-            false,
+            true,
             true,
             false,
             "CORE_ORDER_CREATE_API"
@@ -154,7 +154,7 @@ public enum SimulationType {
             false,
             false,
             false,
-            false,
+            true,
             true,
             false,
             "CORE_ORDER_GET_API"
@@ -320,6 +320,10 @@ public enum SimulationType {
 
     public boolean usesAccessTokens() {
         return usesAccessTokens;
+    }
+
+    public boolean usesFeederAccessTokens() {
+        return this == CORE_SEAT_SELECT_API || this == CORE_ORDER_CREATE_API;
     }
 
     public boolean usesBookingFeeder() {
