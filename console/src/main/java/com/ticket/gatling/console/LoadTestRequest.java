@@ -62,16 +62,6 @@ public record LoadTestRequest(
         int nodeIndex,
         String resultFile,
         double technicalFailureThresholdPercent,
-        int performanceSummaryP95ThresholdMs,
-        int performanceSummaryP99ThresholdMs,
-        int seatStatusP95ThresholdMs,
-        int seatStatusP99ThresholdMs,
-        int seatSelectP95ThresholdMs,
-        int seatSelectP99ThresholdMs,
-        int orderCreateP95ThresholdMs,
-        int orderCreateP99ThresholdMs,
-        int orderGetP95ThresholdMs,
-        int orderGetP99ThresholdMs,
         double queueTimeoutThresholdPercent,
         int maxCoreAdmissionsPerSecond,
         double admissionRateTolerancePercent,
@@ -130,24 +120,6 @@ public record LoadTestRequest(
                 || technicalFailureThresholdPercent > 100.0) {
             throw new IllegalArgumentException("technicalFailureThresholdPercent must be greater than 0 and at most 100");
         }
-        validatePositiveThresholds(
-                performanceSummaryP95ThresholdMs,
-                performanceSummaryP99ThresholdMs,
-                seatStatusP95ThresholdMs,
-                seatStatusP99ThresholdMs,
-                seatSelectP95ThresholdMs,
-                seatSelectP99ThresholdMs,
-                orderCreateP95ThresholdMs,
-                orderCreateP99ThresholdMs,
-                orderGetP95ThresholdMs,
-                orderGetP99ThresholdMs
-        );
-        validateThresholdPair("performance summary", performanceSummaryP95ThresholdMs,
-                performanceSummaryP99ThresholdMs);
-        validateThresholdPair("seat status", seatStatusP95ThresholdMs, seatStatusP99ThresholdMs);
-        validateThresholdPair("seat select", seatSelectP95ThresholdMs, seatSelectP99ThresholdMs);
-        validateThresholdPair("order create", orderCreateP95ThresholdMs, orderCreateP99ThresholdMs);
-        validateThresholdPair("order get", orderGetP95ThresholdMs, orderGetP99ThresholdMs);
         if (maxCoreAdmissionsPerSecond < 0) {
             throw new IllegalArgumentException("maxCoreAdmissionsPerSecond must be non-negative");
         }
@@ -282,16 +254,6 @@ public record LoadTestRequest(
                 intValue(form, "nodeIndex", 0),
                 value(form, "resultFile", ""),
                 doubleValue(form, "technicalFailureThresholdPercent", 1.0),
-                intValue(form, "performanceSummaryP95ThresholdMs", 300),
-                intValue(form, "performanceSummaryP99ThresholdMs", 700),
-                intValue(form, "seatStatusP95ThresholdMs", 300),
-                intValue(form, "seatStatusP99ThresholdMs", 700),
-                intValue(form, "seatSelectP95ThresholdMs", 500),
-                intValue(form, "seatSelectP99ThresholdMs", 1000),
-                intValue(form, "orderCreateP95ThresholdMs", 800),
-                intValue(form, "orderCreateP99ThresholdMs", 1500),
-                intValue(form, "orderGetP95ThresholdMs", 500),
-                intValue(form, "orderGetP99ThresholdMs", 1000),
                 doubleValue(form, "queueTimeoutThresholdPercent", 0.0),
                 intValue(form, "maxCoreAdmissionsPerSecond", 0),
                 doubleValue(form, "admissionRateTolerancePercent", 10.0),
@@ -448,20 +410,6 @@ public record LoadTestRequest(
             return defaultValue;
         }
         return value.trim();
-    }
-
-    private static void validatePositiveThresholds(final int... thresholds) {
-        for (int threshold : thresholds) {
-            if (threshold <= 0) {
-                throw new IllegalArgumentException("SLO response-time thresholds must be positive");
-            }
-        }
-    }
-
-    private static void validateThresholdPair(final String name, final int p95, final int p99) {
-        if (p95 > p99) {
-            throw new IllegalArgumentException(name + " p95 threshold must not exceed p99 threshold");
-        }
     }
 
     private static String defaultAccessTokenSource(final String accessTokens, final String accessTokensFile) {

@@ -50,16 +50,6 @@ public class GatlingCommandBuilder {
             command.add("-DnodeIndex=" + request.nodeIndex());
             command.add("-DresultFile=" + request.resultFile());
             command.add("-DtechnicalFailureThresholdPercent=" + request.technicalFailureThresholdPercent());
-            command.add("-DperformanceSummaryP95ThresholdMs=" + request.performanceSummaryP95ThresholdMs());
-            command.add("-DperformanceSummaryP99ThresholdMs=" + request.performanceSummaryP99ThresholdMs());
-            command.add("-DseatStatusP95ThresholdMs=" + request.seatStatusP95ThresholdMs());
-            command.add("-DseatStatusP99ThresholdMs=" + request.seatStatusP99ThresholdMs());
-            command.add("-DseatSelectP95ThresholdMs=" + request.seatSelectP95ThresholdMs());
-            command.add("-DseatSelectP99ThresholdMs=" + request.seatSelectP99ThresholdMs());
-            command.add("-DorderCreateP95ThresholdMs=" + request.orderCreateP95ThresholdMs());
-            command.add("-DorderCreateP99ThresholdMs=" + request.orderCreateP99ThresholdMs());
-            command.add("-DorderGetP95ThresholdMs=" + request.orderGetP95ThresholdMs());
-            command.add("-DorderGetP99ThresholdMs=" + request.orderGetP99ThresholdMs());
             command.add("-DpollingTimeoutSeconds=" + request.pollingTimeoutSeconds());
             command.add("-DqueueTimeoutThresholdPercent=" + request.queueTimeoutThresholdPercent());
             command.add("-DmaxCoreAdmissionsPerSecond=" + request.maxCoreAdmissionsPerSecond());

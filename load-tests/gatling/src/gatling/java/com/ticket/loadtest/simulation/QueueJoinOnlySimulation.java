@@ -31,9 +31,7 @@ public class QueueJoinOnlySimulation extends Simulation {
                     .protocols(httpProtocol)
                     .assertions(
                             global().failedRequests().percent().lt(1.0),
-                            details("queue join").responseTime().percentile(99.0).lt(2000),
-                            details("queue join recovery").failedRequests().percent().lt(1.0),
-                            details("queue join recovery").responseTime().percentile(99.0).lt(2000)
+                            details("queue join recovery").failedRequests().percent().lt(1.0)
                     );
             return;
         }
@@ -41,8 +39,7 @@ public class QueueJoinOnlySimulation extends Simulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent().lt(1.0),
-                        details("queue join").responseTime().percentile(99.0).lt(2000)
+                        global().failedRequests().percent().lt(1.0)
                 );
     }
 

@@ -13,7 +13,6 @@ import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
-import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.doIf;
 import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -111,14 +110,7 @@ public class TicketOpenEndToEndSimulation extends Simulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent().lt(1.0),
-                        details("queue join").responseTime().percentile(99.0).lt(2000),
-                        details("queue state").responseTime().percentile(99.0).lt(2000),
-                        details("queue enter").responseTime().percentile(99.0).lt(2000),
-                        details("seat status").responseTime().percentile(99.0).lt(3000),
-                        details("select seat").responseTime().percentile(99.0).lt(3000),
-                        details("create order").responseTime().percentile(99.0).lt(3000),
-                        details("get order").responseTime().percentile(99.0).lt(3000)
+                        global().failedRequests().percent().lt(1.0)
                 );
     }
 

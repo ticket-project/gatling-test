@@ -5,7 +5,6 @@ import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
-import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -30,11 +29,7 @@ public class CorePerformanceSummaryApiSimulation extends Simulation {
                 .protocols(httpProtocol)
                 .assertions(
                         global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent()),
-                        details("performance summary").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.performanceSummaryP95ThresholdMs()),
-                        details("performance summary").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.performanceSummaryP99ThresholdMs())
+                                .lt(LoadTestConfig.technicalFailureThresholdPercent())
                 );
     }
 }

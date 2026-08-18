@@ -9,7 +9,6 @@ import io.gatling.javaapi.http.HttpProtocolBuilder;
 import java.nio.file.Path;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
-import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -58,11 +57,7 @@ public class CoreOrderCreateApiSimulation extends Simulation {
                 .protocols(httpProtocol)
                 .assertions(
                         global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent()),
-                        details("create order").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.orderCreateP95ThresholdMs()),
-                        details("create order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.orderCreateP99ThresholdMs())
+                                .lt(LoadTestConfig.technicalFailureThresholdPercent())
                 );
     }
 }

@@ -107,8 +107,7 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("id=\"bookingFeederOffset\" name=\"bookingFeederOffset\""));
         assertTrue(html.contains("id=\"bookingFeederOffset\" name=\"bookingFeederOffset\" type=\"hidden\" value=\"0\""));
         assertTrue(html.contains("id=\"technicalFailureThresholdPercent\" name=\"technicalFailureThresholdPercent\""));
-        assertTrue(html.contains("id=\"performanceSummaryP95ThresholdMs\""));
-        assertTrue(html.contains("id=\"orderGetP99ThresholdMs\""));
+        assertFalse(html.contains("ThresholdMs\""));
         assertTrue(html.contains("id=\"capacityAdvancedSettings\" class=\"advanced-settings hidden\""));
         assertFalse(html.contains("id=\"capacityPreview\""));
         assertTrue(html.contains("data-option=\"booking-feeder\" data-capacity-auto"));

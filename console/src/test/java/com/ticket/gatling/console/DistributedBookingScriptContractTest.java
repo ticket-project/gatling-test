@@ -68,8 +68,7 @@ class DistributedBookingScriptContractTest {
         assertTrue(source.contains("-DnodeIndex=$NodeIndex"));
         assertTrue(source.contains("-DresultFile=$RemoteResultFile"));
         assertTrue(source.contains("-DpollingTimeoutSeconds=$PollingTimeoutSeconds"));
-        assertTrue(source.contains("-DperformanceSummaryP95ThresholdMs=$PerformanceSummaryP95ThresholdMs"));
-        assertTrue(source.contains("-DorderGetP99ThresholdMs=$OrderGetP99ThresholdMs"));
+        assertFalse(source.contains("ThresholdMs"));
         assertFalse(source.contains("JwtSecret"));
         assertFalse(source.contains("AdmissionTokenSecret"));
     }

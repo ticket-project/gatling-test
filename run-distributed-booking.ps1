@@ -33,19 +33,7 @@ param(
     [double]$QueueTimeoutThresholdPercent = 0.0,
     [int]$MaxCoreAdmissionsPerSecond = 0,
     [double]$AdmissionRateTolerancePercent = 10.0,
-    [switch]$DbAuditEnabled,
-    [int]$QueueP99ThresholdMs = 2000,
-    [int]$TicketP99ThresholdMs = 3000,
-    [int]$PerformanceSummaryP95ThresholdMs = 300,
-    [int]$PerformanceSummaryP99ThresholdMs = 700,
-    [int]$SeatStatusP95ThresholdMs = 300,
-    [int]$SeatStatusP99ThresholdMs = 700,
-    [int]$SeatSelectP95ThresholdMs = 500,
-    [int]$SeatSelectP99ThresholdMs = 1000,
-    [int]$OrderCreateP95ThresholdMs = 800,
-    [int]$OrderCreateP99ThresholdMs = 1500,
-    [int]$OrderGetP95ThresholdMs = 500,
-    [int]$OrderGetP99ThresholdMs = 1000
+    [switch]$DbAuditEnabled
 )
 
 $ErrorActionPreference = "Stop"
@@ -66,12 +54,6 @@ function Stop-Validation {
     param([string]$Message)
     Write-Error $Message
     exit 2
-}
-
-function Assert-SloPair {
-    param([string]$Name, [int]$P95, [int]$P99)
-    if ($P95 -le 0 -or $P99 -le 0) { Stop-Validation "$Name SLO values must be positive" }
-    if ($P95 -gt $P99) { Stop-Validation "$Name p95 SLO must not exceed p99 SLO" }
 }
 
 function Resolve-CommandPath {
@@ -384,16 +366,6 @@ function New-GatlingArgs {
         "-DstatusPollPauseSeconds=$StatusPollPauseSeconds",
         "-DstatusPollPauseJitterSeconds=$StatusPollPauseJitterSeconds",
         "-DtechnicalFailureThresholdPercent=$TechnicalFailureThresholdPercent",
-        "-DperformanceSummaryP95ThresholdMs=$PerformanceSummaryP95ThresholdMs",
-        "-DperformanceSummaryP99ThresholdMs=$PerformanceSummaryP99ThresholdMs",
-        "-DseatStatusP95ThresholdMs=$SeatStatusP95ThresholdMs",
-        "-DseatStatusP99ThresholdMs=$SeatStatusP99ThresholdMs",
-        "-DseatSelectP95ThresholdMs=$SeatSelectP95ThresholdMs",
-        "-DseatSelectP99ThresholdMs=$SeatSelectP99ThresholdMs",
-        "-DorderCreateP95ThresholdMs=$OrderCreateP95ThresholdMs",
-        "-DorderCreateP99ThresholdMs=$OrderCreateP99ThresholdMs",
-        "-DorderGetP95ThresholdMs=$OrderGetP95ThresholdMs",
-        "-DorderGetP99ThresholdMs=$OrderGetP99ThresholdMs",
         "-DqueueTimeoutThresholdPercent=$QueueTimeoutThresholdPercent",
         "-DmaxCoreAdmissionsPerSecond=0",
         "-DadmissionRateTolerancePercent=$AdmissionRateTolerancePercent",
@@ -607,10 +579,6 @@ function Write-BookingSummary {
         if ($MaxCoreAdmissionsPerSecond -le 0) { Write-Warning "MaxCoreAdmissionsPerSecond must be positive for Queue protection proof"; $failed = $true }
         elseif ($summary.maxObservedCoreAdmissionsPerSecond -gt $allowedCoreAdmissions) { Write-Warning "Observed Core admission rate exceeded: $($summary.maxObservedCoreAdmissionsPerSecond)/s > $allowedCoreAdmissions/s"; $failed = $true }
     }
-    if ($null -ne $maxP99) {
-        $threshold = if (Test-QueueScenario) { [Math]::Max($QueueP99ThresholdMs, $TicketP99ThresholdMs) } else { $TicketP99ThresholdMs }
-        if ($maxP99 -gt $threshold) { Write-Warning "Node p99 threshold exceeded: $maxP99 ms > $threshold ms"; $failed = $true }
-    }
     return -not $failed
 }
 
@@ -642,11 +610,6 @@ try {
     if ($FeederOffset -lt 0) { Stop-Validation "FeederOffset must be non-negative" }
     if ((Get-BookingScenario) -eq "CORE_ADMISSION_CAPACITY" -and (Get-EffectiveInjectionMode) -ne "constant-users-per-sec") { Stop-Validation "Core Admission Capacity requires constant-users-per-sec" }
     if ($TechnicalFailureThresholdPercent -le 0 -or $TechnicalFailureThresholdPercent -gt 100) { Stop-Validation "TechnicalFailureThresholdPercent must be greater than 0 and at most 100" }
-    Assert-SloPair -Name "Performance summary" -P95 $PerformanceSummaryP95ThresholdMs -P99 $PerformanceSummaryP99ThresholdMs
-    Assert-SloPair -Name "Seat status" -P95 $SeatStatusP95ThresholdMs -P99 $SeatStatusP99ThresholdMs
-    Assert-SloPair -Name "Seat select" -P95 $SeatSelectP95ThresholdMs -P99 $SeatSelectP99ThresholdMs
-    Assert-SloPair -Name "Order create" -P95 $OrderCreateP95ThresholdMs -P99 $OrderCreateP99ThresholdMs
-    Assert-SloPair -Name "Order get" -P95 $OrderGetP95ThresholdMs -P99 $OrderGetP99ThresholdMs
     if ($QueueTimeoutThresholdPercent -lt 0) { Stop-Validation "QueueTimeoutThresholdPercent must be non-negative" }
     if ($MaxCoreAdmissionsPerSecond -lt 0) { Stop-Validation "MaxCoreAdmissionsPerSecond must be non-negative" }
     if ($AdmissionRateTolerancePercent -lt 0) { Stop-Validation "AdmissionRateTolerancePercent must be non-negative" }

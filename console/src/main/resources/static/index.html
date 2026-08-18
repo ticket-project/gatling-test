@@ -775,19 +775,6 @@ ubuntu@43.203.136.184</textarea>
                   <input id="technicalFailureThresholdPercent" name="technicalFailureThresholdPercent" type="number" min="0.01" max="100" step="0.01" value="1.0">
                 </div>
               </div>
-              <p class="field-note">응답 시간 SLO (p95 / p99, ms)</p>
-              <div class="grid-2">
-                <div><label for="performanceSummaryP95ThresholdMs">공연 요약 p95</label><input id="performanceSummaryP95ThresholdMs" name="performanceSummaryP95ThresholdMs" type="number" min="1" value="300"></div>
-                <div><label for="performanceSummaryP99ThresholdMs">공연 요약 p99</label><input id="performanceSummaryP99ThresholdMs" name="performanceSummaryP99ThresholdMs" type="number" min="1" value="700"></div>
-                <div><label for="seatStatusP95ThresholdMs">좌석 상태 p95</label><input id="seatStatusP95ThresholdMs" name="seatStatusP95ThresholdMs" type="number" min="1" value="300"></div>
-                <div><label for="seatStatusP99ThresholdMs">좌석 상태 p99</label><input id="seatStatusP99ThresholdMs" name="seatStatusP99ThresholdMs" type="number" min="1" value="700"></div>
-                <div><label for="seatSelectP95ThresholdMs">좌석 선택 p95</label><input id="seatSelectP95ThresholdMs" name="seatSelectP95ThresholdMs" type="number" min="1" value="500"></div>
-                <div><label for="seatSelectP99ThresholdMs">좌석 선택 p99</label><input id="seatSelectP99ThresholdMs" name="seatSelectP99ThresholdMs" type="number" min="1" value="1000"></div>
-                <div><label for="orderCreateP95ThresholdMs">주문 생성 p95</label><input id="orderCreateP95ThresholdMs" name="orderCreateP95ThresholdMs" type="number" min="1" value="800"></div>
-                <div><label for="orderCreateP99ThresholdMs">주문 생성 p99</label><input id="orderCreateP99ThresholdMs" name="orderCreateP99ThresholdMs" type="number" min="1" value="1500"></div>
-                <div><label for="orderGetP95ThresholdMs">주문 조회 p95</label><input id="orderGetP95ThresholdMs" name="orderGetP95ThresholdMs" type="number" min="1" value="500"></div>
-                <div><label for="orderGetP99ThresholdMs">주문 조회 p99</label><input id="orderGetP99ThresholdMs" name="orderGetP99ThresholdMs" type="number" min="1" value="1000"></div>
-              </div>
             </div>
           </details>
           <div data-option="closed-booking" class="hidden">
@@ -1749,19 +1736,6 @@ function validateBeforeRun(body) {
         if (generatedRows > 2000) return '자동 생성할 토큰/feeder 행은 전용 데이터 2,000개를 초과할 수 없습니다.';
       }
       if (!Number.isFinite(technicalFailureThreshold) || technicalFailureThreshold <= 0 || technicalFailureThreshold > 100) return 'Technical failure 허용률은 0보다 크고 100 이하여야 합니다.';
-      const sloPairs = [
-        ['공연 요약', 'performanceSummaryP95ThresholdMs', 'performanceSummaryP99ThresholdMs'],
-        ['좌석 상태', 'seatStatusP95ThresholdMs', 'seatStatusP99ThresholdMs'],
-        ['좌석 선택', 'seatSelectP95ThresholdMs', 'seatSelectP99ThresholdMs'],
-        ['주문 생성', 'orderCreateP95ThresholdMs', 'orderCreateP99ThresholdMs'],
-        ['주문 조회', 'orderGetP95ThresholdMs', 'orderGetP99ThresholdMs']
-      ];
-      for (const [label, p95Key, p99Key] of sloPairs) {
-        const p95 = Number(body.get(p95Key));
-        const p99 = Number(body.get(p99Key));
-        if (!Number.isInteger(p95) || !Number.isInteger(p99) || p95 <= 0 || p99 <= 0) return `${label} SLO는 양의 정수(ms)여야 합니다.`;
-        if (p95 > p99) return `${label} p95 SLO는 p99 SLO보다 클 수 없습니다.`;
-      }
     }
   }
 

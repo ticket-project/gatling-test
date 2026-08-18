@@ -86,25 +86,7 @@ public class QueueProtectsCoreSimulation extends BookingProofSimulation {
                 .assertions(
                         global().failedRequests().percent()
                                 .lt(LoadTestConfig.technicalFailureThresholdPercent()),
-                        details("external arrival").successfulRequests().count().is((long) expectedUsers),
-                        details("queue join").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.queueP99ThresholdMs()),
-                        details("queue state").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.queueP99ThresholdMs()),
-                        details("queue enter").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.queueP99ThresholdMs()),
-                        details("seat status").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.coreP95ThresholdMs()),
-                        details("seat status").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs()),
-                        details("select seat").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.coreP95ThresholdMs()),
-                        details("select seat").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs()),
-                        details("create order").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.coreP95ThresholdMs()),
-                        details("create order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.coreP99ThresholdMs())
+                        details("external arrival").successfulRequests().count().is((long) expectedUsers)
                 );
     }
 

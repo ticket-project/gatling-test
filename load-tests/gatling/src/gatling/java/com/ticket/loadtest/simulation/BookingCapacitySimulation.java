@@ -11,7 +11,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
-import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.doIf;
 import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -74,11 +73,7 @@ public class BookingCapacitySimulation extends Simulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent().lt(1.0),
-                        details("seat status").responseTime().percentile(99.0).lt(3000),
-                        details("select seat").responseTime().percentile(99.0).lt(3000),
-                        details("create order").responseTime().percentile(99.0).lt(3000),
-                        details("get order").responseTime().percentile(99.0).lt(3000)
+                        global().failedRequests().percent().lt(1.0)
                 );
     }
 

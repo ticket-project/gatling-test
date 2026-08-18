@@ -246,11 +246,7 @@ class GatlingCommandBuilderTest {
                 Map.entry("coreBaseUrl", List.of("https://api.example.com")),
                 Map.entry("bookingFeederFile", List.of("C:/feeders/capacity.csv")),
                 Map.entry("bookingFeederOffset", List.of("300")),
-                Map.entry("technicalFailureThresholdPercent", List.of("0.75")),
-                Map.entry("performanceSummaryP95ThresholdMs", List.of("250")),
-                Map.entry("performanceSummaryP99ThresholdMs", List.of("650")),
-                Map.entry("orderCreateP95ThresholdMs", List.of("700")),
-                Map.entry("orderCreateP99ThresholdMs", List.of("1400"))
+                Map.entry("technicalFailureThresholdPercent", List.of("0.75"))
         ));
 
         final List<String> command = new GatlingCommandBuilder().build(
@@ -259,8 +255,7 @@ class GatlingCommandBuilderTest {
 
         assertTrue(command.contains("-DbookingFeederOffset=300"));
         assertTrue(command.contains("-DtechnicalFailureThresholdPercent=0.75"));
-        assertTrue(command.contains("-DperformanceSummaryP95ThresholdMs=250"));
-        assertTrue(command.contains("-DorderCreateP99ThresholdMs=1400"));
+        assertTrue(command.stream().noneMatch(argument -> argument.contains("ThresholdMs")));
     }
 
     @Test

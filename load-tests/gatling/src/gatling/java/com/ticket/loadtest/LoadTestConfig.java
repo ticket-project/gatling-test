@@ -175,14 +175,6 @@ public final class LoadTestConfig {
         return OrderLookupFeeder.load(Path.of(bookingFeederFile()), expectedRows);
     }
 
-    public static int coreP95ThresholdMs() {
-        return intProperty(ConfigKey.CORE_P95_THRESHOLD_MS);
-    }
-
-    public static int coreP99ThresholdMs() {
-        return intProperty(ConfigKey.CORE_P99_THRESHOLD_MS);
-    }
-
     public static Duration bookingSeatThinkMin() {
         return durationMin(ConfigKey.BOOKING_SEAT_THINK_MIN_MILLIS, ConfigKey.BOOKING_SEAT_THINK_MAX_MILLIS);
     }
@@ -213,50 +205,6 @@ public final class LoadTestConfig {
 
     public static double bookingDropoutPercent() {
         return percentageProperty(ConfigKey.BOOKING_DROPOUT_PERCENT);
-    }
-
-    public static int performanceSummaryP95ThresholdMs() {
-        return intProperty(ConfigKey.PERFORMANCE_SUMMARY_P95_THRESHOLD_MS);
-    }
-
-    public static int performanceSummaryP99ThresholdMs() {
-        return intProperty(ConfigKey.PERFORMANCE_SUMMARY_P99_THRESHOLD_MS);
-    }
-
-    public static int seatStatusP95ThresholdMs() {
-        return intProperty(ConfigKey.SEAT_STATUS_P95_THRESHOLD_MS);
-    }
-
-    public static int seatStatusP99ThresholdMs() {
-        return intProperty(ConfigKey.SEAT_STATUS_P99_THRESHOLD_MS);
-    }
-
-    public static int seatSelectP95ThresholdMs() {
-        return intProperty(ConfigKey.SEAT_SELECT_P95_THRESHOLD_MS);
-    }
-
-    public static int seatSelectP99ThresholdMs() {
-        return intProperty(ConfigKey.SEAT_SELECT_P99_THRESHOLD_MS);
-    }
-
-    public static int orderCreateP95ThresholdMs() {
-        return intProperty(ConfigKey.ORDER_CREATE_P95_THRESHOLD_MS);
-    }
-
-    public static int orderCreateP99ThresholdMs() {
-        return intProperty(ConfigKey.ORDER_CREATE_P99_THRESHOLD_MS);
-    }
-
-    public static int orderGetP95ThresholdMs() {
-        return intProperty(ConfigKey.ORDER_GET_P95_THRESHOLD_MS);
-    }
-
-    public static int orderGetP99ThresholdMs() {
-        return intProperty(ConfigKey.ORDER_GET_P99_THRESHOLD_MS);
-    }
-
-    public static int queueP99ThresholdMs() {
-        return intProperty(ConfigKey.QUEUE_P99_THRESHOLD_MS);
     }
 
     public static double technicalFailureThresholdPercent() {
@@ -889,8 +837,6 @@ public final class LoadTestConfig {
         NODE_INDEX,
         RESULT_FILE,
         POLLING_TIMEOUT_SECONDS,
-        CORE_P95_THRESHOLD_MS,
-        CORE_P99_THRESHOLD_MS,
         BOOKING_SEAT_THINK_MIN_MILLIS,
         BOOKING_SEAT_THINK_MAX_MILLIS,
         BOOKING_ORDER_THINK_MIN_MILLIS,
@@ -899,17 +845,6 @@ public final class LoadTestConfig {
         BOOKING_RETRY_THINK_MAX_MILLIS,
         BOOKING_SEAT_REFRESH_PERCENT,
         BOOKING_DROPOUT_PERCENT,
-        PERFORMANCE_SUMMARY_P95_THRESHOLD_MS,
-        PERFORMANCE_SUMMARY_P99_THRESHOLD_MS,
-        SEAT_STATUS_P95_THRESHOLD_MS,
-        SEAT_STATUS_P99_THRESHOLD_MS,
-        SEAT_SELECT_P95_THRESHOLD_MS,
-        SEAT_SELECT_P99_THRESHOLD_MS,
-        ORDER_CREATE_P95_THRESHOLD_MS,
-        ORDER_CREATE_P99_THRESHOLD_MS,
-        ORDER_GET_P95_THRESHOLD_MS,
-        ORDER_GET_P99_THRESHOLD_MS,
-        QUEUE_P99_THRESHOLD_MS,
         TECHNICAL_FAILURE_THRESHOLD_PERCENT,
         QUEUE_TIMEOUT_THRESHOLD_PERCENT,
         MAX_CORE_ADMISSIONS_PER_SECOND,
@@ -961,8 +896,6 @@ public final class LoadTestConfig {
                 case NODE_INDEX -> "nodeIndex";
                 case RESULT_FILE -> "resultFile";
                 case POLLING_TIMEOUT_SECONDS -> "pollingTimeoutSeconds";
-                case CORE_P95_THRESHOLD_MS -> "coreP95ThresholdMs";
-                case CORE_P99_THRESHOLD_MS -> "coreP99ThresholdMs";
                 case BOOKING_SEAT_THINK_MIN_MILLIS -> "bookingSeatThinkMinMillis";
                 case BOOKING_SEAT_THINK_MAX_MILLIS -> "bookingSeatThinkMaxMillis";
                 case BOOKING_ORDER_THINK_MIN_MILLIS -> "bookingOrderThinkMinMillis";
@@ -971,17 +904,6 @@ public final class LoadTestConfig {
                 case BOOKING_RETRY_THINK_MAX_MILLIS -> "bookingRetryThinkMaxMillis";
                 case BOOKING_SEAT_REFRESH_PERCENT -> "bookingSeatRefreshPercent";
                 case BOOKING_DROPOUT_PERCENT -> "bookingDropoutPercent";
-                case SEAT_STATUS_P95_THRESHOLD_MS -> "seatStatusP95ThresholdMs";
-                case PERFORMANCE_SUMMARY_P95_THRESHOLD_MS -> "performanceSummaryP95ThresholdMs";
-                case PERFORMANCE_SUMMARY_P99_THRESHOLD_MS -> "performanceSummaryP99ThresholdMs";
-                case SEAT_STATUS_P99_THRESHOLD_MS -> "seatStatusP99ThresholdMs";
-                case SEAT_SELECT_P95_THRESHOLD_MS -> "seatSelectP95ThresholdMs";
-                case SEAT_SELECT_P99_THRESHOLD_MS -> "seatSelectP99ThresholdMs";
-                case ORDER_CREATE_P95_THRESHOLD_MS -> "orderCreateP95ThresholdMs";
-                case ORDER_CREATE_P99_THRESHOLD_MS -> "orderCreateP99ThresholdMs";
-                case ORDER_GET_P95_THRESHOLD_MS -> "orderGetP95ThresholdMs";
-                case ORDER_GET_P99_THRESHOLD_MS -> "orderGetP99ThresholdMs";
-                case QUEUE_P99_THRESHOLD_MS -> "queueP99ThresholdMs";
                 case TECHNICAL_FAILURE_THRESHOLD_PERCENT -> "technicalFailureThresholdPercent";
                 case QUEUE_TIMEOUT_THRESHOLD_PERCENT -> "queueTimeoutThresholdPercent";
                 case MAX_CORE_ADMISSIONS_PER_SECOND -> "maxCoreAdmissionsPerSecond";
@@ -1028,8 +950,6 @@ public final class LoadTestConfig {
                 case NODE_INDEX -> "0";
                 case RESULT_FILE -> "../../distributed-results-join/_latest/booking-results.csv";
                 case POLLING_TIMEOUT_SECONDS -> "300";
-                case CORE_P95_THRESHOLD_MS -> "2000";
-                case CORE_P99_THRESHOLD_MS -> "3000";
                 case BOOKING_SEAT_THINK_MIN_MILLIS -> "1000";
                 case BOOKING_SEAT_THINK_MAX_MILLIS -> "3000";
                 case BOOKING_ORDER_THINK_MIN_MILLIS -> "2000";
@@ -1038,17 +958,6 @@ public final class LoadTestConfig {
                 case BOOKING_RETRY_THINK_MAX_MILLIS -> "2000";
                 case BOOKING_SEAT_REFRESH_PERCENT -> "25.0";
                 case BOOKING_DROPOUT_PERCENT -> "10.0";
-                case SEAT_STATUS_P95_THRESHOLD_MS -> "300";
-                case SEAT_STATUS_P99_THRESHOLD_MS -> "700";
-                case PERFORMANCE_SUMMARY_P95_THRESHOLD_MS -> "300";
-                case PERFORMANCE_SUMMARY_P99_THRESHOLD_MS -> "700";
-                case SEAT_SELECT_P95_THRESHOLD_MS -> "500";
-                case SEAT_SELECT_P99_THRESHOLD_MS -> "1000";
-                case ORDER_CREATE_P95_THRESHOLD_MS -> "800";
-                case ORDER_CREATE_P99_THRESHOLD_MS -> "1500";
-                case ORDER_GET_P95_THRESHOLD_MS -> "500";
-                case ORDER_GET_P99_THRESHOLD_MS -> "1000";
-                case QUEUE_P99_THRESHOLD_MS -> "2000";
                 case TECHNICAL_FAILURE_THRESHOLD_PERCENT -> "1.0";
                 case QUEUE_TIMEOUT_THRESHOLD_PERCENT -> "0.0";
                 case MAX_CORE_ADMISSIONS_PER_SECOND -> "0";

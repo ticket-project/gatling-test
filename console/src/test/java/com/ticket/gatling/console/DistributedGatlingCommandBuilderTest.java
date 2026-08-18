@@ -192,14 +192,13 @@ class DistributedGatlingCommandBuilderTest {
     }
 
     @Test
-    void passesCoreCapacityOffsetAndSlosToDistributedRunner() {
+    void passesCoreCapacityOffsetAndFailureThresholdToDistributedRunner() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
                 Map.entry("ticketProjectPath", List.of("C:/ticket-workspace/gatling-test")),
                 Map.entry("executionMode", List.of("distributed")),
                 Map.entry("simulation", List.of("core-admission-capacity")),
                 Map.entry("bookingFeederOffset", List.of("900")),
-                Map.entry("technicalFailureThresholdPercent", List.of("0.75")),
-                Map.entry("orderCreateP99ThresholdMs", List.of("1400"))
+                Map.entry("technicalFailureThresholdPercent", List.of("0.75"))
         ));
 
         final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
@@ -208,8 +207,7 @@ class DistributedGatlingCommandBuilderTest {
         assertTrue(command.contains("900"));
         assertTrue(command.contains("-TechnicalFailureThresholdPercent"));
         assertTrue(command.contains("0.75"));
-        assertTrue(command.contains("-OrderCreateP99ThresholdMs"));
-        assertTrue(command.contains("1400"));
+        assertTrue(command.stream().noneMatch(argument -> argument.contains("ThresholdMs")));
     }
 
 }

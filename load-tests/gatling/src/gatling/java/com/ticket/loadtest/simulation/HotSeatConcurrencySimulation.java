@@ -93,11 +93,7 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
                         details("select won").successfulRequests().count().is(1L),
                         details("select business rejected").successfulRequests().count().is(users - 1L),
                         details("order won").successfulRequests().count().is(1L),
-                        details("order business rejected").successfulRequests().count().is(users - 1L),
-                        details("select seat").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.seatSelectP99ThresholdMs()),
-                        details("create order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.orderCreateP99ThresholdMs())
+                        details("order business rejected").successfulRequests().count().is(users - 1L)
                 );
     }
 

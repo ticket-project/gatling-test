@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LoadTestConfigTest {
@@ -60,18 +61,14 @@ class LoadTestConfigTest {
     }
 
     @Test
-    void exposesRealisticBookingTimingAndApiSpecificSlos() throws IOException {
+    void exposesRealisticBookingTimingWithoutResponseTimeThresholds() throws IOException {
         final String source = Files.readString(CONFIG_SOURCE, StandardCharsets.UTF_8);
 
-        assertTrue(source.contains("case PERFORMANCE_SUMMARY_P99_THRESHOLD_MS -> \"700\";"));
         assertTrue(source.contains("case BOOKING_SEAT_THINK_MIN_MILLIS -> \"1000\";"));
         assertTrue(source.contains("case BOOKING_ORDER_THINK_MAX_MILLIS -> \"6000\";"));
         assertTrue(source.contains("case BOOKING_SEAT_REFRESH_PERCENT -> \"25.0\";"));
         assertTrue(source.contains("case BOOKING_DROPOUT_PERCENT -> \"10.0\";"));
-        assertTrue(source.contains("case SEAT_STATUS_P99_THRESHOLD_MS -> \"700\";"));
-        assertTrue(source.contains("case SEAT_SELECT_P99_THRESHOLD_MS -> \"1000\";"));
-        assertTrue(source.contains("case ORDER_CREATE_P99_THRESHOLD_MS -> \"1500\";"));
-        assertTrue(source.contains("case ORDER_GET_P99_THRESHOLD_MS -> \"1000\";"));
+        assertFalse(source.contains("ThresholdMs"));
     }
 
     @Test
@@ -82,8 +79,8 @@ class LoadTestConfigTest {
         assertTrue(source.contains("case BOOKING_FEEDER_OFFSET -> \"bookingFeederOffset\";"));
         assertTrue(source.contains("case BOOKING_FEEDER_OFFSET -> \"0\";"));
         assertTrue(source.contains("public static double technicalFailureThresholdPercent()"));
-        assertTrue(source.contains("case PERFORMANCE_SUMMARY_P95_THRESHOLD_MS -> \"performanceSummaryP95ThresholdMs\";"));
-        assertTrue(source.contains("case ORDER_CREATE_P99_THRESHOLD_MS -> \"orderCreateP99ThresholdMs\";"));
+        assertFalse(source.contains("P95_THRESHOLD_MS"));
+        assertFalse(source.contains("P99_THRESHOLD_MS"));
         assertTrue(source.contains("CoreAdmissionCapacitySimulation requires -DinjectionMode=constant-users-per-sec"));
     }
 

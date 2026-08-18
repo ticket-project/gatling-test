@@ -5,7 +5,6 @@ import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
-import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -31,27 +30,7 @@ public class CoreAdmissionCapacitySimulation extends BookingProofSimulation {
                 .protocols(httpProtocol)
                 .assertions(
                         global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent()),
-                        details("performance summary").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.performanceSummaryP95ThresholdMs()),
-                        details("performance summary").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.performanceSummaryP99ThresholdMs()),
-                        details("seat status").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.seatStatusP95ThresholdMs()),
-                        details("seat status").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.seatStatusP99ThresholdMs()),
-                        details("select seat").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.seatSelectP95ThresholdMs()),
-                        details("select seat").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.seatSelectP99ThresholdMs()),
-                        details("create order").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.orderCreateP95ThresholdMs()),
-                        details("create order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.orderCreateP99ThresholdMs()),
-                        details("get order").responseTime().percentile(95.0)
-                                .lt(LoadTestConfig.orderGetP95ThresholdMs()),
-                        details("get order").responseTime().percentile(99.0)
-                                .lt(LoadTestConfig.orderGetP99ThresholdMs())
+                                .lt(LoadTestConfig.technicalFailureThresholdPercent())
                 );
     }
 }

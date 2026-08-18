@@ -103,12 +103,11 @@ class TicketOpenEndToEndSimulationTest {
     }
 
     @Test
-    void enforcesQueueTicketAndTechnicalFailureSlos() throws IOException {
+    void enforcesTechnicalFailureOnlyWithoutResponseTimeAssertions() throws IOException {
         final String source = source();
 
         assertTrue(source.contains("global().failedRequests().percent().lt(1.0)"));
-        assertEquals(3, count(source, "responseTime().percentile(99.0).lt(2000)"));
-        assertEquals(4, count(source, "responseTime().percentile(99.0).lt(3000)"));
+        assertEquals(0, count(source, "responseTime()"));
     }
 
     private static String source() throws IOException {

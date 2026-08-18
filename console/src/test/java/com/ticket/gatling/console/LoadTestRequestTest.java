@@ -204,37 +204,24 @@ class LoadTestRequestTest {
     }
 
     @Test
-    void readsCoreCapacityOffsetAndSloOverrides() {
+    void readsCoreCapacityOffsetAndFailureThresholdOverrides() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.ofEntries(
                 Map.entry("simulation", List.of("core-admission-capacity")),
                 Map.entry("bookingFeederOffset", List.of("300")),
                 Map.entry("memberIdsFile", List.of("C:/loadtest/member-ids.txt")),
-                Map.entry("technicalFailureThresholdPercent", List.of("0.5")),
-                Map.entry("performanceSummaryP95ThresholdMs", List.of("250")),
-                Map.entry("performanceSummaryP99ThresholdMs", List.of("650")),
-                Map.entry("orderCreateP95ThresholdMs", List.of("700")),
-                Map.entry("orderCreateP99ThresholdMs", List.of("1400"))
+                Map.entry("technicalFailureThresholdPercent", List.of("0.5"))
         ));
 
         assertEquals(300, request.bookingFeederOffset());
         assertEquals("C:/loadtest/member-ids.txt", request.memberIdsFile());
         assertEquals(0.5, request.technicalFailureThresholdPercent());
-        assertEquals(250, request.performanceSummaryP95ThresholdMs());
-        assertEquals(650, request.performanceSummaryP99ThresholdMs());
-        assertEquals(700, request.orderCreateP95ThresholdMs());
-        assertEquals(1400, request.orderCreateP99ThresholdMs());
     }
 
     @Test
-    void rejectsInvalidCoreCapacityOffsetAndSloPairs() {
+    void rejectsInvalidCoreCapacityOffset() {
         assertThrows(IllegalArgumentException.class, () -> LoadTestRequest.fromForm(Map.of(
                 "simulation", List.of("core-admission-capacity"),
                 "bookingFeederOffset", List.of("-1")
-        )));
-        assertThrows(IllegalArgumentException.class, () -> LoadTestRequest.fromForm(Map.of(
-                "simulation", List.of("core-admission-capacity"),
-                "orderCreateP95ThresholdMs", List.of("1501"),
-                "orderCreateP99ThresholdMs", List.of("1500")
         )));
     }
     @Test
