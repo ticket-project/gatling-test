@@ -156,7 +156,7 @@ public class LoadTestService {
         if (request.jwtSecret().getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("JWT Secret must be at least 32 bytes for synthetic JWT mode");
         }
-        if (requiresExistingMemberIds(request.simulationType())) {
+        if (requiresExistingMemberIds(request)) {
             if (!request.generatesAccessTokensFile()) {
                 throw new IllegalArgumentException(
                         "This Core scenario requires generated JWTs from an existing Member ID file"
@@ -166,7 +166,15 @@ public class LoadTestService {
         }
     }
 
-    private boolean requiresExistingMemberIds(final SimulationType simulationType) {
+    /**
+     * 로컬 대상은 시드가 회원 ID를 1부터 연속으로 만들므로 실제 회원 ID 파일이 필요 없다.
+     * 파일을 넘기지 않으면 {@code AccessTokenFileGenerator}가 syntheticMemberStartId부터 연속 ID를 쓴다.
+     */
+    private boolean requiresExistingMemberIds(final LoadTestRequest request) {
+        if (coreTargetIsLocal(request)) {
+            return false;
+        }
+        final SimulationType simulationType = request.simulationType();
         return simulationType == SimulationType.CORE_SEAT_STATUS_API
                 || simulationType == SimulationType.CORE_SEAT_SELECT_API
                 || simulationType == SimulationType.CORE_ORDER_CREATE_API
@@ -257,9 +265,19 @@ public class LoadTestService {
         if (!request.simulationType().usesCoreBookingFlow()) {
             return;
         }
-        validateRemoteUrl("Core URL", request.coreBaseUrl());
+        // 분산 실행은 VM에서 요청하므로 localhost가 대상 서버를 가리키지 않는다.
+        // 로컬 Console 실행은 로컬 Ticket/Core를 대상으로 삼을 수 있어야 하므로 URL 형식만 본다.
+        if (request.distributedExecution()) {
+            validateRemoteUrl("Core URL", request.coreBaseUrl());
+        } else {
+            validateHttpUrl("Core URL", request.coreBaseUrl());
+        }
         if (request.simulationType().usesQueueBaseUrl()) {
-            validateRemoteUrl("Queue URL", request.queueBaseUrl());
+            if (request.distributedExecution()) {
+                validateRemoteUrl("Queue URL", request.queueBaseUrl());
+            } else {
+                validateHttpUrl("Queue URL", request.queueBaseUrl());
+            }
         }
         if (request.distributedExecution()
                 && request.simulationType() == SimulationType.HOT_SEAT_CONCURRENCY) {
@@ -284,8 +302,10 @@ public class LoadTestService {
                 }
             }
         }
-        if (!request.operationalConfirmation()) {
-            throw new IllegalArgumentException("Operational confirmation is required for every booking execution");
+        if (!coreTargetIsLocal(request) && !request.operationalConfirmation()) {
+            throw new IllegalArgumentException(
+                    "Operational confirmation is required for a non-local booking execution"
+            );
         }
         if (request.simulationType().usesBookingFeeder()) {
             if (generatesMemberSeatFeeder(request)) {
@@ -321,7 +341,9 @@ public class LoadTestService {
                     "Automatic JWT/member-seat feeder generation currently supports local Console execution only"
             );
         }
-        validateMemberIdsFile(request);
+        if (requiresExistingMemberIds(request)) {
+            validateMemberIdsFile(request);
+        }
         final long requiredRows = (long) request.bookingFeederOffset() + request.expectedBookingRowsPerNode();
         if (request.generatedAccessTokenCount() < requiredRows) {
             throw new IllegalArgumentException(
@@ -382,6 +404,27 @@ public class LoadTestService {
                 || host.equals("::1")
                 || host.equals("0:0:0:0:0:0:0:1")
                 || host.equals("0.0.0.0");
+    }
+
+    private boolean coreTargetIsLocal(final LoadTestRequest request) {
+        final String coreBaseUrl = request.coreBaseUrl();
+        if (coreBaseUrl == null || coreBaseUrl.isBlank()) {
+            return false;
+        }
+        try {
+            final URI uri = new URI(coreBaseUrl.trim());
+            return uri.getHost() != null && isLocalTarget(uri);
+        } catch (URISyntaxException exception) {
+            return false;
+        }
+    }
+
+    static void validateTargetForTest(final LoadTestRequest request) {
+        new LoadTestService(new ReportRegistry()).validateBookingExecution(request);
+    }
+
+    static void validateJwtForTest(final LoadTestRequest request) {
+        new LoadTestService(new ReportRegistry()).validateSyntheticJwt(request);
     }
 
     private int countBookingFeederRows(final Path feederPath, final SimulationType simulationType) {
@@ -804,7 +847,7 @@ public class LoadTestService {
         command.add("-DjwtSecret=" + request.jwtSecret());
         command.add("-DjwtIssuer=" + request.jwtIssuer());
         command.add("-DsyntheticMemberStartId=" + request.syntheticMemberStartId());
-        if (requiresExistingMemberIds(request.simulationType())) {
+        if (requiresExistingMemberIds(request)) {
             command.add("-DmemberIdsFile=" + resolveInputPath(
                     request.ticketProjectPath(), request.memberIdsFile()));
         }

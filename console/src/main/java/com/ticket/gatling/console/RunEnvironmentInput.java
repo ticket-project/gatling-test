@@ -29,7 +29,28 @@ public record RunEnvironmentInput(
                     CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE -> List.of(core);
             case TICKET_OPEN_END_TO_END, QUEUE_PROTECTS_CORE -> List.of(queue, core);
         };
-        return new RunEnvironmentInput(true, targets);
+        // 로컬 대상에는 Datadog 에이전트가 없다. 캡처를 시도하면 실패 로그만 남으므로 아예 끈다.
+        return new RunEnvironmentInput(!isLocalHost(coreBaseUrl), targets);
+    }
+
+    private static boolean isLocalHost(final String url) {
+        if (url == null || url.isBlank()) {
+            return false;
+        }
+        try {
+            final String host = new java.net.URI(url.trim()).getHost();
+            if (host == null) {
+                return false;
+            }
+            final String normalized = host.toLowerCase(java.util.Locale.ROOT);
+            return normalized.equals("localhost")
+                    || normalized.endsWith(".localhost")
+                    || normalized.startsWith("127.")
+                    || normalized.equals("0:0:0:0:0:0:0:1")
+                    || normalized.equals("0.0.0.0");
+        } catch (java.net.URISyntaxException exception) {
+            return false;
+        }
     }
 }
 

@@ -11,6 +11,7 @@
 - 이 폴더의 `AGENTS.md` 기준으로 테스트 작성/실행을 자동으로 진행하지 않는다.
 - 실행 전 대상 API, 사용자 수, 투입 시간, token mode를 반드시 확인한다.
 - Queue·legacy·CDN 대상 URL은 기본값이 없으며 직접 입력한다. localhost가 아닌 대상은 실행 확인 체크 없이는 서버가 거부한다.
+- Core 대상 URL은 `대상 환경` 드롭다운에서 고르거나 직접 입력한다. 목록은 `console/environments.properties`에서 관리하며 로컬 대상은 실행 확인 체크를 요구하지 않는다.
 
 ## 빠른 맥락
 
@@ -59,7 +60,7 @@ http://localhost:9090
 | 영역 | 설명 |
 | --- | --- |
 | 테스트 종류 | 대기열 진입, 예매 오픈 흐름, hold 경합, 티켓 서버 용량 |
-| 대상 | Gatling 저장소 경로, 대상 API URL, 회차 ID, 좌석 ID |
+| 대상 | 대상 환경(로컬·운영·직접 입력), 대상 API URL, 회차 ID, 좌석 ID |
 | 부하 | 사용자 수, 투입 시간, 주입 방식 |
 | 프로토콜 | Queue Join의 HTTP/2 사용 여부 |
 | 인증 | 자동 로그인, 직접 token 입력, 테스트 JWT 생성 |
@@ -67,6 +68,30 @@ http://localhost:9090
 | 테스트 JWT | issuer, member 시작 ID, role, TTL, secret |
 | Admission Token | 합성 생성 또는 직접 입력, issuer, audience, secret, TTL |
 | polling | 대기열 상태 조회 횟수와 간격 |
+
+## 대상 환경
+
+Core 시나리오의 대상 URL은 `console/environments.properties`에서 관리한다.
+
+```properties
+targets=local,prod
+
+local.label=로컬 (H2)
+local.coreBaseUrl=http://localhost:8080
+local.queueBaseUrl=http://localhost:8081
+
+prod.label=운영 (oneticket.site)
+prod.coreBaseUrl=https://oneticket.site
+prod.queueBaseUrl=https://queue.oneticket.site
+```
+
+`targets`가 화면 표시 순서를 정한다. 대상을 추가하려면 키를 `targets`에 넣고 아래에 `label`, `coreBaseUrl`, `queueBaseUrl`을 쓴다. 콘솔 코드를 고치거나 다시 빌드할 필요는 없고 콘솔만 다시 시작하면 된다. 파일이 없거나 형식이 깨지면 목록만 비고 콘솔은 계속 동작한다.
+
+드롭다운에서 대상을 고르면 URL 입력칸이 그 값으로 채워진다. 채운 뒤에도 입력칸은 그대로 고칠 수 있으며, 고치면 드롭다운이 `직접 입력`으로 바뀐다. 실제로 요청을 보내는 값은 언제나 입력칸의 값이다.
+
+로컬 대상은 실행 확인 체크와 Member ID 파일을 요구하지 않는다. 로컬 시드가 회원 ID를 1부터 연속으로 만들기 때문에 회원 ID 파일 없이 연속 ID를 그대로 쓴다. 로컬 대상에서는 Datadog 환경 메타데이터 수집도 하지 않는다.
+
+EC2 분산 실행은 로컬 대상을 지원하지 않는다. VM에서 localhost는 대상 서버를 가리키지 않는다.
 
 ## 시뮬레이션별 대상 API 정책
 

@@ -22,8 +22,10 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("booking-capacity"));
         assertTrue(html.contains("ticket-open-end-to-end"));
         assertTrue(html.contains("seat-contention"));
-        assertTrue(html.contains("id=\"coreBaseUrl\" name=\"coreBaseUrl\" value=\"https://oneticket.site\""));
-        assertTrue(html.contains("id=\"queueBaseUrl\" name=\"queueBaseUrl\" value=\"https://queue.oneticket.site\""));
+        // 대상 URL은 하드코딩하지 않고 대상 환경 선택이 채운다.
+        assertTrue(html.contains("id=\"coreBaseUrl\" name=\"coreBaseUrl\" value=\"\""));
+        assertTrue(html.contains("id=\"queueBaseUrl\" name=\"queueBaseUrl\" value=\"\""));
+        assertTrue(html.contains("id=\"targetEnvironment\" name=\"targetEnvironment\""));
         assertTrue(html.contains("id=\"bookingFeederFile\" name=\"bookingFeederFile\""));
         assertTrue(html.contains("id=\"resultFile\" name=\"resultFile\""));
         assertTrue(html.contains("id=\"pollingTimeoutSeconds\" name=\"pollingTimeoutSeconds\""));
@@ -120,7 +122,7 @@ class ConsoleIndexHtmlTest {
         assertTrue(html.contains("실행 직전 자동 생성"));
         assertTrue(html.contains("window.confirm(`운영 Core에 다음 부하를 실행합니다."));
         assertTrue(html.contains("simulationSelect.value = 'smoke'"));
-        assertTrue(html.contains("'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10"));
+        assertTrue(html.contains("'hot-seat-concurrency': { users: 10"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-spike.csv'"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv'"));
         assertTrue(html.contains("resultFile: '../../distributed-results-join/_latest/core-realistic-contention.csv'"));
