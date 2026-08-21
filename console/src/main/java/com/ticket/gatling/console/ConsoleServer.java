@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,6 +43,10 @@ public class ConsoleServer {
     private void handle(final HttpExchange exchange) throws IOException {
         try {
             final String path = exchange.getRequestURI().getPath();
+            if (path.equals("/api/environments")) {
+                handleEnvironments(exchange);
+                return;
+            }
             if (path.equals("/api/simulations")) {
                 handleSimulations(exchange);
                 return;
@@ -68,6 +73,26 @@ public class ConsoleServer {
         } catch (Exception exception) {
             writeJson(exchange, 500, "{\"error\":\"" + Json.escape(exception.getMessage()) + "\"}");
         }
+    }
+
+    private void handleEnvironments(final HttpExchange exchange) throws IOException {
+        requireMethod(exchange, "GET");
+        writeJson(exchange, 200, environmentsJson(
+                TargetEnvironmentCatalog.load(Path.of(TargetEnvironmentCatalog.DEFAULT_FILE_NAME))
+        ));
+    }
+
+    static String environmentsJson(final List<TargetEnvironment> targets) {
+        return targets.stream()
+                .map(target -> "{"
+                        + "\"key\":\"" + Json.escape(target.key()) + "\","
+                        + "\"label\":\"" + Json.escape(target.label()) + "\","
+                        + "\"coreBaseUrl\":\"" + Json.escape(target.coreBaseUrl()) + "\","
+                        + "\"queueBaseUrl\":\"" + Json.escape(target.queueBaseUrl()) + "\""
+                        + "}")
+                .reduce((left, right) -> left + "," + right)
+                .map(value -> "[" + value + "]")
+                .orElse("[]");
     }
 
     private void handleSimulations(final HttpExchange exchange) throws IOException {

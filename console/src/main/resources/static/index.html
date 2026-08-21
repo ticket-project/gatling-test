@@ -719,6 +719,11 @@ ubuntu@43.203.136.184</textarea>
         <legend>대상</legend>
         <input id="ticketProjectPath" name="ticketProjectPath" type="hidden" value="C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test">
 
+        <label for="targetEnvironment">대상 환경 <span class="help-chip" tabindex="0" data-help="미리 등록한 대상을 고르면 아래 URL 입력칸을 채웁니다. 채운 뒤에도 직접 고칠 수 있고, 고치면 직접 입력으로 바뀝니다. 목록은 console/environments.properties에서 관리합니다.">?</span></label>
+        <select id="targetEnvironment" name="targetEnvironment">
+          <option value="__custom__">직접 입력</option>
+        </select>
+
         <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 HTTP(S) base URL입니다. Queue·legacy·CDN 시나리오는 안전을 위해 실행할 때마다 직접 입력합니다.">?</span></label>
         <input id="baseUrl" name="baseUrl" value="" placeholder="http://localhost:8090 또는 승인받은 대상 URL">
 
@@ -747,12 +752,12 @@ ubuntu@43.203.136.184</textarea>
           </div>
           <div class="grid-2">
             <div>
-              <label for="coreBaseUrl">Ticket/Core URL <span class="help-chip" tabindex="0" data-help="좌석 상태, 좌석 선택, 주문 API를 받을 운영 Ticket/Core base URL입니다. localhost는 분산 실행에서 허용하지 않습니다.">?</span></label>
-              <input id="coreBaseUrl" name="coreBaseUrl" value="https://oneticket.site">
+              <label for="coreBaseUrl">Ticket/Core URL <span class="help-chip" tabindex="0" data-help="좌석 상태, 좌석 선택, 주문 API를 받을 Ticket/Core base URL입니다. 대상 환경에서 고르면 자동으로 채워지고 직접 고칠 수도 있습니다. localhost는 EC2 분산 실행에서만 허용하지 않습니다.">?</span></label>
+              <input id="coreBaseUrl" name="coreBaseUrl" value="" placeholder="대상 환경을 고르거나 직접 입력">
             </div>
             <div data-option="queue-url">
               <label for="queueBaseUrl">Queue URL <span class="help-chip" tabindex="0" data-help="Queue 시나리오에서 join/state/enter를 호출할 Queue base URL입니다.">?</span></label>
-              <input id="queueBaseUrl" name="queueBaseUrl" value="https://queue.oneticket.site">
+              <input id="queueBaseUrl" name="queueBaseUrl" value="" placeholder="대상 환경을 고르거나 직접 입력">
             </div>
           </div>
           <div class="grid-2" data-option="booking-feeder" data-capacity-auto>
@@ -1141,6 +1146,7 @@ const apiPreview = document.querySelector('#apiPreview');
 const baseUrlInput = document.querySelector('#baseUrl');
 const coreBaseUrlInput = document.querySelector('#coreBaseUrl');
 const queueBaseUrlInput = document.querySelector('#queueBaseUrl');
+const targetEnvironmentSelect = document.querySelector('#targetEnvironment');
 const bookingFeederFileInput = document.querySelector('#bookingFeederFile');
 const ticketProjectPathInput = document.querySelector('#ticketProjectPath');
 const accessTokensFileInput = document.querySelector('#accessTokensFile');
@@ -1160,6 +1166,7 @@ let selectedRunId = null;
 let selectedEnvironmentJson = null;
 let polling = null;
 let simulationMeta = [];
+let targetEnvironments = [];
 let generatedAccessTokenCountTouched = false;
 let accessTokensFileTouched = false;
 let stopRequestInFlight = false;
@@ -1172,18 +1179,18 @@ const presets = {
 };
 
 const proofSimulationDefaults = {
-  'core-performance-summary-api': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-performance-summary-api.csv' },
-  'core-seat-status-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-seat-status-api.csv' },
-  'core-seat-select-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', bookingFeederFile: 'build/core-api-member-seat-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-seat-select-api.csv' },
-  'core-order-create-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', bookingFeederFile: 'build/core-api-member-seat-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv' },
-  'core-order-get-api': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'synthetic-jwt', bookingFeederFile: '../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-get-api.csv' },
-  smoke: { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/smoke.csv' },
-  'hot-seat-concurrency': { coreBaseUrl: 'https://oneticket.site', users: 10, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/hot-seat-concurrency.csv' },
-  'core-admission-capacity': { executionMode: 'local', coreBaseUrl: 'https://oneticket.site', performanceId: 910000001, accessTokenMode: 'tokens', accessTokenSource: 'generate-file', jwtIssuer: 'ticket', syntheticMemberStartId: 1, memberIdsFile: 'scripts/core-capacity/member-ids.txt', syntheticJwtRole: 'MEMBER', syntheticTokenTtlSeconds: 3600, bookingFeederFile: 'build/core-capacity-booking-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 5, targetUsersPerSecond: 5, bookingFeederOffset: 0, resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv' },
-  'core-realistic-contention': { coreBaseUrl: 'https://oneticket.site', accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-realistic-contention.csv' },
-  'core-active-users-closed': { coreBaseUrl: 'https://oneticket.site', users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000, resultFile: '../../distributed-results-join/_latest/core-active-users-closed.csv' },
-  'core-spike': { coreBaseUrl: 'https://oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 10, targetUsersPerSecond: 50, resultFile: '../../distributed-results-join/_latest/core-spike.csv' },
-  'queue-protects-core': { coreBaseUrl: 'https://oneticket.site', queueBaseUrl: 'https://queue.oneticket.site', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300, resultFile: '../../distributed-results-join/_latest/queue-protects-core.csv' }
+  'core-performance-summary-api': { users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-performance-summary-api.csv' },
+  'core-seat-status-api': { accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-seat-status-api.csv' },
+  'core-seat-select-api': { accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', bookingFeederFile: 'build/core-api-member-seat-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-seat-select-api.csv' },
+  'core-order-create-api': { accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', bookingFeederFile: 'build/core-api-member-seat-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv' },
+  'core-order-get-api': { accessTokenMode: 'synthetic-jwt', bookingFeederFile: '../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-order-get-api.csv' },
+  smoke: { users: 1, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/smoke.csv' },
+  'hot-seat-concurrency': { users: 10, durationSeconds: 10, injectionMode: 'at-once-users', usersPerSecond: 1, targetUsersPerSecond: 1, resultFile: '../../distributed-results-join/_latest/hot-seat-concurrency.csv' },
+  'core-admission-capacity': { executionMode: 'local', performanceId: 910000001, accessTokenMode: 'tokens', accessTokenSource: 'generate-file', jwtIssuer: 'ticket', syntheticMemberStartId: 1, memberIdsFile: 'scripts/core-capacity/member-ids.txt', syntheticJwtRole: 'MEMBER', syntheticTokenTtlSeconds: 3600, bookingFeederFile: 'build/core-capacity-booking-feeder.csv', users: 1, durationSeconds: 30, injectionMode: 'constant-users-per-sec', usersPerSecond: 5, targetUsersPerSecond: 5, bookingFeederOffset: 0, resultFile: '../../distributed-results-join/_latest/core-admission-capacity.csv' },
+  'core-realistic-contention': { accessTokenMode: 'tokens', accessTokenSource: 'generate-file', memberIdsFile: 'scripts/core-capacity/member-ids.txt', users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 10, targetUsersPerSecond: 10, resultFile: '../../distributed-results-join/_latest/core-realistic-contention.csv' },
+  'core-active-users-closed': { users: 100, durationSeconds: 300, injectionMode: 'closed-core', usersPerSecond: 1, targetUsersPerSecond: 1, bookingFeederRows: 10000, resultFile: '../../distributed-results-join/_latest/core-active-users-closed.csv' },
+  'core-spike': { users: 1, durationSeconds: 60, injectionMode: 'spike', usersPerSecond: 10, targetUsersPerSecond: 50, resultFile: '../../distributed-results-join/_latest/core-spike.csv' },
+  'queue-protects-core': { users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300, resultFile: '../../distributed-results-join/_latest/queue-protects-core.csv' }
 };
 
 const coreApiSimulationKeys = new Set([
@@ -1228,6 +1235,52 @@ function updateSimulationHelp(selected) {
     || '선택한 테스트의 상세 설명이 아직 준비되지 않았습니다.';
   simulationHelpChip.setAttribute('aria-label', (selected?.label || '선택한 테스트') + ' 상세 설명');
 }
+async function loadEnvironments() {
+  try {
+    const response = await fetch('/api/environments');
+    targetEnvironments = await response.json();
+  } catch (error) {
+    targetEnvironments = [];
+  }
+  targetEnvironmentSelect.innerHTML = targetEnvironments
+    .map(item => `<option value="${item.key}">${item.label}</option>`)
+    .join('') + '<option value="__custom__">직접 입력</option>';
+  if (targetEnvironments.length > 0) {
+    targetEnvironmentSelect.value = targetEnvironments[0].key;
+    applyTargetEnvironment();
+  } else {
+    targetEnvironmentSelect.value = '__custom__';
+  }
+}
+
+function selectedTargetEnvironment() {
+  return targetEnvironments.find(item => item.key === targetEnvironmentSelect.value);
+}
+
+function applyTargetEnvironment() {
+  const selected = selectedTargetEnvironment();
+  if (!selected) return;
+  coreBaseUrlInput.value = selected.coreBaseUrl;
+  if (selected.queueBaseUrl) queueBaseUrlInput.value = selected.queueBaseUrl;
+  // 최초 로드에서는 시나리오 목록이 아직 없다. loadSimulations가 끝나면서 화면을 갱신한다.
+  if (simulationMeta.length === 0) return;
+  updateVisibility();
+  updateSummary();
+}
+
+function markCustomTargetEnvironment() {
+  const selected = selectedTargetEnvironment();
+  if (!selected) return;
+  const sameCore = coreBaseUrlInput.value.trim() === selected.coreBaseUrl;
+  const sameQueue = !selected.queueBaseUrl
+          || queueBaseUrlInput.value.trim() === selected.queueBaseUrl;
+  if (!sameCore || !sameQueue) targetEnvironmentSelect.value = '__custom__';
+}
+
+function coreTargetIsLocal() {
+  return isLocalhostUrl(coreBaseUrlInput.value.trim());
+}
+
 async function loadSimulations() {
   const response = await fetch('/api/simulations');
   simulationMeta = await response.json();
@@ -1514,7 +1567,8 @@ function updateVisibility() {
   setVisible('[data-option="seat"]', selected?.usesSeatIds);
   setVisible('[data-option="booking"]', selected?.usesCoreBookingFlow);
   setVisible('[data-option="booking-feeder"]', selected?.usesBookingFeeder);
-  setVisible('[data-option="member-ids-file"]', existingMemberIdSimulationKeys.has(selected?.key));
+  setVisible('[data-option="member-ids-file"]',
+          existingMemberIdSimulationKeys.has(selected?.key) && !coreTargetIsLocal());
   setVisible('[data-option="queue-url"]', selected?.usesCoreBookingFlow && selected?.usesQueueBaseUrl);
   setVisible('[data-option="queue-proof"]', selected?.key === 'queue-protects-core');
   setVisible('[data-option="capacity"]', capacity);
@@ -1703,9 +1757,9 @@ function validateBeforeRun(body) {
     const queueBaseUrl = String(body.get('queueBaseUrl') || '').trim();
     const feederFile = String(body.get('bookingFeederFile') || '').trim();
     if (!coreBaseUrl) return 'Booking 시나리오는 Ticket/Core URL을 입력해야 합니다.';
-    if (isLocalhostUrl(coreBaseUrl)) return 'Booking 운영 부하 테스트의 Ticket/Core URL은 localhost를 사용할 수 없습니다.';
+    if (distributed && isLocalhostUrl(coreBaseUrl)) return 'EC2 분산 실행의 Ticket/Core URL은 localhost를 사용할 수 없습니다.';
     if (selected.usesQueueBaseUrl && !queueBaseUrl) return 'Queue를 사용하는 시나리오는 Queue URL을 입력해야 합니다.';
-    if (selected.usesQueueBaseUrl && isLocalhostUrl(queueBaseUrl)) return 'Booking 운영 부하 테스트의 Queue URL은 localhost를 사용할 수 없습니다.';
+    if (distributed && selected.usesQueueBaseUrl && isLocalhostUrl(queueBaseUrl)) return 'EC2 분산 실행의 Queue URL은 localhost를 사용할 수 없습니다.';
     if (selected.usesBookingFeeder && !feederFile) return 'Booking Feeder CSV 경로를 입력해야 합니다.';
     if (selected.key === 'core-active-users-closed' && Number(body.get('bookingFeederRows') || 0) < Number(body.get('users') || 0)) return 'Closed Model 피더 행 수는 동시 사용자 수 이상이어야 합니다.';
     if (distributed && selected.key === 'hot-seat-concurrency') return 'Hot Seat는 프로세스 단위 rendezVous를 사용하므로 로컬 PC 한 대에서 실행해야 합니다.';
@@ -1714,7 +1768,7 @@ function validateBeforeRun(body) {
     if (selected.key === 'queue-protects-core' && Number(body.get('maxCoreAdmissionsPerSecond') || 0) <= 0) return 'Queue 보호 증명에는 Core 안전 입장률을 입력해야 합니다.';
     if (distributed && selected.key === 'core-realistic-contention') return '03-2 현실형 인기 좌석 경합은 현재 로컬 실행만 지원합니다.';
     if (distributed && coreApiSimulationKeys.has(selected.key)) return 'API별 독립 성능 테스트는 현재 로컬 실행만 지원합니다.';
-    if (body.get('operationalConfirmation') !== 'on') return '운영 API에 실제 좌석 선점·주문 요청을 보내는 실행 확인이 필요합니다.';
+    if (!isLocalhostUrl(coreBaseUrl) && body.get('operationalConfirmation') !== 'on') return '운영 API에 실제 좌석 선점·주문 요청을 보내는 실행 확인이 필요합니다.';
     if (distributed && distributedHostCount(body) === 0) return 'Booking 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
     if (['core-seat-select-api', 'core-order-create-api'].includes(selected.key)
             && mode === 'tokens' && tokenSource === 'generate-file'
@@ -1729,7 +1783,7 @@ function validateBeforeRun(body) {
       if (mode === 'tokens' && tokenSource === 'generate-file') {
         const requiredRows = offset + estimateVirtualUsers(body);
         const generatedRows = Number(body.get('generatedAccessTokenCount'));
-        if (!String(body.get('memberIdsFile') || '').trim()) return '기존 회원 ID 파일 경로를 입력해야 합니다.';
+        if (!isLocalhostUrl(coreBaseUrl) && !String(body.get('memberIdsFile') || '').trim()) return '기존 회원 ID 파일 경로를 입력해야 합니다.';
         if (distributed) return 'Core Capacity JWT/feeder 자동 생성은 로컬 Console 실행에서만 지원합니다.';
         if (requiredRows > 2000) return `자동 feeder에 필요한 회원·좌석 ${requiredRows}개가 전용 데이터 2,000개를 초과합니다.`;
         if (generatedRows < requiredRows) return `자동 생성할 토큰/feeder 행은 최소 ${requiredRows}개여야 합니다.`;
@@ -1956,9 +2010,9 @@ function updateTargetRouteSummary() {
   const target = document.querySelector('#targetRouteSummary');
   const selected = selectedSimulation();
   if (!target || !selected?.usesCoreBookingFlow) return;
-  const core = trimTrailingSlash(coreBaseUrlInput?.value || 'https://oneticket.site');
+  const core = trimTrailingSlash(coreBaseUrlInput?.value || '(대상 미지정)');
   if (selected.usesQueueBaseUrl) {
-    const queue = trimTrailingSlash(queueBaseUrlInput?.value || 'https://queue.oneticket.site');
+    const queue = trimTrailingSlash(queueBaseUrlInput?.value || '(대상 미지정)');
     target.textContent = `\uC2E4\uC81C \uB300\uC0C1: Queue \uACBD\uC720 | ${queue} -> ${core}`;
     return;
   }
@@ -1968,9 +2022,9 @@ function updateTargetRouteSummary() {
 function updateApiPreview() {
   const selected = selectedSimulation();
   const baseUrl = trimTrailingSlash(baseUrlInput.value || selected?.defaultBaseUrl || '');
-  const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || 'https://oneticket.site');
+  const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || '(대상 미지정)');
   const queueUrl = trimTrailingSlash(selected?.usesQueueBaseUrl
-    ? (queueBaseUrlInput?.value || 'https://queue.oneticket.site')
+    ? (queueBaseUrlInput?.value || '(대상 미지정)')
     : baseUrl);
   const performanceId = document.querySelector('#performanceId').value || '1';
   const simulation = simulationSelect.value;
@@ -2169,6 +2223,9 @@ function hideTooltip() {
 form.addEventListener('submit', startRun);
 form.addEventListener('input', updateSummary);
 simulationSelect.addEventListener('change', () => { applyProofSimulationDefaults(); applySimulationDefaultBaseUrl(); updateVisibility(); updateSummary(); });
+targetEnvironmentSelect.addEventListener('change', applyTargetEnvironment);
+coreBaseUrlInput.addEventListener('input', () => { markCustomTargetEnvironment(); updateVisibility(); });
+queueBaseUrlInput.addEventListener('input', markCustomTargetEnvironment);
 injectionMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
 executionMode.addEventListener('change', () => {
   if (executionMode.value === 'distributed'
@@ -2253,7 +2310,7 @@ document.querySelectorAll('.help-chip').forEach(chip => {
 window.addEventListener('scroll', hideTooltip, true);
 window.addEventListener('resize', hideTooltip);
 
-loadSimulations().then(refreshRuns);
+loadEnvironments().then(loadSimulations).then(refreshRuns);
 </script>
 </body>
 </html>
