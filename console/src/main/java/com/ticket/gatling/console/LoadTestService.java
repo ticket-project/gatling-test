@@ -156,6 +156,10 @@ public class LoadTestService {
             throw new IllegalArgumentException("JWT Secret must be at least 32 bytes for synthetic JWT mode");
         }
         if (requiresExistingMemberIds(request)) {
+            // Booking feeder 시나리오는 feeder의 accessToken 열을 쓰므로, 파일을 새로 만들 때만 회원 ID 파일이 필요하다.
+            if (!request.generatesAccessTokensFile() && request.simulationType().usesBookingFeeder()) {
+                return;
+            }
             if (!request.generatesAccessTokensFile()) {
                 throw new IllegalArgumentException(
                         "This Core scenario requires generated JWTs from an existing Member ID file"
