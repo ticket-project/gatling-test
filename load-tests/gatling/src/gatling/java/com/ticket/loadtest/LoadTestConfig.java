@@ -77,6 +77,31 @@ public final class LoadTestConfig {
         return property(ConfigKey.PERFORMANCE_ID);
     }
 
+    /** 좌석 배치도 조회(/api/v1/shows/{showId}/...)에 쓴다. 기본값은 부하 전용 공연(910000001)이다. */
+    public static String showId() {
+        return property(ConfigKey.SHOW_ID);
+    }
+
+    /** Core 좌석 알림 WebSocket 주소. coreBaseUrl의 http(s)를 ws(s)로 바꾼다. */
+    public static String coreWsBaseUrl() {
+        final String base = coreBaseUrl();
+        if (base.startsWith("https://")) {
+            return "wss://" + base.substring("https://".length());
+        }
+        if (base.startsWith("http://")) {
+            return "ws://" + base.substring("http://".length());
+        }
+        throw new IllegalStateException("coreBaseUrl must start with http:// or https://: " + base);
+    }
+
+    /**
+     * WebSocket 연결에 보낼 Origin 헤더. 비우면 보내지 않는다 — Core는 Origin이 없는 연결을 브라우저가 아닌 클라이언트로 보고 받는다.
+     * Core의 CORS 허용 목록(app.cors.allowed-origins)을 거치게 하려면 그 목록의 값을 준다.
+     */
+    public static String wsOrigin() {
+        return property(ConfigKey.WS_ORIGIN);
+    }
+
     public static int statusPolls() {
         return intProperty(ConfigKey.STATUS_POLLS);
     }
@@ -205,6 +230,11 @@ public final class LoadTestConfig {
 
     public static double bookingDropoutPercent() {
         return percentageProperty(ConfigKey.BOOKING_DROPOUT_PERCENT);
+    }
+
+    /** 주문을 만든 뒤 결제 전에 취소하는 사용자 비율. 기본값 10%는 실측이 아니라 가정이다. */
+    public static double bookingOrderCancelPercent() {
+        return percentageProperty(ConfigKey.BOOKING_ORDER_CANCEL_PERCENT);
     }
 
     public static double technicalFailureThresholdPercent() {
@@ -845,6 +875,9 @@ public final class LoadTestConfig {
         BOOKING_RETRY_THINK_MAX_MILLIS,
         BOOKING_SEAT_REFRESH_PERCENT,
         BOOKING_DROPOUT_PERCENT,
+        BOOKING_ORDER_CANCEL_PERCENT,
+        SHOW_ID,
+        WS_ORIGIN,
         TECHNICAL_FAILURE_THRESHOLD_PERCENT,
         QUEUE_TIMEOUT_THRESHOLD_PERCENT,
         MAX_CORE_ADMISSIONS_PER_SECOND,
@@ -904,6 +937,9 @@ public final class LoadTestConfig {
                 case BOOKING_RETRY_THINK_MAX_MILLIS -> "bookingRetryThinkMaxMillis";
                 case BOOKING_SEAT_REFRESH_PERCENT -> "bookingSeatRefreshPercent";
                 case BOOKING_DROPOUT_PERCENT -> "bookingDropoutPercent";
+                case BOOKING_ORDER_CANCEL_PERCENT -> "bookingOrderCancelPercent";
+                case SHOW_ID -> "showId";
+                case WS_ORIGIN -> "wsOrigin";
                 case TECHNICAL_FAILURE_THRESHOLD_PERCENT -> "technicalFailureThresholdPercent";
                 case QUEUE_TIMEOUT_THRESHOLD_PERCENT -> "queueTimeoutThresholdPercent";
                 case MAX_CORE_ADMISSIONS_PER_SECOND -> "maxCoreAdmissionsPerSecond";
@@ -958,6 +994,9 @@ public final class LoadTestConfig {
                 case BOOKING_RETRY_THINK_MAX_MILLIS -> "2000";
                 case BOOKING_SEAT_REFRESH_PERCENT -> "25.0";
                 case BOOKING_DROPOUT_PERCENT -> "10.0";
+                case BOOKING_ORDER_CANCEL_PERCENT -> "10.0";
+                case SHOW_ID -> "910000001";
+                case WS_ORIGIN -> "";
                 case TECHNICAL_FAILURE_THRESHOLD_PERCENT -> "1.0";
                 case QUEUE_TIMEOUT_THRESHOLD_PERCENT -> "0.0";
                 case MAX_CORE_ADMISSIONS_PER_SECOND -> "0";

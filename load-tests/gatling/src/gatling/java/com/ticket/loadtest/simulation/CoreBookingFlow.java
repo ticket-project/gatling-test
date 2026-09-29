@@ -7,8 +7,10 @@ import com.ticket.loadtest.LoadTestConfig;
 import com.ticket.loadtest.RealisticSeatSelection;
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.Session;
+import io.gatling.javaapi.http.WsConnectActionBuilder;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -22,11 +24,19 @@ import static io.gatling.javaapi.core.CoreDsl.doIf;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.core.CoreDsl.pause;
+import static io.gatling.javaapi.core.CoreDsl.regex;
 import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static io.gatling.javaapi.http.HttpDsl.ws;
 
 final class CoreBookingFlow {
+    private static final String SEAT_SOCKET = "seatSocket";
+    private static final Duration SEAT_SOCKET_TIMEOUT = Duration.ofSeconds(5);
+    private static final String STOMP_CONNECT =
+            "CONNECT\naccept-version:1.2\nheart-beat:0,0\nAuthorization:Bearer #{accessToken}\n\n\u0000";
+    private static final String STOMP_SUBSCRIBE_SEATS =
+            "SUBSCRIBE\nid:seats-0\ndestination:/topic/performance/#{performanceId}/seats\n\n\u0000";
     private CoreBookingFlow() {
     }
 
@@ -116,7 +126,80 @@ final class CoreBookingFlow {
                 .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))
                 .exec(fetchSeatStatus(includeAdmissionToken))
                 .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
+                .exec(selectSeatWithRetry(includeAdmissionToken))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
+                        pause(LoadTestConfig.bookingOrderThinkMin(), LoadTestConfig.bookingOrderThinkMax())
+                ))
+                .exec(doIf(session -> canContinue(session) && shouldDropBeforeOrder()).then(
+                        markUserDropout()
+                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        exec(createOrderAllowingConflict(includeAdmissionToken))
+                                .exec(classifyOrderAttempt())
+                                .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()))
+                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
+                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        exec(fetchOrder())
+                                .exec(captureExpectedStatus("GET_ORDER", "orderHttpStatus", 200))
+                                .exec(doIf(CoreBookingFlow::canContinue).then(validateOrderState()))
+                ))
+                .exec(recordTerminal(scenario, true));
+    }
+
+    /**
+     * 실제 사용자 흐름 혼합(03-3). 03-2 현실형 흐름에 실제 화면이 하는 네 가지를 더한다.
+     *
+     * <ul>
+     *   <li>좌석 알림 WebSocket: 예매 화면이 열려 있는 동안 STOMP로 회차 좌석 topic을 구독한 채 연결을 유지한다.
+     *   <li>좌석 배치도: 화면이 처음 불러오는 venue-layout과 공연 좌석 목록을 조회한다.
+     *   <li>전체 해제: 주문 전에 이탈하는 사용자는 화면을 떠나며 선택을 전부 해제한다(FE leave guard).
+     *   <li>주문 취소: 주문을 만든 사용자 일부가 결제 전에 취소한다.
+     * </ul>
+     */
+    static ChainBuilder realisticUserMixFlow(final String scenario) {
+        return exec(session -> session.set("showId", LoadTestConfig.showId()))
+                .exec(recordCoreAdmission())
+                .exec(openSeatSocket())
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        exec(fetchPerformanceSummary())
+                                .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))
+                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(fetchSeatLayout()))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        exec(fetchSeatStatus(false))
+                                .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
+                ))
+                .exec(selectSeatWithRetry(false))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        pause(LoadTestConfig.bookingOrderThinkMin(), LoadTestConfig.bookingOrderThinkMax())
+                ))
+                .exec(doIf(session -> canContinue(session) && shouldDropBeforeOrder()).then(
+                        exec(releaseAllSelections())
+                                .exec(doIf(CoreBookingFlow::canContinue).then(markUserDropout()))
+                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        exec(createOrderAllowingConflict(false))
+                                .exec(classifyOrderAttempt())
+                                .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()))
+                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
+                ))
+                .exec(doIf(session -> canContinue(session) && shouldCancelOrder()).then(cancelOrder()))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        exec(fetchOrder())
+                                .exec(captureExpectedStatus("GET_ORDER", "orderHttpStatus", 200))
+                                .exec(doIf(CoreBookingFlow::canContinue).then(validateOrderState()))
+                ))
+                .exec(closeSeatSocket())
+                .exec(recordTerminal(scenario, true));
+    }
+
+    private static ChainBuilder selectSeatWithRetry(final boolean includeAdmissionToken) {
+        return exec(doIf(CoreBookingFlow::canContinue).then(
                         pause(LoadTestConfig.bookingSeatThinkMin(), LoadTestConfig.bookingSeatThinkMax())
                 ))
                 .exec(doIf(session -> canContinue(session) && shouldRefreshSeatStatus()).then(
@@ -150,27 +233,89 @@ final class CoreBookingFlow {
                 )
                 .exec(doIf(CoreBookingFlow::hasSelectConflict).then(
                         markSelectBusinessRejection()
+                ));
+    }
+
+    /**
+     * Core의 /ws는 SockJS 엔드포인트라 브라우저 FE는 SockJS로 붙는다. 부하 발생기는 SockJS가 함께 여는 순수 WebSocket 경로(/ws/websocket)로 붙고
+     * 그 위에 STOMP 프레임을 직접 보낸다. 서버 쪽 비용(세션·구독·브로드캐스트)은 같다.
+     */
+    private static ChainBuilder openSeatSocket() {
+        WsConnectActionBuilder connect = ws("seat socket connect", SEAT_SOCKET).connect("/ws/websocket");
+        if (!LoadTestConfig.wsOrigin().isBlank()) {
+            connect = connect.header("Origin", LoadTestConfig.wsOrigin());
+        }
+        return exec(session -> session.set("lastStep", "SEAT_SOCKET").set("seatSocketOpen", false))
+                .exec(connect)
+                .exec(doIf(session -> !session.isFailed()).then(
+                        exec(ws("stomp connect", SEAT_SOCKET)
+                                .sendText(STOMP_CONNECT)
+                                .await(SEAT_SOCKET_TIMEOUT).on(
+                                        ws.checkTextMessage("stomp connected").check(regex("^CONNECTED"))
+                                ))
                 ))
+                .exec(doIf(session -> !session.isFailed()).then(
+                        exec(ws("stomp subscribe seats", SEAT_SOCKET).sendText(STOMP_SUBSCRIBE_SEATS))
+                ))
+                .exec(session -> session.isFailed()
+                        ? terminalFailure(session, "TECHNICAL_SEAT_SOCKET_CONNECT", "SEAT_SOCKET", 0)
+                        : session.set("seatSocketOpen", true));
+    }
+
+    private static ChainBuilder closeSeatSocket() {
+        return doIf(session -> session.contains("seatSocketOpen") && session.getBoolean("seatSocketOpen")).then(
+                exec(ws("seat socket close", SEAT_SOCKET).close())
+                        .exec(session -> session.set("seatSocketOpen", false))
+        );
+    }
+
+    /** 예매 화면이 처음 불러오는 배치도. 화면은 토큰 없이 부르므로 인증 헤더를 보내지 않는다. */
+    private static ChainBuilder fetchSeatLayout() {
+        return exec(session -> session
+                        .removeAll("venueLayoutHttpStatus", "showSeatsHttpStatus")
+                        .set("lastStep", "SEAT_LAYOUT"))
+                .exec(http("venue layout")
+                        .get("/api/v1/shows/#{showId}/venue-layout")
+                        .headers(LoadTestConfig.bookingCorrelationHeaders())
+                        .check(status().saveAs("venueLayoutHttpStatus"))
+                        .check(status().is(200)))
+                .exec(captureExpectedStatus("VENUE_LAYOUT", "venueLayoutHttpStatus", 200))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
-                        pause(LoadTestConfig.bookingOrderThinkMin(), LoadTestConfig.bookingOrderThinkMax())
-                ))
-                .exec(doIf(session -> canContinue(session) && shouldDropBeforeOrder()).then(
-                        markUserDropout()
-                ))
+                        exec(http("show seat map")
+                                .get("/api/v1/shows/#{showId}/seats")
+                                .headers(LoadTestConfig.bookingCorrelationHeaders())
+                                .check(status().saveAs("showSeatsHttpStatus"))
+                                .check(status().is(200)))
+                                .exec(captureExpectedStatus("SHOW_SEAT_MAP", "showSeatsHttpStatus", 200))
+                ));
+    }
+
+    /** 주문 전에 화면을 떠나는 사용자는 선택한 좌석을 전부 해제한다. */
+    private static ChainBuilder releaseAllSelections() {
+        return exec(session -> session.remove("releaseAllHttpStatus").set("lastStep", "RELEASE_ALL_SELECTIONS"))
+                .exec(http("release all selections")
+                        .delete("/api/v1/performances/#{performanceId}/seats/select")
+                        .headers(bookingHeaders(false))
+                        .check(status().saveAs("releaseAllHttpStatus"))
+                        .check(status().is(200)))
+                .exec(captureExpectedStatus("RELEASE_ALL_SELECTIONS", "releaseAllHttpStatus", 200));
+    }
+
+    /** 결제 전에 주문을 취소한다. 취소는 좌석 선점 해제를 뒤따르게 한다. */
+    private static ChainBuilder cancelOrder() {
+        return exec(session -> session.remove("cancelOrderHttpStatus").set("lastStep", "CANCEL_ORDER"))
+                .exec(http("cancel order")
+                        .delete("/api/v1/orders/#{orderKey}")
+                        .headers(bookingHeaders(false))
+                        .check(status().saveAs("cancelOrderHttpStatus"))
+                        .check(status().is(200)))
+                .exec(captureExpectedStatus("CANCEL_ORDER", "cancelOrderHttpStatus", 200))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(createOrderAllowingConflict(includeAdmissionToken))
-                                .exec(classifyOrderAttempt())
-                                .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()))
-                ))
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
-                ))
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(fetchOrder())
-                                .exec(captureExpectedStatus("GET_ORDER", "orderHttpStatus", 200))
-                                .exec(doIf(CoreBookingFlow::canContinue).then(validateOrderState()))
-                ))
-                .exec(recordTerminal(scenario, true));
+                        exec(session -> session
+                                .set("terminalResult", "USER_DROPPED_ORDER_CANCELED")
+                                .set("terminalHttpStatus", session.getInt("cancelOrderHttpStatus"))
+                                .set("lastStep", "CANCEL_ORDER"))
+                ));
     }
 
     private static ChainBuilder recordCoreAdmission() {
@@ -511,6 +656,10 @@ final class CoreBookingFlow {
 
     private static boolean shouldDropBeforeOrder() {
         return chance(LoadTestConfig.bookingDropoutPercent());
+    }
+
+    private static boolean shouldCancelOrder() {
+        return chance(LoadTestConfig.bookingOrderCancelPercent());
     }
 
     private static boolean chance(final double percent) {
