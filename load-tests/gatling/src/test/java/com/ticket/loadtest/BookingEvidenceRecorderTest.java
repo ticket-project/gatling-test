@@ -40,6 +40,27 @@ class BookingEvidenceRecorderTest {
     }
 
     @Test
+    void countsOverloadApartFromBusinessRejectionsAndTechnicalFailures() throws Exception {
+        final Path resultFile = tempDir.resolve("overload/results.csv");
+        BookingEvidenceRecorder.begin(resultFile, "OVERLOAD", 0);
+        for (long memberId = 1L; memberId <= 3L; memberId++) {
+            BookingEvidenceRecorder.recordStarted(resultFile, "OVERLOAD", 0, memberId);
+        }
+        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 1L, 11L, "order-1", 201, "SUCCESS");
+        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 2L, 12L, null, 409, "BUSINESS_REJECTED_E6000");
+        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 3L, 13L, null, 409, "OVERLOADED_E6003");
+
+        final BookingEvidenceRecorder.EvidenceSummary summary = BookingEvidenceRecorder.verifyAndWrite(
+                resultFile, "OVERLOAD", 0, 0.0, 0, 0.0, 1.0
+        );
+
+        assertEquals(1L, summary.businessRejectedUsers());
+        assertEquals(1L, summary.overloadedUsers());
+        assertEquals(0L, summary.technicalFailureUsers());
+        assertTrue(Files.readString(resultFile.resolveSibling("booking-evidence.json")).contains("\"overloadedUsers\":1"));
+    }
+
+    @Test
     void failsWhenATerminalResultIsMissing() {
         final Path resultFile = tempDir.resolve("missing/results.csv");
         BookingEvidenceRecorder.begin(resultFile, "MISSING", 0);

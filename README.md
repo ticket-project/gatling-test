@@ -277,12 +277,22 @@ HAVING COUNT(DISTINCT o.id) > 1;
 새 Booking Proof 시나리오는 Gatling HTML의 요청 통계만으로 합격시키지 않는다. 다음 파일을 함께 만든다.
 
 - `booking-results.csv`: 시작한 각 회원의 최종 결과를 정확히 한 줄씩 기록하며, 오류 코드와 좌석 선택 시도 횟수를 포함한다.
-- `booking-evidence.json`: 시작·성공·비즈니스 거절·사용자 이탈·기술 실패·누락 수와 좌석 경쟁 횟수, 관측된 최대 Core 입장률·성공 완료율을 기록한다.
+- `booking-evidence.json`: 시작·성공·비즈니스 거절·과부하·사용자 이탈·기술 실패·누락 수와 좌석 경쟁 횟수, 관측된 최대 Core 입장률·성공 완료율을 기록한다.
 - `booking-admissions.csv`: Queue 통과 후 실제 Core 좌석 상태 흐름에 진입한 수를 초 단위로 기록한다.
 - `booking-completions.csv`: 성공적으로 예매 흐름을 끝낸 수를 초 단위로 기록한다.
 - `booking-active-users.csv`: Core 입장과 예매 흐름 종료 때마다 부하 발생기에서 관측한 활성 사용자 수를 기록한다.
 - `booking-run-config.json`: 실행 ID, 시나리오, 주입 모델, 사용자 행동 모델, 합격 기준 등 재현에 필요한 비밀 제외 설정을 기록한다.
 - `booking-db-audit.json`: 클라이언트 성공 주문 수와 DB 주문 수, 중복 좌석 주문, 활성 중복 선점, 좌석 없는 주문 등을 조회한 결과다.
+
+Core의 409 응답은 세 가지로 나눠 센다. 분류의 원본은 `load-tests/gatling/src/main/java/com/ticket/loadtest/CoreRejections.java`이고, 코드 자체의 원본은 ticket-core의 `BookingErrorCode`다.
+
+| 분류 | 선택 API | 주문 API | 결과 이름 |
+| --- | --- | --- | --- |
+| 비즈니스 거절 | E4001(다른 사용자가 선택), E6000(이미 선점), E6001(선택 좌석 수가 선점 한도에 닿음) | E4006(본인이 선택 중인 좌석이 아님), E5004(진행 중 결제 대기 주문), E6000, E6001(선점 좌석 수 한도) | `BUSINESS_REJECTED_<코드>` |
+| 과부하 | E6003(선점 락 대기 초과) | E6003 | `OVERLOADED_E6003` |
+| 기술 실패 | 그 밖의 409와 다른 모든 상태 | 같음 | `TECHNICAL_<단계>_HTTP_<상태>` |
+
+과부하는 서버가 요청 순서를 제때 처리하지 못했다는 뜻이다. 비즈니스 거절로 숨기지 않고 기술 실패와도 섞지 않도록 `overloadedUsers`로 따로 센다. Gatling 요청 통계에서는 분류된 409를 KO로 세지 않으므로 과부하는 이 값으로 판단한다.
 
 `booking-results.csv`에는 Core 입장·종료 시각과 개별 체류 시간이 추가되고, `booking-evidence.json`에는 최대 활성 사용자 수와 평균·p95·p99 Core 체류 시간이 추가된다. 분산 실행은 완료율과 활성 사용자 파일도 각각 `booking-completions-global.csv`, `booking-active-users-global.csv`로 합산한다. 이 값들이 안전 입장률과 함께 Queue의 `maxActiveUsers`를 정하는 근거다.
 

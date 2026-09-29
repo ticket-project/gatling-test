@@ -267,7 +267,7 @@ Core URL, duration, JWT 설정과 SLO는 같은 비교 조건으로 유지한다
 
 기존 결과 파일은 그대로 유지한다.
 
-- `booking-evidence.json`: 사용자 시작·종료·성공·기술 실패, 초당 Core 입장/완료, 활성 사용자와 체류 시간
+- `booking-evidence.json`: 사용자 시작·종료·성공·비즈니스 거절·과부하·기술 실패, 초당 Core 입장/완료, 활성 사용자와 체류 시간
 - `booking-results.csv`: 사용자별 최종 결과
 - `booking-admissions.csv`, `booking-completions.csv`, `booking-active-users.csv`: 시간대별 증거
 - `booking-run-config.json`: 실행 인자, 피더 범위, SLO, runId
@@ -282,6 +282,7 @@ booking-run-config.json:
 booking-evidence.json:
   startedUsers, terminalUsers, successfulUsers
   technicalFailureUsers, technicalFailurePercent
+  businessRejectedUsers, overloadedUsers (E6003 선점 락 대기 초과)
   maxObservedCoreAdmissionsPerSecond
   maxObservedSuccessfulCompletionsPerSecond
   maxObservedActiveUsers
