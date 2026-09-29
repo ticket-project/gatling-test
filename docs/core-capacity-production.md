@@ -111,13 +111,13 @@ users/sec × durationSeconds <= 2,000
 사용자별 고유 memberId와 seatId
 ```
 
-주문 생성 API를 이어서 측정할 예정이면 같은 performance와 같은 feeder를 사용한다. Core는 본인이 선택 중인 좌석으로만 주문을 받기 때문이다(ticket-core ADR 0021).
+선택 테스트가 남긴 선택 표시는 5분 동안 그 좌석을 막는다. 같은 performance로 주문 생성 테스트를 이어 하려면 선택이 풀린 5분 뒤에 실행한다.
 
 ### 4. 주문 생성
 
-`POST /api/v1/orders`만 호출하며 테스트 안에서 좌석 선택 API를 호출하지 않는다. Core는 요청 회원이 지금 선택 중인 좌석으로만 주문을 받고, 아니면 E4006으로 거절한다(ticket-core ADR 0021). 좌석 선점(hold)은 주문이 그 자리에서 만든다. 따라서 바로 앞 준비 실행이 같은 memberId와 seatId로 좌석을 선택해 둔 상태여야 한다. 선택은 5분 뒤 풀리므로 좌석 선택 완료 후 5분 안에 같은 performance와 같은 `build/core-api-member-seat-feeder.csv`로 실행한다.
+`POST /api/v1/orders`를 측정한다. Core는 요청 회원이 지금 선택 중인 좌석으로만 주문을 받고, 아니면 E4006으로 거절한다(ticket-core ADR 0021). 그래서 테스트가 사용자마다 주문 직전에 같은 좌석을 선택한다. 선택 요청도 함께 측정되므로 주문 API 자체의 비용은 Gatling 리포트의 `create order` 요청 통계로 본다. 좌석 선점(hold)은 주문이 그 자리에서 만든다. 모든 대상 좌석이 AVAILABLE인 performance와 `build/core-api-member-seat-feeder.csv`로 실행한다.
 
-주문 생성 목표가 `40 users/sec × 30초 = 1,200명`이면 먼저 좌석 선택 API로 적어도 앞 1,200개 행의 선택을 성공시켜야 한다. 선택 자체의 한계를 재는 실행과 주문 준비 실행을 구분하려면, 이미 확인한 안전한 선택률로 1,200개를 준비한 뒤 5분 안에 주문 생성만 목표 40 users/sec로 실행한다. 준비된 선택 수가 주문 생성 예상 사용자보다 적으면 뒤쪽 사용자는 성능 문제가 아니라 데이터 부족으로 실패한다.
+주문 생성 목표가 `40 users/sec × 30초 = 1,200명`이면 AVAILABLE 좌석이 적어도 1,200개 있어야 한다. 좌석 수가 주문 생성 예상 사용자보다 적으면 뒤쪽 사용자는 성능 문제가 아니라 데이터 부족으로 실패한다.
 
 성공한 주문은 Console의 `결과 CSV` 경로에 다음 주문 조회용 feeder로 기록된다.
 
@@ -141,13 +141,13 @@ memberId,orderKey
 새 performance 선택
 → 좌석 상태 조회로 2,000 AVAILABLE 확인
 → 좌석 선택 API 테스트
-→ 5분 안에 같은 feeder로 주문 생성 API 테스트
+→ 선택이 풀린 5분 뒤 같은 feeder로 주문 생성 API 테스트(테스트가 선택 후 주문)
 → 생성된 order lookup feeder로 주문 조회 API 테스트
 → 결과 보존
 → 주문 만료·Outbox·hold 해제 완료 후 전체 원복
 ```
 
-7개 부하 단계의 좌석 선택·주문 생성 쌍에는 `performanceId=910000022..910000028`을 순서대로 사용한다. 03 최초 경계 탐색용 `910000001..910000007`과 섞지 않는다. 두 API는 같은 단계에서 같은 performance를 공유하므로 단계당 회차 하나만 필요하다.
+7개 부하 단계의 좌석 선택·주문 생성 쌍에는 `performanceId=910000022..910000028`을 순서대로 사용한다. 03 최초 경계 탐색용 `910000001..910000007`과 섞지 않는다. 두 API는 같은 단계에서 같은 performance를 공유하므로 단계당 회차 하나만 필요하다. 주문 생성 테스트는 선택 테스트의 선택 표시가 풀린 5분 뒤에 실행한다.
 
 API별 테스트와 03·03-2는 목적이 다르다. API별 최대 RPS의 최솟값을 Queue 입장률로 바로 사용하지 않고, 최종 Queue 기준은 반드시 다섯 요청을 모두 수행하는 `CoreAdmissionCapacitySimulation`의 PASS users/sec로 정한다.
 
@@ -176,7 +176,7 @@ Technical failure 허용률 기본값은 `1.0%`다. Gatling assertion은 실제 
 API별 분리 측정
 공연 요약 조회
 좌석 상태 조회
-좌석 선택 → 5분 안에 같은 회차·feeder로 주문 생성 → 생성된 feeder로 주문 조회
+좌석 선택 → 5분 뒤 같은 회차·feeder로 주문 생성(선택 포함) → 생성된 feeder로 주문 조회
 
 03 Core Admission Capacity 최초 경계 탐색
 5 users/sec  × 30초
