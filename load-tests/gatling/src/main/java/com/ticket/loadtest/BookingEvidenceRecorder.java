@@ -98,8 +98,10 @@ public final class BookingEvidenceRecorder {
             state.successfulCompletionsByEpochSecond
                     .computeIfAbsent(completedAt.getEpochSecond(), ignored -> new AtomicLong())
                     .incrementAndGet();
-        } else if (result.startsWith("BUSINESS_REJECTED_")) {
+        } else if (result.startsWith(CoreRejections.BUSINESS_REJECTED_RESULT_PREFIX)) {
             state.businessRejectedUsers.incrementAndGet();
+        } else if (result.startsWith(CoreRejections.OVERLOADED_RESULT_PREFIX)) {
+            state.overloadedUsers.incrementAndGet();
         } else if (result.startsWith("USER_DROPPED_")) {
             state.userDroppedUsers.incrementAndGet();
         } else if (!"QUEUE_TIMEOUT".equals(result)) {
@@ -133,6 +135,7 @@ public final class BookingEvidenceRecorder {
         final long successfulUsers = state.successfulUsers.get();
         final long technicalFailureUsers = state.technicalFailureUsers.get();
         final long businessRejectedUsers = state.businessRejectedUsers.get();
+        final long overloadedUsers = state.overloadedUsers.get();
         final long userDroppedUsers = state.userDroppedUsers.get();
         final long seatSelectionConflictAttempts = state.seatSelectionConflictAttempts.get();
         final long maxObservedSuccessfulCompletions = state.successfulCompletionsByEpochSecond.values().stream()
@@ -165,6 +168,7 @@ public final class BookingEvidenceRecorder {
                 technicalFailureUsers,
                 technicalFailurePercent,
                 businessRejectedUsers,
+                overloadedUsers,
                 userDroppedUsers,
                 seatSelectionConflictAttempts,
                 maxObservedSuccessfulCompletions,
@@ -230,6 +234,7 @@ public final class BookingEvidenceRecorder {
                 + "  \"technicalFailureUsers\":" + summary.technicalFailureUsers() + ",\n"
                 + "  \"technicalFailurePercent\":" + summary.technicalFailurePercent() + ",\n"
                 + "  \"businessRejectedUsers\":" + summary.businessRejectedUsers() + ",\n"
+                + "  \"overloadedUsers\":" + summary.overloadedUsers() + ",\n"
                 + "  \"userDroppedUsers\":" + summary.userDroppedUsers() + ",\n"
                 + "  \"seatSelectionConflictAttempts\":" + summary.seatSelectionConflictAttempts() + ",\n"
                 + "  \"maxObservedSuccessfulCompletionsPerSecond\":"
@@ -344,6 +349,7 @@ public final class BookingEvidenceRecorder {
         private final AtomicLong successfulUsers = new AtomicLong();
         private final AtomicLong technicalFailureUsers = new AtomicLong();
         private final AtomicLong businessRejectedUsers = new AtomicLong();
+        private final AtomicLong overloadedUsers = new AtomicLong();
         private final AtomicLong userDroppedUsers = new AtomicLong();
         private final AtomicLong seatSelectionConflictAttempts = new AtomicLong();
         private final ConcurrentMap<Long, Boolean> startedMembers = new ConcurrentHashMap<>();
@@ -368,6 +374,7 @@ public final class BookingEvidenceRecorder {
             long technicalFailureUsers,
             double technicalFailurePercent,
             long businessRejectedUsers,
+            long overloadedUsers,
             long userDroppedUsers,
             long seatSelectionConflictAttempts,
             long maxObservedSuccessfulCompletionsPerSecond,

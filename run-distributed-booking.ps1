@@ -507,9 +507,11 @@ function Write-BookingSummary {
 
     $successRows = @($resultRows | Where-Object { $_.result -eq "SUCCESS" })
     $businessRows = @($resultRows | Where-Object { $_.result -like "BUSINESS_REJECTED_*" -or $_.result -like "SELECT_BUSINESS_REJECTED_*" })
+    # OVERLOADED_*: Core가 E6003(선점 락 대기 초과)으로 거절한 사용자. 비즈니스 거절도 기술 실패도 아니라 따로 센다.
+    $overloadedRows = @($resultRows | Where-Object { $_.result -like "OVERLOADED_*" })
     $dropoutRows = @($resultRows | Where-Object { $_.result -like "USER_DROPPED_*" })
     $queueTimeoutRows = @($resultRows | Where-Object { $_.result -eq "QUEUE_TIMEOUT" })
-    $technicalRows = @($resultRows | Where-Object { $_.result -ne "SUCCESS" -and $_.result -notlike "BUSINESS_REJECTED_*" -and $_.result -notlike "SELECT_BUSINESS_REJECTED_*" -and $_.result -notlike "USER_DROPPED_*" -and $_.result -ne "QUEUE_TIMEOUT" })
+    $technicalRows = @($resultRows | Where-Object { $_.result -ne "SUCCESS" -and $_.result -notlike "BUSINESS_REJECTED_*" -and $_.result -notlike "SELECT_BUSINESS_REJECTED_*" -and $_.result -notlike "OVERLOADED_*" -and $_.result -notlike "USER_DROPPED_*" -and $_.result -ne "QUEUE_TIMEOUT" })
     $duplicateTerminalMembers = @($resultRows | Group-Object memberId | Where-Object { $_.Count -gt 1 })
     $duplicateSuccessfulSeats = @($successRows | Group-Object seatId | Where-Object { $_.Count -gt 1 })
     $duplicateOrderKeys = @($successRows | Where-Object { -not [string]::IsNullOrWhiteSpace($_.orderKey) } | Group-Object orderKey | Where-Object { $_.Count -gt 1 })
@@ -535,6 +537,7 @@ function Write-BookingSummary {
         duplicateTerminalMembers = $duplicateTerminalMembers.Count
         success = $successRows.Count
         businessRejected = $businessRows.Count
+        overloaded = $overloadedRows.Count
         userDropped = $dropoutRows.Count
         seatSelectionConflictAttempts = [long]$seatSelectionConflictAttempts
         queueTimeout = $queueTimeoutRows.Count
@@ -559,7 +562,7 @@ function Write-BookingSummary {
     Write-CsvUtf8NoBom -Path (Join-Path $RunDir "booking-results-merged.csv") -Rows $resultRows
 
     Write-Host "Booking summary: $summaryPath"
-    Write-Host "Started: $($summary.startedUsers), terminal: $($summary.terminalUsers), missing: $($summary.missingTerminalResults), queueTimeout: $($summary.queueTimeout), maxCoreAdmissions/s: $($summary.maxObservedCoreAdmissionsPerSecond)"
+    Write-Host "Started: $($summary.startedUsers), terminal: $($summary.terminalUsers), missing: $($summary.missingTerminalResults), queueTimeout: $($summary.queueTimeout), overloaded: $($summary.overloaded), maxCoreAdmissions/s: $($summary.maxObservedCoreAdmissionsPerSecond)"
 
     $failed = $false
     if ($summary.failedJobs -gt 0) { Write-Warning "One or more nodes failed"; $failed = $true }
@@ -571,8 +574,8 @@ function Write-BookingSummary {
     if ($summary.queueTimeoutPercent -gt $QueueTimeoutThresholdPercent) { Write-Warning "Queue timeout threshold exceeded: $($summary.queueTimeoutPercent)%"; $failed = $true }
     if ($summary.technicalFailurePercent -ge $TechnicalFailureThresholdPercent) { Write-Warning "Technical failure threshold exceeded: $($summary.technicalFailurePercent)%"; $failed = $true }
     if ($summary.duplicateSuccessfulSeats -gt 0 -or $summary.duplicateOrderKeys -gt 0) { Write-Warning "Duplicate successful seat/order detected"; $failed = $true }
-    if ((Get-BookingScenario) -eq "HOT_SEAT_CONCURRENCY" -and ($summary.success -ne 1 -or $summary.businessRejected -ne ($summary.totalResults - 1))) {
-        Write-Warning "Hot-seat invariant failed: expected one success and all remaining users business-rejected"
+    if ((Get-BookingScenario) -eq "HOT_SEAT_CONCURRENCY" -and ($summary.success -ne 1 -or ($summary.businessRejected + $summary.overloaded) -ne ($summary.totalResults - 1))) {
+        Write-Warning "Hot-seat invariant failed: expected one success and all remaining users business-rejected or overloaded"
         $failed = $true
     }
     if ((Get-BookingScenario) -eq "QUEUE_PROTECTS_CORE") {
