@@ -114,10 +114,12 @@ class ProofSuiteSimulationTest {
     }
 
     @Test
-    void orderCreateApiProducesTheOrderGetFeederWithoutCallingSeatSelection() throws IOException {
+    void orderCreateApiSelectsTheSeatFirstAndProducesTheOrderGetFeeder() throws IOException {
         final String source = source(SIMULATION_ROOT.resolve("CoreOrderCreateApiSimulation.java"));
 
-        assertFalse(source.contains("/seats/#{seatId}/select"));
+        // Core는 본인이 선택 중인 좌석으로만 주문을 받는다.
+        assertTrue(source.indexOf("/seats/#{seatId}/select") >= 0);
+        assertTrue(source.indexOf("/seats/#{seatId}/select") < source.indexOf(".post(\"/api/v1/orders\")"));
         assertTrue(source.contains("OrderLookupFeeder.initialize("));
         assertTrue(source.contains("header(\"X-Order-Key\").saveAs(\"orderKey\")"));
         assertTrue(source.contains("OrderLookupFeeder.append("));
