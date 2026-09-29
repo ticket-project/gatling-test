@@ -52,8 +52,12 @@ class ProofSuiteSimulationTest {
         assertTrue(source.contains(".rendezVous(users)"));
         assertTrue(source.contains("details(\"select won\").successfulRequests().count().is(1L)"));
         assertTrue(source.contains("details(\"order won\").successfulRequests().count().is(1L)"));
-        assertTrue(source.contains("details(\"select business rejected\").successfulRequests().count().is(users - 1L)"));
-        assertTrue(source.contains("details(\"order business rejected\").successfulRequests().count().is(users - 1L)"));
+        // 나머지 사용자는 비즈니스 거절이거나 과부하(E6003)라서 거절 수를 users - 1로 고정하지 않는다.
+        assertTrue(source.contains("global().failedRequests().count().is(0L)"));
+        assertTrue(source.contains("dummy(\"select overloaded\", 0)"));
+        assertTrue(source.contains("dummy(\"order overloaded\", 0)"));
+        assertTrue(source.contains("CoreRejections.ofSelect(httpStatus, errorCode)"));
+        assertTrue(source.contains("CoreRejections.ofOrder(httpStatus, errorCode)"));
         assertTrue(source.contains("final boolean orderWithoutSelect = won && !session.getBoolean(\"selectWon\")"));
     }
 

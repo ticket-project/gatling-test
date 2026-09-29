@@ -2,6 +2,7 @@ package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.BookingEvidenceRecorder;
 import com.ticket.loadtest.BookingResultRecorder;
+import com.ticket.loadtest.CoreRejections;
 import com.ticket.loadtest.LoadTestConfig;
 import com.ticket.loadtest.RealisticSeatSelection;
 import io.gatling.javaapi.core.ChainBuilder;
@@ -26,9 +27,6 @@ import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 
 final class CoreBookingFlow {
-    private static final String SELECT_REJECTION_CODE = "E4001";
-    private static final Set<String> ORDER_REJECTION_CODES = Set.of("E5000", "E5001", "E6000", "E6003");
-
     private CoreBookingFlow() {
     }
 
@@ -86,11 +84,11 @@ final class CoreBookingFlow {
                 .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         exec(selectSeat(includeAdmissionToken))
-                                .exec(captureExpectedStatus("SELECT_SEAT", "selectHttpStatus", 200))
+                                .exec(captureExpectedStatus("SELECT_SEAT", "selectHttpStatus", 200, "selectErrorCode"))
                 ))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         exec(createOrder(includeAdmissionToken))
-                                .exec(captureExpectedStatus("CREATE_ORDER", "createOrderHttpStatus", 201))
+                                .exec(captureExpectedStatus("CREATE_ORDER", "createOrderHttpStatus", 201, "orderErrorCode"))
                                 .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()))
                 ));
 
@@ -254,11 +252,12 @@ final class CoreBookingFlow {
     }
 
     private static ChainBuilder selectSeat(final boolean includeAdmissionToken) {
-        return exec(session -> session.remove("selectHttpStatus").set("lastStep", "SELECT_SEAT"))
+        return exec(session -> session.removeAll("selectHttpStatus", "selectErrorCode").set("lastStep", "SELECT_SEAT"))
                 .exec(http("select seat")
                         .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
                         .headers(bookingHeaders(includeAdmissionToken))
                         .check(status().saveAs("selectHttpStatus"))
+                        .check(jsonPath("$.error.code").optional().saveAs("selectErrorCode"))
                         .check(status().is(200)));
     }
 
@@ -274,7 +273,7 @@ final class CoreBookingFlow {
                         .check(jsonPath("$.error.code").optional().saveAs("selectErrorCode"))
                         .check(status().in(200, 409))
                         .checkIf((response, session) -> response.status().code() == 409).then(
-                                jsonPath("$.error.code").is(SELECT_REJECTION_CODE)
+                                jsonPath("$.error.code").in(CoreRejections.classifiedSelectCodes())
                         ));
     }
 
@@ -287,26 +286,27 @@ final class CoreBookingFlow {
             if (httpStatus == 200) {
                 return session.set("selectConflict", false);
             }
-            final boolean conflict = httpStatus == 409
-                    && SELECT_REJECTION_CODE.equals(optionalString(session, "selectErrorCode"));
-            if (conflict) {
-                return session.set("selectConflict", true);
-            }
-            return terminalFailure(session, "TECHNICAL_SELECT_SEAT_HTTP_" + httpStatus,
-                    "SELECT_SEAT", httpStatus);
+            final String errorCode = optionalString(session, "selectErrorCode");
+            return switch (CoreRejections.ofSelect(httpStatus, errorCode)) {
+                case BUSINESS_REJECTED -> session.set("selectConflict", true);
+                case OVERLOADED -> overloaded(session, "SELECT_SEAT", httpStatus, errorCode);
+                case TECHNICAL -> terminalFailure(session, "TECHNICAL_SELECT_SEAT_HTTP_" + httpStatus,
+                        "SELECT_SEAT", httpStatus);
+            };
         });
     }
 
     private static ChainBuilder markSelectBusinessRejection() {
         return exec(session -> session
-                .set("terminalResult", "BUSINESS_REJECTED_" + SELECT_REJECTION_CODE)
+                .set("terminalResult", CoreRejections.resultName(
+                        CoreRejections.Kind.BUSINESS_REJECTED, optionalString(session, "selectErrorCode")))
                 .set("terminalHttpStatus", optionalInt(session, "selectHttpStatus"))
                 .set("lastStep", "SELECT_SEAT"));
     }
 
     private static ChainBuilder createOrder(final boolean includeAdmissionToken) {
         return exec(session -> session
-                .removeAll("createOrderHttpStatus", "orderKeyHeader", "orderKeyBody")
+                .removeAll("createOrderHttpStatus", "orderKeyHeader", "orderKeyBody", "orderErrorCode")
                 .set("lastStep", "CREATE_ORDER"))
                 .exec(http("create order")
                         .post("/api/v1/orders")
@@ -320,7 +320,8 @@ final class CoreBookingFlow {
                         .check(status().saveAs("createOrderHttpStatus"))
                         .check(status().is(201))
                         .check(header("X-Order-Key").optional().saveAs("orderKeyHeader"))
-                        .check(jsonPath("$.data.orderKey").optional().saveAs("orderKeyBody")));
+                        .check(jsonPath("$.data.orderKey").optional().saveAs("orderKeyBody"))
+                        .check(jsonPath("$.error.code").optional().saveAs("orderErrorCode")));
     }
 
     private static ChainBuilder createOrderAllowingConflict(final boolean includeAdmissionToken) {
@@ -342,7 +343,7 @@ final class CoreBookingFlow {
                         .check(jsonPath("$.data.orderKey").optional().saveAs("orderKeyBody"))
                         .check(jsonPath("$.error.code").optional().saveAs("orderErrorCode"))
                         .checkIf((response, session) -> response.status().code() == 409).then(
-                                jsonPath("$.error.code").in(ORDER_REJECTION_CODES.stream().toList())
+                                jsonPath("$.error.code").in(CoreRejections.classifiedOrderCodes())
                         ));
     }
 
@@ -356,14 +357,15 @@ final class CoreBookingFlow {
                 return session;
             }
             final String errorCode = optionalString(session, "orderErrorCode");
-            if (httpStatus == 409 && ORDER_REJECTION_CODES.contains(errorCode)) {
-                return session
-                        .set("terminalResult", "BUSINESS_REJECTED_" + errorCode)
+            return switch (CoreRejections.ofOrder(httpStatus, errorCode)) {
+                case BUSINESS_REJECTED -> session
+                        .set("terminalResult", CoreRejections.resultName(CoreRejections.Kind.BUSINESS_REJECTED, errorCode))
                         .set("terminalHttpStatus", httpStatus)
                         .set("lastStep", "CREATE_ORDER");
-            }
-            return terminalFailure(session, "TECHNICAL_CREATE_ORDER_HTTP_" + httpStatus,
-                    "CREATE_ORDER", httpStatus);
+                case OVERLOADED -> overloaded(session, "CREATE_ORDER", httpStatus, errorCode);
+                case TECHNICAL -> terminalFailure(session, "TECHNICAL_CREATE_ORDER_HTTP_" + httpStatus,
+                        "CREATE_ORDER", httpStatus);
+            };
         });
     }
 
@@ -414,6 +416,16 @@ final class CoreBookingFlow {
             final String statusName,
             final int expectedStatus
     ) {
+        return captureExpectedStatus(step, statusName, expectedStatus, null);
+    }
+
+    /** 고정 좌석 흐름은 409를 모두 실패로 보지만, E6003은 서버 과부하라 기술 실패와 나눠 센다. */
+    private static ChainBuilder captureExpectedStatus(
+            final String step,
+            final String statusName,
+            final int expectedStatus,
+            final String errorCodeName
+    ) {
         return exec(session -> {
             if (session.contains("terminalResult")) {
                 return session;
@@ -423,6 +435,10 @@ final class CoreBookingFlow {
             }
             final int actualStatus = session.getInt(statusName);
             if (actualStatus != expectedStatus) {
+                final String errorCode = errorCodeName == null ? "" : optionalString(session, errorCodeName);
+                if (actualStatus == 409 && CoreRejections.OVERLOADED_CODE.equals(errorCode)) {
+                    return overloaded(session, step, actualStatus, errorCode);
+                }
                 return terminalFailure(session, "TECHNICAL_" + step + "_HTTP_" + actualStatus,
                         step, actualStatus);
             }
@@ -503,6 +519,19 @@ final class CoreBookingFlow {
 
     private static boolean canContinue(final Session session) {
         return !session.contains("terminalResult");
+    }
+
+    /** 과부하는 기술 실패가 아니라 별도 결과로 남긴다. BookingEvidenceRecorder가 따로 센다. */
+    private static Session overloaded(
+            final Session session,
+            final String lastStep,
+            final int httpStatus,
+            final String errorCode
+    ) {
+        return session
+                .set("terminalResult", CoreRejections.resultName(CoreRejections.Kind.OVERLOADED, errorCode))
+                .set("terminalHttpStatus", httpStatus)
+                .set("lastStep", lastStep);
     }
 
     private static Session terminalFailure(

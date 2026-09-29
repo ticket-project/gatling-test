@@ -24,9 +24,9 @@ class SeatContentionSimulationTest {
         assertTrue(source.contains(".feed(LoadTestConfig.bookingFeeder())"));
         assertTrue(source.contains(".headers(LoadTestConfig.authAndAdmissionHeaders())"));
         assertTrue(source.contains("jsonPath(\"$.error.code\").optional().saveAs(\"selectErrorCode\")"));
-        assertTrue(source.contains("httpStatus == 409 && SELECT_REJECTION_CODE.equals(errorCode)"));
-        assertTrue(source.contains("SELECT_REJECTION_CODE = \"E4001\""));
-        assertTrue(source.contains("SELECT_BUSINESS_REJECTED_E4001"));
+        assertTrue(source.contains("CoreRejections.ofSelect(httpStatus, errorCode)"));
+        assertTrue(source.contains("\"SELECT_\" + CoreRejections.resultName("));
+        assertTrue(source.contains(".exitHereIf(session -> session.getBoolean(\"selectOverloaded\"))"));
         assertTrue(source.contains("dummy(\"select seat technical failure\", 0)"));
         assertTrue(source.indexOf(".exec(selectSeat())") < source.indexOf(".exec(createOrder())"));
     }
@@ -35,12 +35,12 @@ class SeatContentionSimulationTest {
     void separatesAllowedOrderBusinessRejectionsFromTechnicalFailures() throws IOException {
         final String source = source();
 
-        assertTrue(source.contains("Set.of(\"E5000\", \"E5001\", \"E6000\", \"E6003\")"));
+        assertFalse(source.contains("E5000"));
         assertTrue(source.contains("jsonPath(\"$.error.code\").optional().saveAs(\"orderErrorCode\")"));
-        assertTrue(source.contains("httpStatus == 409 && ORDER_REJECTION_CODES.contains(errorCode)"));
-        assertTrue(source.contains("httpStatus != 201 && !businessRejected"));
+        assertTrue(source.contains("CoreRejections.ofOrder(httpStatus, errorCode)"));
+        assertTrue(source.contains("httpStatus != 201 && !businessRejected && !overloaded"));
         assertTrue(source.contains("dummy(\"create order technical failure\", 0)"));
-        assertTrue(source.contains("\"BUSINESS_REJECTED_\" + session.getString(\"orderErrorCode\")"));
+        assertTrue(source.contains("CoreRejections.resultName(CoreRejections.Kind.BUSINESS_REJECTED, session.getString(\"orderErrorCode\"))"));
         assertTrue(source.contains("BookingResultRecorder.append("));
         assertFalse(source.contains("status().in(201, 400, 409, 422)"));
     }
