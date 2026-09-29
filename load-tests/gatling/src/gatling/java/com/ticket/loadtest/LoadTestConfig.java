@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
 import static io.gatling.javaapi.core.CoreDsl.constantConcurrentUsers;
 import static io.gatling.javaapi.core.CoreDsl.constantUsersPerSec;
@@ -34,8 +33,6 @@ import static io.gatling.javaapi.core.CoreDsl.nothingFor;
 import static io.gatling.javaapi.core.CoreDsl.rampConcurrentUsers;
 import static io.gatling.javaapi.core.CoreDsl.rampUsers;
 import static io.gatling.javaapi.core.CoreDsl.rampUsersPerSec;
-import static io.gatling.javaapi.http.HttpDsl.http;
-import static io.gatling.javaapi.http.HttpDsl.status;
 
 public final class LoadTestConfig {
     private static final int TICKET_OPEN_PEAK_SECONDS = 10;
@@ -50,7 +47,6 @@ public final class LoadTestConfig {
     private static final int CORE_SPIKE_RECOVERY_SECONDS = 30;
     private static final int CORE_ACTIVE_USERS_RAMP_SECONDS = 30;
     private static final ConcurrentMap<ConfigKey, CsvValues> CSV_VALUES = new ConcurrentHashMap<>();
-    private static final AtomicInteger LOGIN_COUNTER = new AtomicInteger(intProperty(ConfigKey.LOGIN_START_INDEX));
     private static final AtomicInteger TOKEN_COUNTER = new AtomicInteger();
     private static final AtomicInteger ADMISSION_TOKEN_COUNTER = new AtomicInteger();
     private static final AtomicInteger SEAT_ID_COUNTER = new AtomicInteger();
@@ -377,6 +373,7 @@ public final class LoadTestConfig {
                         .set("memberId", LoadTestTokens.readSubjectAsLong(accessToken));
             });
         }
+        // Core는 이메일·비밀번호 로그인이 없다(소셜 전용). 로그인 API 대신 JWT_SECRET으로 서명한 합성 access token을 쓴다.
         if ("synthetic-jwt".equals(mode)) {
             return exec(session -> {
                 final Long memberId = nextSyntheticMember().value();
@@ -384,24 +381,7 @@ public final class LoadTestConfig {
                         .set("accessToken", createSyntheticJwt(memberId));
             });
         }
-        return exec(session -> {
-            final int loginIndex = LOGIN_COUNTER.getAndIncrement();
-            final String email = property(ConfigKey.LOGIN_EMAIL_PREFIX)
-                    + loginIndex + "@" + property(ConfigKey.LOGIN_EMAIL_DOMAIN);
-            return session.set("loginEmail", email)
-                    .set("loginPassword", property(ConfigKey.LOGIN_PASSWORD));
-        }).exec(http("login")
-                .post("/api/v1/auth/login")
-                .body(StringBody("""
-                        {
-                          "email": "#{loginEmail}",
-                          "password": "#{loginPassword}"
-                        }
-                        """))
-                .check(status().is(200))
-                .check(io.gatling.javaapi.core.CoreDsl.jsonPath("$.result").is("SUCCESS"))
-                .check(io.gatling.javaapi.core.CoreDsl.jsonPath("$.data.accessToken").saveAs("accessToken")))
-                .exec(session -> session.set("memberId", LoadTestTokens.readSubjectAsLong(session.getString("accessToken"))));
+        throw new IllegalArgumentException("Unsupported accessTokenMode: " + mode + " (synthetic-jwt 또는 tokens)");
     }
 
     public static ChainBuilder withAdmissionToken() {
@@ -847,10 +827,6 @@ public final class LoadTestConfig {
         ADMISSION_TOKEN_AUDIENCE,
         ADMISSION_TOKEN_SECRET,
         ADMISSION_TOKEN_TTL_SECONDS,
-        LOGIN_EMAIL_PREFIX,
-        LOGIN_EMAIL_DOMAIN,
-        LOGIN_PASSWORD,
-        LOGIN_START_INDEX,
         SEAT_IDS,
         SYNTHETIC_MEMBER_START_ID,
         SYNTHETIC_TOKEN_TTL_SECONDS,
@@ -909,10 +885,6 @@ public final class LoadTestConfig {
                 case ADMISSION_TOKEN_AUDIENCE -> "admissionTokenAudience";
                 case ADMISSION_TOKEN_SECRET -> "admissionTokenSecret";
                 case ADMISSION_TOKEN_TTL_SECONDS -> "admissionTokenTtlSeconds";
-                case LOGIN_EMAIL_PREFIX -> "loginEmailPrefix";
-                case LOGIN_EMAIL_DOMAIN -> "loginEmailDomain";
-                case LOGIN_PASSWORD -> "loginPassword";
-                case LOGIN_START_INDEX -> "loginStartIndex";
                 case SEAT_IDS -> "seatIds";
                 case SYNTHETIC_MEMBER_START_ID -> "syntheticMemberStartId";
                 case SYNTHETIC_TOKEN_TTL_SECONDS -> "syntheticTokenTtlSeconds";
@@ -962,16 +934,12 @@ public final class LoadTestConfig {
                 case INJECTION_MODE -> "ramp-users";
                 case USERS_PER_SECOND -> "1.0";
                 case TARGET_USERS_PER_SECOND -> "10.0";
-                case ACCESS_TOKEN_MODE -> "login";
+                case ACCESS_TOKEN_MODE -> "synthetic-jwt";
                 case ADMISSION_TOKEN_MODE -> "synthetic";
                 case ADMISSION_TOKEN_ISSUER -> "ticket-queue";
                 case ADMISSION_TOKEN_AUDIENCE -> "ticket-api";
                 case ADMISSION_TOKEN_SECRET -> "0123456789abcdef0123456789abcdef";
                 case ADMISSION_TOKEN_TTL_SECONDS -> "300";
-                case LOGIN_EMAIL_PREFIX -> "loadtest";
-                case LOGIN_EMAIL_DOMAIN -> "test.com";
-                case LOGIN_PASSWORD -> "password1234";
-                case LOGIN_START_INDEX -> "1";
                 case SEAT_IDS -> "1";
                 case SYNTHETIC_MEMBER_START_ID -> "1";
                 case SYNTHETIC_TOKEN_TTL_SECONDS -> "3600";
