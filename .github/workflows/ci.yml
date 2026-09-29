@@ -32,7 +32,8 @@ jobs:
           ./gradlew -p load-tests/gatling test --no-daemon
 
   console-tests:
-    runs-on: ubuntu-latest
+    # 콘솔은 로컬 Windows 도구라 테스트가 PowerShell 명령과 Windows 경로를 기대한다.
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -45,6 +46,7 @@ jobs:
           cache: gradle
 
       - name: Run console tests
+        shell: bash
         run: |
           chmod +x ./console/gradlew
           ./console/gradlew -p console test --no-daemon
