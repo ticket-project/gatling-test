@@ -156,6 +156,7 @@ API 하나의 순수 처리량을 확인할 때는 아래 시나리오를 사용
 | 02 | `HotSeatConcurrencySimulation` | 같은 좌석에 동시 요청해 선택 성공 1건, 주문 성공 1건, 나머지 정상 거부인지 확인 |
 | 03 | `CoreAdmissionCapacitySimulation` | 고정 회원·고유 좌석·고정 요청 흐름으로 Queue 없이 Core의 안전한 초당 입장 사용자 수 측정 |
 | 03-2 | `CoreRealisticContentionSimulation` | 인기 좌석 쏠림·충돌·재시도·이탈을 포함한 현실형 사용자 행동에서 Core 반응 측정 |
+| 03-3 | `CoreRealisticUserMixSimulation` | 03-2에 좌석 알림 WebSocket·배치도 조회·이탈 시 전체 해제·결제 전 주문 취소를 더한 실제 사용자 흐름 |
 | 04 | `CoreActiveUsersClosedSimulation` | Closed Model로 Core가 안정적으로 유지할 수 있는 동시 활성 사용자 상한 측정 |
 | 05 | `CoreSpikeSimulation` | 기준 부하에서 5초 안에 최고 부하로 상승한 뒤 유지·회복하는지 측정 |
 | 06 | `QueueProtectsCoreSimulation` | 외부 유입과 Queue 통과 후 Core 실제 진입을 분리해 보호 효과 측정 |
@@ -208,6 +209,15 @@ feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 �
 ```
 
 03-2 `CoreRealisticContentionSimulation`은 기존의 인기 좌석 쏠림·충돌·재시도·이탈 모델을 보존한다. 합성 JWT를 쓰고 feeder 없이 실행하므로 실행 간 충돌량이 달라질 수 있다. 고정 03에서 한계를 찾은 뒤 실제 행동을 섞었을 때 병목이 어떻게 변하는지 확인하는 보조 테스트로 사용한다.
+
+03-3 `CoreRealisticUserMixSimulation`은 03-2 흐름에 실제 예매 화면이 하는 일을 더한다. 03-2와 결과를 섞지 않도록 별도 시나리오로 둔다.
+
+- 좌석 알림 WebSocket: 흐름이 끝날 때까지 `/ws/websocket`에 STOMP로 연결해 `/topic/performance/{performanceId}/seats`를 구독한다. FE는 SockJS로 붙지만 부하 발생기는 SockJS가 함께 여는 순수 WebSocket 경로를 쓴다. Core CORS 허용 목록을 거치게 하려면 `-DwsOrigin`에 허용 Origin을 준다(비우면 Origin 헤더를 보내지 않는다).
+- 배치도: 화면이 처음 부르는 `GET /api/v1/shows/{showId}/venue-layout`과 `GET /api/v1/shows/{showId}/seats`를 조회한다. `-DshowId` 기본값은 부하 전용 공연 `910000001`이다.
+- 전체 해제: 주문 전에 이탈하는 사용자(`bookingDropoutPercent`, 기본 10%)는 `DELETE /api/v1/performances/{performanceId}/seats/select`로 선택을 모두 푼다. 결과는 `USER_DROPPED_BEFORE_ORDER`다.
+- 주문 취소: 주문을 만든 사용자 중 `bookingOrderCancelPercent`(기본 10%)가 `DELETE /api/v1/orders/{orderKey}`로 취소한다. 결과는 `USER_DROPPED_ORDER_CANCELED`다.
+
+이탈·취소 비율은 실측이 아니라 가정값이다. 실제 서비스 로그로 비율을 정하기 전에는 이 값에 기대어 용량을 확정하지 않는다.
 
 Core 직접 호출 테스트(03·03-2·04·05)의 Gatling 요청 통계에는 실제 HTTP API만 표시한다. 외부 유입과 Core 진입을 구분해야 하는 `QueueProtectsCoreSimulation`에서만 `external arrival` 지표를 유지하며, 실제 Core 진입률은 `booking-admissions.csv`로 판정한다.
 

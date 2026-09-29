@@ -14,18 +14,20 @@ import java.util.Set;
 final class BookingRunConfigurationWriter {
     private static final Set<String> REALISTIC_SCENARIOS = Set.of(
             "CORE_REALISTIC_CONTENTION",
+            "CORE_REALISTIC_USER_MIX",
             "CORE_ACTIVE_USERS_CLOSED",
             "CORE_SPIKE"
     );
     private static final Set<String> ADMISSION_FREE_SCENARIOS = Set.of(
             "CORE_ADMISSION_CAPACITY",
-            "CORE_REALISTIC_CONTENTION"
+            "CORE_REALISTIC_CONTENTION",
+            "CORE_REALISTIC_USER_MIX"
     );
     private static final Set<String> QUEUE_SCENARIOS = Set.of(
             "TICKET_OPEN_END_TO_END",
             "QUEUE_PROTECTS_CORE"
     );
-    private static final Set<String> NO_FEEDER_SCENARIOS = Set.of("CORE_REALISTIC_CONTENTION");
+    private static final Set<String> NO_FEEDER_SCENARIOS = Set.of("CORE_REALISTIC_CONTENTION", "CORE_REALISTIC_USER_MIX");
 
     private BookingRunConfigurationWriter() {
     }
@@ -72,6 +74,7 @@ final class BookingRunConfigurationWriter {
                 + "\"retryThinkMaxMillis\":" + LoadTestConfig.bookingRetryThinkMax().toMillis() + ","
                 + "\"seatRefreshPercent\":" + LoadTestConfig.bookingSeatRefreshPercent() + ","
                 + "\"dropoutPercent\":" + LoadTestConfig.bookingDropoutPercent() + ","
+                + "\"orderCancelPercent\":" + LoadTestConfig.bookingOrderCancelPercent() + ","
                 + "\"popularSeatPoolPercent\":" + RealisticSeatSelection.popularSeatPoolPercent() + ","
                 + "\"popularSeatSelectionPercent\":" + RealisticSeatSelection.popularSeatSelectionPercent() + ","
                 + "\"maxSeatSelectionAttempts\":" + RealisticSeatSelection.maxDynamicAttempts() + "},\n"
