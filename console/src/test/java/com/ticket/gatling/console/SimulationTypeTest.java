@@ -65,6 +65,9 @@ class SimulationTypeTest {
         assertEquals("CORE_REALISTIC_CONTENTION",
                 SimulationType.fromKey("core-realistic-contention").bookingScenario());
         assertFalse(SimulationType.fromKey("core-realistic-contention").usesBookingFeeder());
+        assertEquals("CORE_REALISTIC_USER_MIX",
+                SimulationType.fromKey("core-realistic-user-mix").bookingScenario());
+        assertFalse(SimulationType.fromKey("core-realistic-user-mix").usesBookingFeeder());
         assertEquals("03 고정 조건 Core 수용량",
                 SimulationType.fromKey("core-admission-capacity").label());
         assertEquals("CORE_ACTIVE_USERS_CLOSED",

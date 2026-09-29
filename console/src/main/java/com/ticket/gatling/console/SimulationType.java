@@ -135,7 +135,7 @@ public enum SimulationType {
     ),
     CORE_ORDER_CREATE_API(
             "core-order-create-api",
-            "POST /api/v1/orders",
+            "POST /api/v1/orders (좌석 선택 후)",
             "com.ticket.loadtest.simulation.CoreOrderCreateApiSimulation",
             "",
             false,
@@ -210,6 +210,19 @@ public enum SimulationType {
             false,
             false,
             "CORE_REALISTIC_CONTENTION"
+    ),
+    CORE_REALISTIC_USER_MIX(
+            "core-realistic-user-mix",
+            "03-3 실제 사용자 흐름 혼합",
+            "com.ticket.loadtest.simulation.CoreRealisticUserMixSimulation",
+            "",
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+            "CORE_REALISTIC_USER_MIX"
     ),
     CORE_ACTIVE_USERS_CLOSED(
             "core-active-users-closed",

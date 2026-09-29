@@ -115,6 +115,7 @@ Queue·legacy·CDN 시뮬레이션은 테스트 종류를 바꿔도 대상 URL�
 | `hot-seat-concurrency` | `https://oneticket.site` |
 | `core-admission-capacity` | `https://oneticket.site` |
 | `core-realistic-contention` | `https://oneticket.site` |
+| `core-realistic-user-mix` | `https://oneticket.site` |
 | `core-active-users-closed` | `https://oneticket.site` |
 | `core-spike` | `https://oneticket.site` |
 | `queue-protects-core` | Core `https://oneticket.site` + Queue `https://queue.oneticket.site` |
@@ -216,6 +217,7 @@ com.ticket.loadtest.simulation.SmokeSimulation
 com.ticket.loadtest.simulation.HotSeatConcurrencySimulation
 com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation
 com.ticket.loadtest.simulation.CoreRealisticContentionSimulation
+com.ticket.loadtest.simulation.CoreRealisticUserMixSimulation
 com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation
 com.ticket.loadtest.simulation.CoreSpikeSimulation
 com.ticket.loadtest.simulation.QueueProtectsCoreSimulation
@@ -266,6 +268,7 @@ Console의 `테스트 종류`에서 다음 일곱 시나리오를 직접 선택�
 | 02 | `02 인기 좌석 동시 경합` | N명 동시 시작 | 같은 좌석의 선점 성공 1건, 주문 성공 1건, 나머지 정상 거절, 중복 0건 확인 |
 | 03 | `03 고정 조건 Core 수용량` | Open Model | 고정 회원·고유 좌석·동일 요청 수로 Core의 안전 입장률 결정 |
 | 03-2 | `03-2 현실형 인기 좌석 경합` | Open Model | 인기 좌석 쏠림·충돌·재시도·이탈을 포함한 현실형 동작 확인 |
+| 03-3 | `03-3 실제 사용자 흐름 혼합` | Open Model | 03-2에 좌석 알림 WebSocket·배치도·전체 해제·주문 취소를 더한 실제 흐름 확인 |
 | 04 | `04 Core 동시 사용자 한계` | Closed Model | Core 안에서 동시에 활동하는 사용자 수의 안전 상한 결정 |
 | 05 | `05 Core 순간 부하 및 회복` | Open Model Spike | 기준 RPS에서 5초 동안 최고 RPS로 급증한 뒤 회복하는지 확인 |
 | 06 | `06 Queue의 Core 보호` | Open Model | 외부 유입은 높게 유지하면서 Queue가 Core 입장률을 보호하는지 확인 |
@@ -286,6 +289,7 @@ Console의 `테스트 종류`에서 다음 일곱 시나리오를 직접 선택�
 - `02 인기 좌석 동시 경합`: `사용자 수`를 100 또는 1,000으로 지정하고, feeder의 모든 행에 같은 `seatId`를 넣는다. `rendezVous`가 한 JVM 안에서만 동기화되므로 반드시 로컬 실행을 사용한다.
 - `03 고정 조건 Core 수용량`: 최초 운영 SQL은 기존 회원을 건드리지 않고 좌석·30개 회차를 만든다. SQL의 마지막 결과에서 내보낸 실제 ACTIVE Member ID 파일로 JWT와 memberId/accessToken/seatId feeder를 실행 직전에 자동 생성한다. CSV 경로·토큰 수·offset은 사용자가 입력하지 않는다. 화면에서 전용 회차 ID와 권장 용도를 확인할 수 있으며, 판정 기준을 바꿔야 할 때만 접힌 `판정 기준 변경`을 연다. 좌석 새로고침·무작위 선택·재시도·이탈 없이 같은 요청 흐름을 보내므로 코드 변경 전후의 1차 비교에 사용한다. Admission Token 열은 비워 두고 전용 회차의 기존 Queue 정책을 `FORCE_OFF`로 사용한다. 테스트 묶음 종료 후 결과 보존과 Core 중지를 마치고 화면 상단의 `테스트 데이터 전체 원복` 버튼으로 30개 회차를 함께 원복한다.
 - `03-2 현실형 인기 좌석 경합`: Queue·Booking Feeder·Admission Token 없이 Core를 직접 호출한다. 사용자의 80%가 인기 좌석 범위에 몰리고 409 충돌 시 다른 좌석으로 최대 2회 재시도하며 일부 사용자는 주문 전에 이탈한다. Console은 같은 실제 Member ID 파일로 JWT를 만든다. 실행마다 충돌량과 요청 수가 달라질 수 있으므로 03의 고정 결과를 설명하는 보조 테스트로 사용한다.
+- `03-3 실제 사용자 흐름 혼합`: 03-2와 같은 준비로 실행한다. 사용자마다 좌석 알림 WebSocket을 흐름 끝까지 열어 두고, 배치도를 조회하며, 주문 전 이탈자는 선택을 전체 해제하고, 주문한 사용자 일부는 결제 전에 취소한다. 이탈·취소 비율(각 10%)은 가정값이다. 로컬 실행만 지원한다. 자세한 흐름은 저장소 루트 [README](../README.md)를 본다.
 - `04 Core 동시 사용자 한계`: 주입 방식을 `동시 사용자 유지 (Closed Model)`로 사용한다. `사용자 수`는 동시에 유지할 Core 사용자 수이고, `Closed Model 피더 행 수`는 노드마다 소비할 수 있는 고유 CSV 행 수다.
 - `05 Core 순간 부하 및 회복`: `초당 사용자 수`가 기준 RPS, `최고 RPS`가 순간 최고 RPS, `투입 시간`이 최고 RPS 유지 시간이다. 실행 패턴은 기준 30초 → 5초 증가 → 최고 RPS 유지 → 5초 감소 → 기준 30초다.
 - `06 Queue의 Core 보호`: `초당 사용자 수`는 Queue로 들어오는 외부 유입률이다. 사용자는 join → state polling → enter로 Admission Token을 얻은 뒤에만 Core 흐름을 실행한다.
