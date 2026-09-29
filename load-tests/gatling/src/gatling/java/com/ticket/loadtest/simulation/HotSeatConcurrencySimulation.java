@@ -2,6 +2,7 @@ package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.BookingEvidenceRecorder;
 import com.ticket.loadtest.BookingResultRecorder;
+import com.ticket.loadtest.CoreRejections;
 import com.ticket.loadtest.LoadTestConfig;
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.ScenarioBuilder;
@@ -10,7 +11,6 @@ import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Set;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.details;
@@ -27,8 +27,6 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 public class HotSeatConcurrencySimulation extends BookingProofSimulation {
 
     private static final String SCENARIO = "HOT_SEAT_CONCURRENCY";
-    private static final String SELECT_REJECTION_CODE = "E4001";
-    private static final Set<String> ORDER_REJECTION_CODES = Set.of("E5000", "E5001", "E6000", "E6003");
 
     public HotSeatConcurrencySimulation() {
         super(SCENARIO);
@@ -56,6 +54,9 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
                 .exec(doIf(session -> session.getBoolean("selectRejected")).then(
                         dummy("select business rejected", 0)
                 ))
+                .exec(doIf(session -> session.getBoolean("selectOverloaded")).then(
+                        dummy("select overloaded", 0)
+                ))
                 .exec(doIf(session -> session.getBoolean("selectTechnicalFailure")).then(
                         dummy("select technical failure", 0)
                                 .withSuccess(false)
@@ -78,6 +79,9 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
                 .exec(doIf(session -> session.getBoolean("orderBusinessRejected")).then(
                         dummy("order business rejected", 0)
                 ))
+                .exec(doIf(session -> session.getBoolean("orderOverloaded")).then(
+                        dummy("order overloaded", 0)
+                ))
                 .exec(doIf(session -> session.getBoolean("orderWon") && canContinue(session)).then(
                         resolveOrderKey()
                 ))
@@ -89,11 +93,10 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
+                        // 나머지 사용자는 비즈니스 거절이거나 과부하(E6003)다. 기술 실패는 failedRequests가 잡는다.
                         global().failedRequests().count().is(0L),
                         details("select won").successfulRequests().count().is(1L),
-                        details("select business rejected").successfulRequests().count().is(users - 1L),
-                        details("order won").successfulRequests().count().is(1L),
-                        details("order business rejected").successfulRequests().count().is(users - 1L)
+                        details("order won").successfulRequests().count().is(1L)
                 );
     }
 
@@ -126,16 +129,22 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
             final int httpStatus = optionalInt(session, "selectHttpStatus");
             final String errorCode = optionalString(session, "selectErrorCode");
             final boolean won = httpStatus == 200;
-            final boolean rejected = httpStatus == 409 && SELECT_REJECTION_CODE.equals(errorCode);
+            final CoreRejections.Kind rejection = CoreRejections.ofSelect(httpStatus, errorCode);
+            final boolean rejected = !won && rejection == CoreRejections.Kind.BUSINESS_REJECTED;
+            final boolean overloaded = !won && rejection == CoreRejections.Kind.OVERLOADED;
             Session updated = session
                     .set("selectWon", won)
                     .set("selectRejected", rejected)
-                    .set("selectTechnicalFailure", !won && !rejected)
+                    .set("selectOverloaded", overloaded)
+                    .set("selectTechnicalFailure", !won && !rejected && !overloaded)
                     .set("orderWon", false)
                     .set("orderBusinessRejected", false)
+                    .set("orderOverloaded", false)
                     .set("orderWithoutSelect", false)
                     .set("orderTechnicalFailure", false);
-            if (!won && !rejected) {
+            if (overloaded) {
+                updated = overloadedResult(updated, "SELECT_SEAT", httpStatus, errorCode);
+            } else if (!won && !rejected) {
                 updated = terminalFailure(updated, technicalResult("SELECT_SEAT", httpStatus),
                         "SELECT_SEAT", httpStatus);
             }
@@ -168,12 +177,15 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
             final int httpStatus = optionalInt(session, "createOrderHttpStatus");
             final String errorCode = optionalString(session, "orderErrorCode");
             final boolean won = httpStatus == 201;
-            final boolean businessRejected = httpStatus == 409 && ORDER_REJECTION_CODES.contains(errorCode);
+            final CoreRejections.Kind rejection = CoreRejections.ofOrder(httpStatus, errorCode);
+            final boolean businessRejected = !won && rejection == CoreRejections.Kind.BUSINESS_REJECTED;
+            final boolean overloaded = !won && rejection == CoreRejections.Kind.OVERLOADED;
             final boolean orderWithoutSelect = won && !session.getBoolean("selectWon");
-            final boolean technicalFailure = !won && !businessRejected;
+            final boolean technicalFailure = !won && !businessRejected && !overloaded;
             Session updated = session
                     .set("orderWon", won)
                     .set("orderBusinessRejected", businessRejected)
+                    .set("orderOverloaded", overloaded)
                     .set("orderWithoutSelect", orderWithoutSelect)
                     .set("orderTechnicalFailure", technicalFailure);
             if (orderWithoutSelect) {
@@ -183,9 +195,12 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
                 return terminalFailure(updated, technicalResult("CREATE_ORDER", httpStatus),
                         "CREATE_ORDER", httpStatus);
             }
+            if (overloaded) {
+                return overloadedResult(updated, "CREATE_ORDER", httpStatus, errorCode);
+            }
             if (businessRejected) {
                 return updated
-                        .set("terminalResult", "BUSINESS_REJECTED_" + errorCode)
+                        .set("terminalResult", CoreRejections.resultName(CoreRejections.Kind.BUSINESS_REJECTED, errorCode))
                         .set("terminalHttpStatus", httpStatus)
                         .set("lastStep", "CREATE_ORDER");
             }
@@ -237,6 +252,18 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
 
     private static boolean canContinue(final Session session) {
         return !session.contains("terminalResult");
+    }
+
+    private static Session overloadedResult(
+            final Session session,
+            final String lastStep,
+            final int httpStatus,
+            final String errorCode
+    ) {
+        return session
+                .set("terminalResult", CoreRejections.resultName(CoreRejections.Kind.OVERLOADED, errorCode))
+                .set("terminalHttpStatus", httpStatus)
+                .set("lastStep", lastStep);
     }
 
     private static Session terminalFailure(

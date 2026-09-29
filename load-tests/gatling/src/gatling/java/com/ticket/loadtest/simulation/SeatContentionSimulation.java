@@ -1,6 +1,7 @@
 package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.BookingResultRecorder;
+import com.ticket.loadtest.CoreRejections;
 import com.ticket.loadtest.LoadTestConfig;
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.ScenarioBuilder;
@@ -10,7 +11,7 @@ import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Set;
+import java.util.function.Function;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.doIf;
@@ -27,8 +28,6 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 public class SeatContentionSimulation extends Simulation {
 
     private static final String SCENARIO = "SEAT_CONTENTION";
-    private static final String SELECT_REJECTION_CODE = "E4001";
-    private static final Set<String> ORDER_REJECTION_CODES = Set.of("E5000", "E5001", "E6000", "E6003");
     private static final Duration ORDER_POLL_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration ORDER_POLL_PAUSE = Duration.ofMillis(200);
 
@@ -50,8 +49,14 @@ public class SeatContentionSimulation extends Simulation {
                 .exitHereIfFailed()
                 .exec(classifySelectResponse())
                 .exec(doIf(session -> session.getBoolean("selectRejected")).then(
-                        recordResult(null, "selectHttpStatus", "SELECT_BUSINESS_REJECTED_E4001")
+                        recordResult(null, "selectHttpStatus", session -> "SELECT_" + CoreRejections.resultName(
+                                CoreRejections.Kind.BUSINESS_REJECTED, session.getString("selectErrorCode")))
                 ))
+                .exec(doIf(session -> session.getBoolean("selectOverloaded")).then(
+                        recordResult(null, "selectHttpStatus", session -> CoreRejections.resultName(
+                                CoreRejections.Kind.OVERLOADED, session.getString("selectErrorCode")))
+                ))
+                .exitHereIf(session -> session.getBoolean("selectOverloaded"))
                 .exec(doIf(session -> session.getBoolean("selectTechnicalFailure")).then(
                         dummy("select seat technical failure", 0)
                                 .withSuccess(false)
@@ -70,7 +75,12 @@ public class SeatContentionSimulation extends Simulation {
                 .exec(doIf(session -> session.getBoolean("orderBusinessRejected")).then(
                         recordBusinessRejection()
                 ))
-                .exec(doIf(session -> !session.getBoolean("orderBusinessRejected")).then(
+                .exec(doIf(session -> session.getBoolean("orderOverloaded")).then(
+                        recordResult(null, "createOrderHttpStatus", session -> CoreRejections.resultName(
+                                CoreRejections.Kind.OVERLOADED, session.getString("orderErrorCode")))
+                ))
+                .exec(doIf(session -> !session.getBoolean("orderBusinessRejected")
+                        && !session.getBoolean("orderOverloaded")).then(
                         completeSuccessfulOrder()
                 ));
 
@@ -102,10 +112,13 @@ public class SeatContentionSimulation extends Simulation {
         return exec(session -> {
             final int httpStatus = session.getInt("selectHttpStatus");
             final String errorCode = optionalString(session, "selectErrorCode");
-            final boolean rejected = httpStatus == 409 && SELECT_REJECTION_CODE.equals(errorCode);
+            final CoreRejections.Kind rejection = CoreRejections.ofSelect(httpStatus, errorCode);
+            final boolean rejected = httpStatus != 200 && rejection == CoreRejections.Kind.BUSINESS_REJECTED;
+            final boolean overloaded = httpStatus != 200 && rejection == CoreRejections.Kind.OVERLOADED;
             return session
                     .set("selectRejected", rejected)
-                    .set("selectTechnicalFailure", httpStatus != 200 && !rejected);
+                    .set("selectOverloaded", overloaded)
+                    .set("selectTechnicalFailure", httpStatus != 200 && !rejected && !overloaded);
         });
     }
 
@@ -131,10 +144,13 @@ public class SeatContentionSimulation extends Simulation {
         return exec(session -> {
             final int httpStatus = session.getInt("createOrderHttpStatus");
             final String errorCode = optionalString(session, "orderErrorCode");
-            final boolean businessRejected = httpStatus == 409 && ORDER_REJECTION_CODES.contains(errorCode);
+            final CoreRejections.Kind rejection = CoreRejections.ofOrder(httpStatus, errorCode);
+            final boolean businessRejected = httpStatus != 201 && rejection == CoreRejections.Kind.BUSINESS_REJECTED;
+            final boolean overloaded = httpStatus != 201 && rejection == CoreRejections.Kind.OVERLOADED;
             return session
                     .set("orderBusinessRejected", businessRejected)
-                    .set("orderTechnicalFailure", httpStatus != 201 && !businessRejected);
+                    .set("orderOverloaded", overloaded)
+                    .set("orderTechnicalFailure", httpStatus != 201 && !businessRejected && !overloaded);
         });
     }
 
@@ -148,7 +164,7 @@ public class SeatContentionSimulation extends Simulation {
                     session.getLong("seatId"),
                     null,
                     session.getInt("createOrderHttpStatus"),
-                    "BUSINESS_REJECTED_" + session.getString("orderErrorCode")
+                    CoreRejections.resultName(CoreRejections.Kind.BUSINESS_REJECTED, session.getString("orderErrorCode"))
             );
             return session;
         });
@@ -216,6 +232,14 @@ public class SeatContentionSimulation extends Simulation {
     }
 
     private ChainBuilder recordResult(final String orderKeyName, final String statusName, final String result) {
+        return recordResult(orderKeyName, statusName, session -> result);
+    }
+
+    private ChainBuilder recordResult(
+            final String orderKeyName,
+            final String statusName,
+            final Function<Session, String> result
+    ) {
         return exec(session -> {
             BookingResultRecorder.append(
                     Path.of(LoadTestConfig.resultFile()),
@@ -225,7 +249,7 @@ public class SeatContentionSimulation extends Simulation {
                     session.getLong("seatId"),
                     orderKeyName == null ? null : session.getString(orderKeyName),
                     session.getInt(statusName),
-                    result
+                    result.apply(session)
             );
             return session;
         });
