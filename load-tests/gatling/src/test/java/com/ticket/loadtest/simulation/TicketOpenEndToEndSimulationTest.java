@@ -32,7 +32,9 @@ class TicketOpenEndToEndSimulationTest {
         assertTrue(source.contains("LoadTestConfig.statusPollPauseMin()"));
         assertTrue(source.contains("LoadTestConfig.statusPollPauseMax()"));
         assertTrue(source.contains("ThreadLocalRandom.current().nextLong"));
-        assertTrue(source.contains("jsonPath(\"$.data.admissionToken\").saveAs(\"admissionToken\")"));
+        // Queue enter는 ApiResponse로 감싸지 않은 EnterResponse를 그대로 돌려준다.
+        assertTrue(source.contains("jsonPath(\"$.admissionToken\").saveAs(\"admissionToken\")"));
+        assertFalse(source.contains("$.data.admissionToken"));
     }
 
     @Test

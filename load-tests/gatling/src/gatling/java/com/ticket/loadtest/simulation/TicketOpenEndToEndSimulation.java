@@ -157,7 +157,7 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                 .post(LoadTestConfig.queueBaseUrl() + "/api/v1/queue/performances/#{performanceId}/enter")
                 .headers(LoadTestConfig.queueTokenHeaders())
                 .check(status().is(200))
-                .check(jsonPath("$.data.admissionToken").saveAs("admissionToken")));
+                .check(jsonPath("$.admissionToken").saveAs("admissionToken")));
     }
 
     private ChainBuilder recordQueueTimeout() {
