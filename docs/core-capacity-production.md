@@ -91,7 +91,7 @@ Offset은 앞 실행의 DB·Redis 정리를 대신하지 않는다. 회원과 �
 
 ## 03·03-2 전에 API별 한계 확인
 
-API별 테스트는 전체 사용자 여정을 대체하지 않는다. 병목이 공연 조회, 좌석 응답, Redis 선점, 주문 트랜잭션, 주문 조회 중 어디에서 먼저 생기는지 분리해서 확인하는 선행 진단이다. 동일 API의 단계도 자동 연속 실행하지 않고 하나씩 실행한다.
+API별 테스트는 전체 사용자 여정을 대체하지 않는다. 병목이 공연 조회, 좌석 응답, Redis 좌석 선택, 주문 트랜잭션, 주문 조회 중 어디에서 먼저 생기는지 분리해서 확인하는 선행 진단이다. 동일 API의 단계도 자동 연속 실행하지 않고 하나씩 실행한다.
 
 ### 1. 공연 요약 조회
 
@@ -101,9 +101,9 @@ API별 테스트는 전체 사용자 여정을 대체하지 않는다. 병목이
 
 `GET /api/v1/performances/{performanceId}/seats/status`만 호출한다. Console이 Member ID 파일로 실제 회원 JWT를 준비한다. 상태를 변경하지 않으므로 같은 회차로 반복할 수 있지만, 좌석 수와 AVAILABLE·HELD·SOLD 비율이 달라지면 응답 크기도 달라진다. 읽기 성능 비교용 회차는 상태 변경 테스트에 사용하기 전에 먼저 측정한다.
 
-### 3. 좌석 선점
+### 3. 좌석 선택
 
-`POST /api/v1/performances/{performanceId}/seats/{seatId}/select`만 호출한다. Console이 Member ID 파일의 실제 회원과 `910000001`부터의 고유 좌석을 `build/core-api-member-seat-feeder.csv`로 자동 연결한다. 이 테스트는 Redis 선점 상태를 만들므로 새 performance를 사용하며 다음 조건을 지킨다.
+`POST /api/v1/performances/{performanceId}/seats/{seatId}/select`만 호출한다. Console이 Member ID 파일의 실제 회원과 `910000001`부터의 고유 좌석을 `build/core-api-member-seat-feeder.csv`로 자동 연결한다. 선택은 선점(hold)이 아니다. Redis에 5분짜리 선택 표시만 남기고, 끝나면 저절로 풀린다. 새 performance를 사용하며 다음 조건을 지킨다.
 
 ```text
 users/sec × durationSeconds <= 2,000
@@ -111,13 +111,13 @@ users/sec × durationSeconds <= 2,000
 사용자별 고유 memberId와 seatId
 ```
 
-주문 생성 API를 바로 이어서 측정할 예정이면 선점 결과를 원복하지 않고 같은 performance와 같은 feeder를 사용한다.
+주문 생성 API를 이어서 측정할 예정이면 같은 performance와 같은 feeder를 사용한다. Core는 본인이 선택 중인 좌석으로만 주문을 받기 때문이다(ticket-core ADR 0021).
 
 ### 4. 주문 생성
 
-`POST /api/v1/orders`만 호출하며 테스트 안에서 좌석 선점 API를 호출하지 않는다. 따라서 바로 앞 준비 실행이 같은 memberId와 seatId로 hold를 만들어 둔 상태여야 한다. 생성 SQL의 `hold_time`은 600초이므로 좌석 선점 완료 후 10분 안에 같은 performance와 같은 `build/core-api-member-seat-feeder.csv`로 실행한다.
+`POST /api/v1/orders`만 호출하며 테스트 안에서 좌석 선택 API를 호출하지 않는다. Core는 요청 회원이 지금 선택 중인 좌석으로만 주문을 받고, 아니면 E4006으로 거절한다(ticket-core ADR 0021). 좌석 선점(hold)은 주문이 그 자리에서 만든다. 따라서 바로 앞 준비 실행이 같은 memberId와 seatId로 좌석을 선택해 둔 상태여야 한다. 선택은 5분 뒤 풀리므로 좌석 선택 완료 후 5분 안에 같은 performance와 같은 `build/core-api-member-seat-feeder.csv`로 실행한다.
 
-주문 생성 목표가 `40 users/sec × 30초 = 1,200명`이면 먼저 좌석 선점 API로 적어도 앞 1,200개 행의 hold를 성공시켜야 한다. 선점 자체의 한계를 재는 실행과 주문 준비 실행을 구분하려면, 이미 확인한 안전한 선점률로 1,200개를 준비한 뒤 주문 생성만 목표 40 users/sec로 실행한다. 준비된 hold 수가 주문 생성 예상 사용자보다 적으면 뒤쪽 사용자는 성능 문제가 아니라 데이터 부족으로 실패한다.
+주문 생성 목표가 `40 users/sec × 30초 = 1,200명`이면 먼저 좌석 선택 API로 적어도 앞 1,200개 행의 선택을 성공시켜야 한다. 선택 자체의 한계를 재는 실행과 주문 준비 실행을 구분하려면, 이미 확인한 안전한 선택률로 1,200개를 준비한 뒤 5분 안에 주문 생성만 목표 40 users/sec로 실행한다. 준비된 선택 수가 주문 생성 예상 사용자보다 적으면 뒤쪽 사용자는 성능 문제가 아니라 데이터 부족으로 실패한다.
 
 성공한 주문은 Console의 `결과 CSV` 경로에 다음 주문 조회용 feeder로 기록된다.
 
@@ -140,14 +140,14 @@ memberId,orderKey
 ```text
 새 performance 선택
 → 좌석 상태 조회로 2,000 AVAILABLE 확인
-→ 좌석 선점 API 테스트
-→ 10분 안에 같은 feeder로 주문 생성 API 테스트
+→ 좌석 선택 API 테스트
+→ 5분 안에 같은 feeder로 주문 생성 API 테스트
 → 생성된 order lookup feeder로 주문 조회 API 테스트
 → 결과 보존
 → 주문 만료·Outbox·hold 해제 완료 후 전체 원복
 ```
 
-7개 부하 단계의 좌석 선점·주문 생성 쌍에는 `performanceId=910000022..910000028`을 순서대로 사용한다. 03 최초 경계 탐색용 `910000001..910000007`과 섞지 않는다. 두 API는 같은 단계에서 같은 performance를 공유하므로 단계당 회차 하나만 필요하다.
+7개 부하 단계의 좌석 선택·주문 생성 쌍에는 `performanceId=910000022..910000028`을 순서대로 사용한다. 03 최초 경계 탐색용 `910000001..910000007`과 섞지 않는다. 두 API는 같은 단계에서 같은 performance를 공유하므로 단계당 회차 하나만 필요하다.
 
 API별 테스트와 03·03-2는 목적이 다르다. API별 최대 RPS의 최솟값을 Queue 입장률로 바로 사용하지 않고, 최종 Queue 기준은 반드시 다섯 요청을 모두 수행하는 `CoreAdmissionCapacitySimulation`의 PASS users/sec로 정한다.
 
@@ -176,7 +176,7 @@ Technical failure 허용률 기본값은 `1.0%`다. Gatling assertion은 실제 
 API별 분리 측정
 공연 요약 조회
 좌석 상태 조회
-좌석 선점 → 같은 회차·feeder로 주문 생성 → 생성된 feeder로 주문 조회
+좌석 선택 → 5분 안에 같은 회차·feeder로 주문 생성 → 생성된 feeder로 주문 조회
 
 03 Core Admission Capacity 최초 경계 탐색
 5 users/sec  × 30초

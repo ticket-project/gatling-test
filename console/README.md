@@ -250,11 +250,11 @@ rg -n "찾을_문구" .
 
 - `GET /api/v1/performances/{performanceId}/summary`: 인증 없이 공연 요약만 1회 조회한다.
 - `GET /api/v1/performances/{performanceId}/seats/status`: 인증 후 좌석 상태만 1회 조회한다.
-- `POST /api/v1/performances/{performanceId}/seats/{seatId}/select`: 실제 Member ID 파일과 고유 좌석으로 자동 생성한 피더를 사용해 1회 선점한다.
-- `POST /api/v1/orders`: 바로 앞 선점 테스트와 같은 회원·좌석 피더로 주문만 1회 생성하고 주문 조회용 피더를 결과 경로에 남긴다.
+- `POST /api/v1/performances/{performanceId}/seats/{seatId}/select`: 실제 Member ID 파일과 고유 좌석으로 자동 생성한 피더를 사용해 1회 선택한다. 선택은 5분 뒤 저절로 풀린다.
+- `POST /api/v1/orders`: 바로 앞 선택 테스트와 같은 회원·좌석 피더로 주문만 1회 생성하고 주문 조회용 피더를 결과 경로에 남긴다.
 - `GET /api/v1/orders/{orderKey}`: 주문 생성 테스트가 남긴 회원 소유 주문 피더로 1회 조회한다.
 
-좌석 선점과 주문 생성은 상태를 변경한다. 주문 생성 테스트 안에서 좌석 선점을 준비하지 않는 이유는 선점 API 부하가 주문 API 측정값에 섞이는 것을 막기 위해서다. `좌석 선점 → 10분 안에 같은 performance·피더로 주문 생성 → 생성된 주문 조회 피더로 주문 조회` 순서로 실행한다. 새로 생성되는 주문 조회 CSV 헤더는 `memberId,orderKey`이며 JWT는 주문 조회 실행 중 메모리에서 생성하므로 결과 파일에 남지 않는다. 좌석 선점·주문 생성 CSV 헤더는 `memberId,accessToken,seatId,admissionToken`이다. 현재는 로컬 실행만 지원한다.
+좌석 선택과 주문 생성은 상태를 변경한다. Core는 본인이 선택 중인 좌석으로만 주문을 받는다(ticket-core ADR 0021). 주문 생성 테스트 안에서 좌석 선택을 준비하지 않는 이유는 선택 API 부하가 주문 API 측정값에 섞이는 것을 막기 위해서다. `좌석 선택 → 5분 안에 같은 performance·피더로 주문 생성 → 생성된 주문 조회 피더로 주문 조회` 순서로 실행한다. 새로 생성되는 주문 조회 CSV 헤더는 `memberId,orderKey`이며 JWT는 주문 조회 실행 중 메모리에서 생성하므로 결과 파일에 남지 않는다. 좌석 선점·주문 생성 CSV 헤더는 `memberId,accessToken,seatId,admissionToken`이다. 현재는 로컬 실행만 지원한다.
 
 ## Booking 예매 부하 콘솔 사용
 

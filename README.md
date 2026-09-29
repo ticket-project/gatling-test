@@ -138,13 +138,13 @@ API 하나의 순수 처리량을 확인할 때는 아래 시나리오를 사용
 | --- | --- | --- |
 | `GET /api/v1/performances/{performanceId}/summary` | 공연 요약 조회 1회 | 인증·feeder 불필요, 같은 회차 사용 |
 | `GET /api/v1/performances/{performanceId}/seats/status` | 좌석 상태 조회 1회 | 인증 사용자 필요, 같은 좌석 수와 상태 비율 유지 |
-| `POST /api/v1/performances/{performanceId}/seats/{seatId}/select` | 고유 좌석 선점 1회 | `memberId,accessToken,seatId,admissionToken` CSV, 모든 좌석 AVAILABLE |
-| `POST /api/v1/orders` | 주문 생성 1회 | 같은 CSV, 각 좌석이 해당 회원에게 미리 선점된 상태 |
+| `POST /api/v1/performances/{performanceId}/seats/{seatId}/select` | 고유 좌석 선택 1회(5분 뒤 저절로 풀림) | `memberId,accessToken,seatId,admissionToken` CSV, 모든 좌석 AVAILABLE |
+| `POST /api/v1/orders` | 주문 생성 1회 | 같은 CSV, 각 좌석을 해당 회원이 5분 안에 미리 선택해 둔 상태(ticket-core ADR 0021) |
 | `GET /api/v1/orders/{orderKey}` | 주문 조회 1회 | `memberId,orderKey` CSV, 회원 소유 주문. JWT는 실행 중 메모리에서 생성 |
 
-단일 API 테스트 안에서는 준비용 API를 호출하지 않는다. 예를 들어 주문 생성 테스트가 좌석 선점까지 호출하면 Redis·락·좌석 검증 부하가 주문 생성의 DB 비용에 섞이기 때문이다. 따라서 상태 변경 API는 실행 전에 데이터를 준비하고 실행 후 원상 복구한다. 현재 분산 Booking 실행기는 전체 예매 증거 파일을 전제로 하므로 이 다섯 테스트는 로컬 Gatling 실행만 지원한다.
+단일 API 테스트 안에서는 준비용 API를 호출하지 않는다. 예를 들어 주문 생성 테스트가 좌석 선택까지 호출하면 Redis 선택 부하가 주문 생성 비용에 섞이기 때문이다. 따라서 상태 변경 API는 실행 전에 데이터를 준비하고 실행 후 원상 복구한다. 현재 분산 Booking 실행기는 전체 예매 증거 파일을 전제로 하므로 이 다섯 테스트는 로컬 Gatling 실행만 지원한다.
 
-대상 서버는 콘솔의 `대상 환경`에서 고른다. 로컬 Ticket/Core를 대상으로 하려면 ticket 저장소를 `local` 프로파일로 실행해 `app.seed.load-test-fixture.enabled=true`가 만드는 전용 회차·좌석과 부하테스트 회원을 준비한다. 로컬 전용 데이터는 운영과 같은 고정 ID 대역을 쓰므로 회차 배정표를 그대로 쓸 수 있고, 로컬 대상에서는 회원 ID 파일 없이 연속 회원 ID를 사용한다.
+대상 서버는 콘솔의 `대상 환경`에서 고른다. 로컬 Ticket/Core를 대상으로 하려면 ticket 저장소를 `local` 프로파일로 실행한 뒤 `.\gradlew.bat seedLocal`로 전용 회차·좌석과 부하테스트 회원을 준비한다(ticket 저장소 `seed/README.md`). 로컬 전용 데이터는 운영과 같은 고정 ID 대역을 쓰므로 회차 배정표를 그대로 쓸 수 있고, 로컬 대상에서는 회원 ID 파일 없이 연속 회원 ID를 사용한다.
 
 ## 정합성·Core 보호 증명 시나리오
 
