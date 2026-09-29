@@ -39,6 +39,7 @@ final class ReportDirectoryNameFormatter {
             case HOT_SEAT_CONCURRENCY -> "hot-seat";
             case CORE_ADMISSION_CAPACITY -> "core-admission";
             case CORE_REALISTIC_CONTENTION -> "core-realistic-contention";
+            case CORE_REALISTIC_USER_MIX -> "core-realistic-user-mix";
             case CORE_ACTIVE_USERS_CLOSED -> "core-active-closed";
             case CORE_SPIKE -> "core-spike";
             case QUEUE_PROTECTS_CORE -> "queue-protects-core";

@@ -179,7 +179,8 @@ public class LoadTestService {
                 || simulationType == SimulationType.CORE_SEAT_SELECT_API
                 || simulationType == SimulationType.CORE_ORDER_CREATE_API
                 || simulationType == SimulationType.CORE_ADMISSION_CAPACITY
-                || simulationType == SimulationType.CORE_REALISTIC_CONTENTION;
+                || simulationType == SimulationType.CORE_REALISTIC_CONTENTION
+                || simulationType == SimulationType.CORE_REALISTIC_USER_MIX;
     }
 
     private void validateMemberIdsFile(final LoadTestRequest request) {
@@ -238,6 +239,9 @@ public class LoadTestService {
         }
         if (request.simulationType() == SimulationType.CORE_REALISTIC_CONTENTION) {
             throw new IllegalArgumentException("03-2 현실형 인기 좌석 경합은 피더 없이 동작하므로 현재 로컬 실행만 지원합니다");
+        }
+        if (request.simulationType() == SimulationType.CORE_REALISTIC_USER_MIX) {
+            throw new IllegalArgumentException("03-3 실제 사용자 흐름 혼합은 피더 없이 동작하므로 현재 로컬 실행만 지원합니다");
         }
         if (!request.simulationType().usesBookingFeeder()
                 && request.simulationType() != SimulationType.CDN_PUBLIC_STATE
