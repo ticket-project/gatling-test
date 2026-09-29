@@ -33,12 +33,6 @@ public record LoadTestRequest(
         int statusPollPauseJitterSeconds,
         int pollingTimeoutSeconds,
         String accessTokenMode,
-        String loginEmailPrefix,
-        String loginEmailDomain,
-        String loginPassword,
-        int loginStartIndex,
-        int loginTimeoutSeconds,
-        int seedMemberCount,
         String jwtSecret,
         String jwtIssuer,
         long syntheticMemberStartId,
@@ -87,12 +81,6 @@ public record LoadTestRequest(
         }
         if (durationSeconds <= 0) {
             throw new IllegalArgumentException("durationSeconds must be positive");
-        }
-        if (loginStartIndex <= 0) {
-            throw new IllegalArgumentException("loginStartIndex must be positive");
-        }
-        if (seedMemberCount <= 0) {
-            throw new IllegalArgumentException("seedMemberCount must be positive");
         }
         if (syntheticMemberStartId <= 0) {
             throw new IllegalArgumentException("syntheticMemberStartId must be positive");
@@ -150,9 +138,6 @@ public record LoadTestRequest(
         distributedHosts = defaultIfBlank(distributedHosts, defaultDistributedHosts());
         distributedRemoteProjectDir = defaultIfBlank(distributedRemoteProjectDir, "~/gatling-test");
         accessTokenMode = normalizeAccessTokenMode(accessTokenMode);
-        loginEmailPrefix = defaultIfBlank(loginEmailPrefix, "loadtest");
-        loginEmailDomain = defaultIfBlank(loginEmailDomain, "test.com");
-        loginPassword = defaultIfBlank(loginPassword, "password1234");
         jwtSecret = defaultIfBlank(jwtSecret, SYNTHETIC_JWT_SECRET);
         jwtIssuer = defaultIfBlank(jwtIssuer, "ticket");
         memberIdsFile = memberIdsFile == null ? "" : memberIdsFile.trim();
@@ -224,13 +209,7 @@ public record LoadTestRequest(
                 intValue(form, "statusPollPauseSeconds", 1),
                 intValue(form, "statusPollPauseJitterSeconds", 0),
                 intValue(form, "pollingTimeoutSeconds", 300),
-                value(form, "accessTokenMode", "login"),
-                value(form, "loginEmailPrefix", "loadtest"),
-                value(form, "loginEmailDomain", "test.com"),
-                value(form, "loginPassword", "password1234"),
-                intValue(form, "loginStartIndex", 1),
-                intValue(form, "loginTimeoutSeconds", 5),
-                intValue(form, "seedMemberCount", 100),
+                value(form, "accessTokenMode", "synthetic-jwt"),
                 value(form, "jwtSecret", SYNTHETIC_JWT_SECRET),
                 value(form, "jwtIssuer", "ticket"),
                 longValue(form, "syntheticMemberStartId", 1L),
@@ -472,8 +451,9 @@ public record LoadTestRequest(
     }
 
     private static String normalizeAccessTokenMode(final String value) {
-        final String mode = defaultIfBlank(value, "login").toLowerCase(java.util.Locale.ROOT);
-        if (mode.equals("login") || mode.equals("tokens") || mode.equals("synthetic-jwt")) {
+        // Core에 이메일·비밀번호 로그인이 없으므로(소셜 전용) 로그인 API로 토큰을 받는 모드는 없다.
+        final String mode = defaultIfBlank(value, "synthetic-jwt").toLowerCase(java.util.Locale.ROOT);
+        if (mode.equals("tokens") || mode.equals("synthetic-jwt")) {
             return mode;
         }
         throw new IllegalArgumentException("Unsupported accessTokenMode: " + mode);

@@ -70,11 +70,6 @@ public class GatlingCommandBuilder {
         if (request.simulationType().usesAccessTokens()
                 && !request.simulationType().usesFeederAccessTokens()) {
             command.add("-DaccessTokenMode=" + request.accessTokenMode());
-            command.add("-DloginEmailPrefix=" + request.loginEmailPrefix());
-            command.add("-DloginEmailDomain=" + request.loginEmailDomain());
-            command.add("-DloginPassword=" + request.loginPassword());
-            command.add("-DloginStartIndex=" + request.loginStartIndex());
-            command.add("-DloginTimeoutSeconds=" + request.loginTimeoutSeconds());
 
             if ("synthetic-jwt".equalsIgnoreCase(request.accessTokenMode())) {
                 command.add("-DjwtSecret=" + request.jwtSecret());

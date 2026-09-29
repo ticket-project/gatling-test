@@ -41,7 +41,7 @@ Browser
 - JDK 25
 - 대상 API 서버가 실행 중이고 해당 URL·회차·허용 부하를 승인받음
 - `gatling-test` 저장소에 `gradlew.bat`과 `load-tests/gatling`이 존재
-- 자동 로그인 모드를 쓰는 경우 seed 테스트 회원이 존재
+- Core 예매·주문 테스트라면 JWT `sub`로 쓸 ACTIVE 회원이 Core DB에 존재(ticket `seedLocal`/`seedProd`가 비밀번호 없는 테스트 회원을 만든다)
 
 콘솔 실행:
 
@@ -63,8 +63,7 @@ http://localhost:9090
 | 대상 | 대상 환경(로컬·운영·직접 입력), 대상 API URL, 회차 ID, 좌석 ID |
 | 부하 | 사용자 수, 투입 시간, 주입 방식 |
 | 프로토콜 | Queue Join의 HTTP/2 사용 여부 |
-| 인증 | 자동 로그인, 직접 token 입력, 테스트 JWT 생성 |
-| 자동 로그인 | 계정 prefix, domain, password, start index, timeout |
+| 인증 | 테스트 JWT 생성(기본), 직접 token 입력 |
 | 테스트 JWT | issuer, member 시작 ID, role, TTL, secret |
 | Admission Token | 합성 생성 또는 직접 입력, issuer, audience, secret, TTL |
 | polling | 대기열 상태 조회 횟수와 간격 |
@@ -141,9 +140,8 @@ join 분산 스크립트는 기본적으로 로컬 `gatling-test` 프로젝트�
 
 | Mode | 동작 | 사용 조건 |
 | --- | --- | --- |
-| 자동 로그인 | Gatling 실행 전 seed 회원으로 로그인해 access token 준비 | seed 회원이 생성되어 있어야 함 |
 | 직접 입력 | 토큰 파일 자동 생성, 기존 파일 사용, token 목록 붙여넣기 중 선택 | `/join` 큰 테스트는 파일 자동 생성 권장 |
-| 테스트 JWT 생성 | 로그인 API 없이 Gatling이 서로 다른 `sub=memberId` JWT 생성 | 서버 `JWT_SECRET`과 같은 secret이 필요하며 Core 예매에서는 해당 ACTIVE 회원 ID도 DB에 존재해야 함 |
+| 테스트 JWT 생성(기본) | Gatling이 서로 다른 `sub=memberId` JWT를 직접 서명 | 서버 `JWT_SECRET`과 같은 secret이 필요하며 Core 예매에서는 해당 ACTIVE 회원 ID도 DB에 존재해야 함 |
 
 큰 `/join` 테스트에서는 `Token mode=직접 입력`, `Access Token 준비 방식=파일 자동 생성`을 사용한다. 콘솔이 실행 전에 access token 파일을 먼저 만들고 Gatling에는 `-DaccessTokensFile=...`만 넘긴다. 따라서 `/join` HTTP 요청 시간에는 JWT 생성이 포함되지 않는다.
 
@@ -178,7 +176,7 @@ Core 예매 테스트에서는 `기존 회원 ID 파일`을 함께 지정한다.
 
 티켓 서버 용량 테스트는 Queue Server를 우회한다. 따라서 일반적으로 `Admission Token mode=합성 생성`을 사용하고, Ticket Server 설정과 같은 `Admission Secret`을 입력한다.
 
-주문 생성까지 측정하려면 member가 DB에 존재해야 한다. 이 경우 `Access Token mode=자동 로그인` 또는 실제 seed 회원의 access token 직접 입력을 사용한다. `테스트 JWT 생성`은 DB 회원이 없어도 통과하는 조회/좌석 선택 범위 확인에는 쓸 수 있지만, 주문 생성 기준 TPS 측정에는 적합하지 않다.
+Core는 이메일·비밀번호 로그인이 없다(가입·로그인은 소셜 OAuth2 전용). 그래서 콘솔에는 로그인 API로 토큰을 받는 모드가 없고, 모든 access token은 서버 `JWT_SECRET`으로 직접 서명한다. 주문 생성까지 측정하려면 JWT `sub`의 member가 DB에 ACTIVE로 존재해야 한다 — 로컬 대상은 시드 회원의 연속 ID(`Member 시작 ID`)를, 운영 대상은 `기존 회원 ID 파일`로 실제 ID를 넘긴다. DB 회원이 없는 `sub`는 조회/좌석 선택 범위 확인에는 쓸 수 있지만 주문 생성 기준 TPS 측정에는 적합하지 않다.
 
 ## 구조
 

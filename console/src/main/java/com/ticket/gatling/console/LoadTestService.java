@@ -59,7 +59,6 @@ public class LoadTestService {
         validateProofSuiteInjection(request);
         validateSyntheticJwt(request);
         validateSyntheticAdmissionToken(request);
-        validateAutomaticLoginCapacity(request);
         validateBookingExecution(request);
         validateDistributedExecution(request);
         final UUID runId = UUID.randomUUID();
@@ -203,31 +202,6 @@ public class LoadTestService {
         if (request.admissionTokenSecret().getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("Admission Token Secret must be at least 32 bytes for synthetic mode");
         }
-    }
-
-    private void validateAutomaticLoginCapacity(final LoadTestRequest request) {
-        if (!request.simulationType().usesAccessTokens()) {
-            return;
-        }
-        if (request.simulationType().usesFeederAccessTokens()) {
-            return;
-        }
-        if (!"login".equalsIgnoreCase(request.accessTokenMode())) {
-            return;
-        }
-        final int lastMemberNo = request.loginStartIndex() + request.estimatedVirtualUsers() - 1;
-        if (lastMemberNo <= request.seedMemberCount()) {
-            return;
-        }
-        final int availableUsers = Math.max(0, request.seedMemberCount() - request.loginStartIndex() + 1);
-        throw new IllegalArgumentException(String.join(System.lineSeparator(),
-                "자동 로그인에 필요한 테스트 회원이 부족합니다.",
-                "요청 범위: " + request.loginEmailPrefix() + request.loginStartIndex()
-                        + " ~ " + request.loginEmailPrefix() + lastMemberNo,
-                "Seed member count: " + request.seedMemberCount(),
-                "해결 방법: 사용자 수를 " + availableUsers + " 이하로 낮추거나, "
-                        + "app.seed.load-test-members.count를 " + lastMemberNo + " 이상으로 늘린 뒤 ticket 서버를 재시작하세요."
-        ));
     }
 
     private void validateDistributedExecution(final LoadTestRequest request) {
@@ -1522,9 +1496,7 @@ public class LoadTestService {
                 redactNext = true;
                 continue;
             }
-            if (argument.startsWith("-DloginPassword=")) {
-                redacted.add("-DloginPassword=****");
-            } else if (argument.startsWith("-DjwtSecret=")) {
+            if (argument.startsWith("-DjwtSecret=")) {
                 redacted.add("-DjwtSecret=****");
             } else if (argument.startsWith("-DaccessTokens=")) {
                 redacted.add("-DaccessTokens=****");

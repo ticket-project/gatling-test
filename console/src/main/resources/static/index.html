@@ -861,7 +861,7 @@ ubuntu@43.203.136.184</textarea>
 
         <div class="grid-2">
           <div>
-            <label for="users">사용자 수 <span class="help-chip" tabindex="0" data-help="Gatling 가상 사용자 수입니다. 자동 로그인 모드에서는 이 수만큼 loadtest 계정으로 accessToken을 미리 발급합니다. seed 회원 수보다 크면 안 됩니다.">?</span></label>
+            <label for="users">사용자 수 <span class="help-chip" tabindex="0" data-help="Gatling 가상 사용자 수입니다.">?</span></label>
             <input id="users" name="users" type="number" min="1" value="10">
           </div>
           <div data-injection="duration">
@@ -883,43 +883,12 @@ ubuntu@43.203.136.184</textarea>
       </fieldset>
 
       <fieldset data-option="access-token">
-        <legend>로그인 토큰</legend>
-        <label for="accessTokenMode" data-capacity-auto>토큰 모드 <span class="help-chip" tabindex="0" data-help="자동 로그인은 seed 회원으로 로그인해서 토큰을 받고, 직접 입력은 textarea의 토큰을 그대로 씁니다. 테스트 JWT 생성은 로그인 API를 호출하지 않고 Gatling이 JWT를 직접 만듭니다. 단 Core 예매 테스트에서는 JWT memberId와 일치하는 ACTIVE 회원이 Core DB에 실제로 있어야 합니다.">?</span></label>
+        <legend>Access Token</legend>
+        <label for="accessTokenMode" data-capacity-auto>토큰 모드 <span class="help-chip" tabindex="0" data-help="Core에는 이메일 로그인 API가 없으므로(소셜 전용) 토큰은 JWT_SECRET으로 직접 서명합니다. 테스트 JWT 생성은 Gatling이 실행 중에 JWT를 만들고, 토큰 파일/목록은 미리 만든 파일이나 textarea의 토큰을 그대로 씁니다. 단 Core 예매 테스트에서는 JWT memberId와 일치하는 ACTIVE 회원이 Core DB에 실제로 있어야 합니다.">?</span></label>
         <select id="accessTokenMode" name="accessTokenMode" data-capacity-auto>
-          <option value="login">자동 로그인</option>
+          <option value="synthetic-jwt" selected>테스트 JWT 생성</option>
           <option value="tokens">토큰 파일/목록</option>
-          <option value="synthetic-jwt">테스트 JWT 생성</option>
         </select>
-
-        <div class="grid-3" data-token-mode="login">
-          <div>
-            <label for="loginEmailPrefix">이메일 Prefix <span class="help-chip" tabindex="0" data-help="테스트 회원 이메일의 앞부분입니다. prefix=loadtest, 시작 번호=1이면 loadtest1@test.com부터 사용합니다.">?</span></label>
-            <input id="loginEmailPrefix" name="loginEmailPrefix" value="loadtest">
-          </div>
-          <div>
-            <label for="loginEmailDomain">이메일 Domain <span class="help-chip" tabindex="0" data-help="테스트 회원 이메일의 도메인입니다. 기본값 test.com이면 loadtest1@test.com 형태가 됩니다.">?</span></label>
-            <input id="loginEmailDomain" name="loginEmailDomain" value="test.com">
-          </div>
-          <div>
-            <label for="loginStartIndex">시작 번호 <span class="help-chip" tabindex="0" data-help="자동 로그인에 사용할 첫 회원 번호입니다. 시작 번호=11, users=10이면 loadtest11부터 loadtest20까지 로그인합니다.">?</span></label>
-            <input id="loginStartIndex" name="loginStartIndex" type="number" min="1" value="1">
-          </div>
-        </div>
-
-        <div class="grid-3" data-token-mode="login">
-          <div>
-            <label for="loginPassword">비밀번호 <span class="help-chip" tabindex="0" data-help="seed 테스트 회원들의 비밀번호입니다. 기본 seed 설정에서는 password1234입니다. 실행 로그에는 마스킹됩니다.">?</span></label>
-            <input id="loginPassword" name="loginPassword" type="password" value="password1234">
-          </div>
-          <div>
-            <label for="loginTimeoutSeconds">로그인 Timeout(초) <span class="help-chip" tabindex="0" data-help="토큰 준비 단계에서 로그인 요청 하나가 이 시간 안에 끝나지 않으면 실패로 봅니다. 서버가 느리면 조금 늘릴 수 있습니다.">?</span></label>
-            <input id="loginTimeoutSeconds" name="loginTimeoutSeconds" type="number" min="1" value="5">
-          </div>
-          <div>
-            <label for="seedMemberCount">Seed 회원 수 <span class="help-chip" tabindex="0" data-help="현재 로컬 서버에 생성된 loadtest 회원 수입니다. 기본값은 100명입니다. 자동 로그인 모드에서 사용자 수가 이 값을 넘으면 시작 전에 막습니다.">?</span></label>
-            <input id="seedMemberCount" name="seedMemberCount" type="number" min="1" value="100">
-          </div>
-        </div>
 
         <div data-token-config="jwt" class="hidden">
           <div id="jwtIdentitySettings" class="grid-2">
@@ -972,7 +941,7 @@ ubuntu@43.203.136.184</textarea>
             <input id="accessTokensFile" name="accessTokensFile" value="C:\Users\mn040\IdeaProjects\ticket-workspace\.tmp\access-tokens.txt">
           </div>
           <div data-access-token-source="inline" class="hidden">
-            <label for="accessTokens">Access Token 목록 <span class="help-chip" tabindex="0" data-help="직접 발급한 JWT를 쉼표로 넣으면 자동 로그인을 하지 않고 이 토큰들을 사용합니다. 큰 테스트에는 파일 방식을 권장합니다.">?</span></label>
+            <label for="accessTokens">Access Token 목록 <span class="help-chip" tabindex="0" data-help="직접 발급한 JWT를 쉼표로 넣으면 이 토큰들을 그대로 사용합니다. 큰 테스트에는 파일 방식을 권장합니다.">?</span></label>
             <textarea id="accessTokens" name="accessTokens" placeholder="jwt-1,jwt-2,jwt-3"></textarea>
           </div>
         </div>
@@ -1588,7 +1557,6 @@ function updateVisibility() {
   setVisible('[data-injection="duration"]', mode !== 'at-once-users' && mode !== 'ticket-open');
   setVisible('[data-injection="rate"]', distributed || mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec' || mode === 'spike' || mode === 'ticket-open');
   setVisible('[data-injection="target-rate"]', mode === 'ramp-users-per-sec' || mode === 'spike');
-  setVisible('[data-token-mode="login"]', tokenMode === 'login');
   setVisible('[data-token-mode="tokens"]', tokenMode === 'tokens');
   setVisible('[data-token-config="jwt"]', tokenMode === 'synthetic-jwt'
           || (tokenMode === 'tokens' && tokenSource === 'generate-file'));
@@ -1631,9 +1599,6 @@ function applyDistributedQueueJoinDefaults() {
   }
   if (executionMode.value !== 'distributed' || selected?.key !== 'queue-join-only') {
     return;
-  }
-  if (accessTokenMode.value === 'login') {
-    accessTokenMode.value = 'tokens';
   }
   if (accessTokenMode.value === 'tokens' && accessTokenSource.value !== 'generate-file') {
     accessTokenSource.value = 'generate-file';
@@ -1739,7 +1704,7 @@ function capacityRunText(body) {
 function validateBeforeRun(body) {
   const selected = selectedSimulation();
   const distributed = String(body.get('executionMode') || 'local') === 'distributed';
-  const mode = String(body.get('accessTokenMode') || 'login');
+  const mode = String(body.get('accessTokenMode') || 'synthetic-jwt');
   const tokenSource = String(body.get('accessTokenSource') || 'generate-file');
   const accessTokens = String(body.get('accessTokens') || '').trim();
   const accessTokensFile = String(body.get('accessTokensFile') || '').trim();
@@ -1812,9 +1777,6 @@ function validateBeforeRun(body) {
       return 'EC2 분산 실행에서는 시작 초당 사용자 수를 노드당 RPS로 사용하므로 0보다 커야 합니다.';
     }
     if (selected?.key === 'queue-join-only') {
-      if (mode === 'login') {
-        return '대기열 진입 요청 EC2 분산 실행은 토큰 파일 자동 생성 또는 테스트 JWT 생성 모드만 지원합니다.';
-      }
       if (mode === 'tokens' && tokenSource !== 'generate-file') {
         return '대기열 진입 요청 EC2 분산 실행의 토큰 파일/목록 모드는 파일 자동 생성만 지원합니다.';
       }
@@ -1865,22 +1827,6 @@ function validateBeforeRun(body) {
     return '';
   }
 
-  const users = estimateVirtualUsers(body);
-  const startIndex = Number(body.get('loginStartIndex') || 1);
-  const seedMemberCount = Number(body.get('seedMemberCount') || 100);
-  const lastMemberNo = startIndex + users - 1;
-  if (lastMemberNo > seedMemberCount) {
-    return [
-      `자동 로그인에 필요한 테스트 회원이 부족합니다.`,
-      `요청 범위: loadtest${startIndex} ~ loadtest${lastMemberNo}`,
-      `현재 Seed 회원 수: ${seedMemberCount}`,
-      ``,
-      `해결 방법:`,
-      `1. 사용자 수를 ${Math.max(1, seedMemberCount - startIndex + 1)} 이하로 낮추기`,
-      `2. 또는 ticket 서버 설정 app.seed.load-test-members.count를 ${lastMemberNo} 이상으로 늘린 뒤 서버 재시작`,
-      `3. 또는 Access Token 목록에 직접 토큰을 넣기`
-    ].join('\n');
-  }
   return '';
 }
 
@@ -1956,7 +1902,7 @@ function syncGeneratedAccessTokenFields(estimatedUsers) {
 }
 
 function normalizeAccessTokenSourceForRun(body) {
-  const mode = String(body.get('accessTokenMode') || 'login');
+  const mode = String(body.get('accessTokenMode') || 'synthetic-jwt');
   const tokenSource = String(body.get('accessTokenSource') || 'generate-file');
   const accessTokens = String(body.get('accessTokens') || '').trim();
   if (mode === 'tokens' && tokenSource === 'inline' && !accessTokens) {
