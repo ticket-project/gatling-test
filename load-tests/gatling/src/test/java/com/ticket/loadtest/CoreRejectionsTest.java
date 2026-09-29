@@ -20,6 +20,7 @@ class CoreRejectionsTest {
     @Test
     void orderTreatsPendingOrderAndHoldLimitAsBusinessAndLockTimeoutAsOverload() {
         assertEquals(Kind.BUSINESS_REJECTED, CoreRejections.ofOrder(409, "E4006"));
+        assertEquals(Kind.BUSINESS_REJECTED, CoreRejections.ofOrder(409, "E4007"));
         assertEquals(Kind.BUSINESS_REJECTED, CoreRejections.ofOrder(409, "E5004"));
         assertEquals(Kind.BUSINESS_REJECTED, CoreRejections.ofOrder(409, "E6000"));
         assertEquals(Kind.BUSINESS_REJECTED, CoreRejections.ofOrder(409, "E6001"));
@@ -37,7 +38,7 @@ class CoreRejectionsTest {
     @Test
     void gatlingAcceptsEveryClassifiedCodeSoOverloadIsNotCountedAsKo() {
         assertEquals(List.of("E4001", "E6000", "E6001", "E6003"), CoreRejections.classifiedSelectCodes());
-        assertEquals(List.of("E4006", "E5004", "E6000", "E6001", "E6003"), CoreRejections.classifiedOrderCodes());
+        assertEquals(List.of("E4006", "E4007", "E5004", "E6000", "E6001", "E6003"), CoreRejections.classifiedOrderCodes());
     }
 
     @Test

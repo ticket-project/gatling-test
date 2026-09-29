@@ -25,10 +25,10 @@ public final class CoreRejections {
     /** E4001 다른 사용자가 선택함, E6000 이미 선점됨, E6001 회원 선택 좌석 수가 선점 한도에 닿음. */
     private static final Set<String> SELECT_BUSINESS_CODES = Set.of("E4001", "E6000", "E6001");
     /**
-     * E4006 본인이 선택 중인 좌석이 아님(선택 경합에서 진 사용자가 주문한 경우 등), E5004 진행 중인 결제 대기 주문, E6000 이미 선점됨,
+     * E4006 본인이 선택 중인 좌석이 아님(선택 경합에서 진 사용자가 주문한 경우 등), E4007 선택 시간이 지나 풀린 좌석, E5004 진행 중인 결제 대기 주문, E6000 이미 선점됨,
      * E6001 선점 좌석 수 한도 초과.
      */
-    private static final Set<String> ORDER_BUSINESS_CODES = Set.of("E4006", "E5004", "E6000", "E6001");
+    private static final Set<String> ORDER_BUSINESS_CODES = Set.of("E4006", "E4007", "E5004", "E6000", "E6001");
 
     public enum Kind {
         BUSINESS_REJECTED,
