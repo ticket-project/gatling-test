@@ -29,7 +29,7 @@ jobs:
       - name: Run Gatling project tests
         run: |
           chmod +x ./gradlew
-          ./gradlew -p load-tests/gatling test --no-daemon
+          ./gradlew -p load-tests/gatling gatlingClasses test --no-daemon
 
   console-tests:
     # 콘솔은 로컬 Windows 도구라 테스트가 PowerShell 명령과 Windows 경로를 기대한다.
