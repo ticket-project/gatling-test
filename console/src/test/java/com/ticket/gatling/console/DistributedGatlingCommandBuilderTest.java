@@ -31,7 +31,7 @@ class DistributedGatlingCommandBuilderTest {
                 Map.entry("distributedDumpFailureBodyLimit", List.of("2"))
         ));
 
-        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID, "");
 
         assertTrue(command.getFirst().toLowerCase(java.util.Locale.ROOT).contains("powershell"));
         assertTrue(command.contains("-ConsoleRunId"));
@@ -57,20 +57,20 @@ class DistributedGatlingCommandBuilderTest {
     }
 
     @Test
-    void buildsLegacyDistributedScriptCommandWithLocalNode() {
+    void buildsCdnDistributedScriptCommandWithLocalNode() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "ticketProjectPath", List.of("C:/ticket-workspace/gatling-test"),
                 "executionMode", List.of("distributed"),
-                "simulation", List.of("legacy-queue-status"),
+                "simulation", List.of("cdn-public-state"),
                 "usersPerSecond", List.of("300"),
                 "durationSeconds", List.of("60"),
                 "distributedHosts", List.of("43.203.136.184"),
                 "distributedIncludeLocal", List.of("on")
         ));
 
-        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID, "");
 
-        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-gatling-legacy.ps1")));
+        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-gatling-cdn.ps1")));
         assertTrue(command.contains("ubuntu@43.203.136.184"));
         assertTrue(command.contains("-RpsPerNode"));
         assertTrue(command.contains("300"));
@@ -91,9 +91,11 @@ class DistributedGatlingCommandBuilderTest {
                 "jwtSecret", List.of("0123456789abcdef0123456789abcdef")
         ));
 
-        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID, "");
 
-        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-gatling-join.ps1")));
+        assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-gatling-cdn.ps1")));
+        assertTrue(command.contains("com.ticket.loadtest.simulation.QueueJoinOnlySimulation"));
+        assertTrue(command.contains("-SyncProject"));
         assertTrue(command.contains("-AccessTokenMode"));
         assertTrue(command.contains("-InjectionMode"));
         assertTrue(command.contains("tokens"));
@@ -119,7 +121,7 @@ class DistributedGatlingCommandBuilderTest {
                 Map.entry("operationalConfirmation", List.of("on"))
         ));
 
-        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID, "");
 
         assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-booking.ps1")));
         assertTrue(command.contains("-Simulation"));
@@ -134,6 +136,7 @@ class DistributedGatlingCommandBuilderTest {
         assertTrue(command.contains("~/gatling-test-booking"));
         assertFalse(command.contains("-JwtSecret"));
         assertFalse(command.contains("-AdmissionTokenSecret"));
+        assertFalse(command.contains("-CollectReports"));
     }
     @Test
     void passesRunDescriptionToDistributedScript() {
@@ -165,7 +168,7 @@ class DistributedGatlingCommandBuilderTest {
                 Map.entry("injectionMode", List.of("closed-core"))
         ));
 
-        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID, "");
 
         assertTrue(command.stream().anyMatch(value -> value.endsWith("run-distributed-booking.ps1")));
         assertTrue(command.contains("-ConcurrentUsersPerNode"));
@@ -185,7 +188,7 @@ class DistributedGatlingCommandBuilderTest {
                 "targetUsersPerSecond", List.of("2000")
         ));
 
-        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID, "");
 
         assertTrue(command.contains("-TargetRpsPerNode"));
         assertTrue(command.contains("2000"));
@@ -201,7 +204,7 @@ class DistributedGatlingCommandBuilderTest {
                 Map.entry("technicalFailureThresholdPercent", List.of("0.75"))
         ));
 
-        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID);
+        final List<String> command = new DistributedGatlingCommandBuilder().build(request, RUN_ID, "");
 
         assertTrue(command.contains("-FeederOffset"));
         assertTrue(command.contains("900"));

@@ -10,7 +10,7 @@
 - 사용자가 명시적으로 요청하지 않으면 `run`, Gatling simulation, 대량 사용자 테스트를 실행하지 않는다.
 - 이 폴더의 `AGENTS.md` 기준으로 테스트 작성/실행을 자동으로 진행하지 않는다.
 - 실행 전 대상 API, 사용자 수, 투입 시간, token mode를 반드시 확인한다.
-- Queue·legacy·CDN 대상 URL은 기본값이 없으며 직접 입력한다. localhost가 아닌 대상은 실행 확인 체크 없이는 서버가 거부한다.
+- Queue·CDN 대상 URL은 기본값이 없으며 직접 입력한다. localhost가 아닌 대상은 실행 확인 체크 없이는 서버가 거부한다.
 - Core 대상 URL은 `대상 환경` 드롭다운에서 고르거나 직접 입력한다. 목록은 `console/environments.properties`에서 관리하며 로컬 대상은 실행 확인 체크를 요구하지 않는다.
 
 ## 빠른 맥락
@@ -18,7 +18,7 @@
 - 실행 방식: Gradle `application` plugin
 - 기본 콘솔 포트: `9090`
 - UI 파일: `src/main/resources/static/index.html`
-- 대상 API 정책: Queue·legacy·CDN은 명시 입력, Core proof preset은 화면에 보이는 URL과 실행 확인을 함께 검토
+- 대상 API 정책: Queue·CDN은 명시 입력, Core proof preset은 화면에 보이는 URL과 실행 확인을 함께 검토
 - Gatling 저장소 경로는 콘솔이 `C:\Users\mn040\IdeaProjects\ticket-workspace\gatling-test`로 고정해서 사용하므로 UI에서 입력하지 않는다.
 - 실제 Gatling 프로젝트 위치: 이 저장소의 `load-tests/gatling`
 
@@ -60,12 +60,11 @@ http://localhost:9090
 | 영역 | 설명 |
 | --- | --- |
 | 테스트 종류 | 대기열 진입, 예매 오픈 흐름, hold 경합, 티켓 서버 용량 |
-| 대상 | 대상 환경(로컬·운영·직접 입력), 대상 API URL, 회차 ID, 좌석 ID |
+| 대상 | 대상 환경(로컬·운영·직접 입력), 대상 API URL, 회차 ID |
 | 부하 | 사용자 수, 투입 시간, 주입 방식 |
 | 프로토콜 | Queue Join의 HTTP/2 사용 여부 |
 | 인증 | 테스트 JWT 생성(기본), 직접 token 입력 |
 | 테스트 JWT | issuer, member 시작 ID, role, TTL, secret |
-| Admission Token | 합성 생성 또는 직접 입력, issuer, audience, secret, TTL |
 | polling | 대기열 상태 조회 횟수와 간격 |
 
 ## 대상 환경
@@ -94,17 +93,14 @@ EC2 분산 실행은 로컬 대상을 지원하지 않는다. VM에서 localhost
 
 ## 시뮬레이션별 대상 API 정책
 
-Queue·legacy·CDN 시뮬레이션은 테스트 종류를 바꿔도 대상 URL을 채우지 않는다. 주소를 이전 선택에서 물려받지 않으며 실행할 때마다 직접 입력한다.
+Queue·CDN 시뮬레이션은 테스트 종류를 바꿔도 대상 URL을 채우지 않는다. 주소를 이전 선택에서 물려받지 않으며 실행할 때마다 직접 입력한다.
 
 | 테스트 종류 | 대상 API 입력/프리셋 |
 | --- | --- |
 | `queue-join-only` | 없음 — 승인받은 Queue origin URL을 명시 입력 |
 | `queue-enter` | 없음 — 대상 Queue URL을 명시 입력 |
-| `legacy-queue-status` | 없음 — 비교 대상 owner가 확인한 legacy URL을 명시 입력 |
 | `cdn-public-state` | 없음 — Cloudflare가 프록시하는 state endpoint를 명시 입력 |
-| `booking-capacity` | 사용자가 입력한 Ticket/Core URL |
 | `ticket-open-end-to-end` | 사용자가 입력한 Ticket/Core URL + Queue URL |
-| `seat-contention` | 사용자가 입력한 Ticket/Core URL |
 | `core-performance-summary-api` | `https://oneticket.site` |
 | `core-seat-status-api` | `https://oneticket.site` |
 | `core-seat-select-api` | `https://oneticket.site` |
@@ -119,18 +115,18 @@ Queue·legacy·CDN 시뮬레이션은 테스트 종류를 바꿔도 대상 URL�
 | `core-spike` | `https://oneticket.site` |
 | `queue-protects-core` | Core `https://oneticket.site` + Queue `https://queue.oneticket.site` |
 
-Core proof preset의 주소는 입력 편의값일 뿐 현재 가용성이나 운영 배포 대상을 보장하지 않는다. localhost가 아닌 모든 실행은 확인 체크가 필요하다. `legacy-queue-status`는 비교 기준을 보존하기 위한 시나리오이며, 대상 서버 owner가 URL·회차·허용 부하를 확인한 경우에만 실행한다. legacy hit metric이 합의된 관찰 기간 동안 0이고 비교 결과가 보존되면 시나리오와 runner 제거를 검토한다.
+Core proof preset의 주소는 입력 편의값일 뿐 현재 가용성이나 운영 배포 대상을 보장하지 않는다. localhost가 아닌 모든 실행은 확인 체크가 필요하다.
 
 
 `queue-join-only`는 Queue origin Nginx URL을 직접 입력해 Cloudflare를 거치지 않는다. `cdn-public-state`는 Cloudflare가 프록시하는 state endpoint를 직접 입력하고, 실행 전에 `CF-Ray`, `CF-Cache-Status` 헤더를 확인한다. DNS-only hostname이면 CDN 테스트가 아니다.
 
 ## EC2 분산 실행
 
-EC2 분산 실행은 `queue-join-only`, `legacy-queue-status`, `cdn-public-state`에서 지원한다.
+EC2 분산 실행은 `queue-join-only`, `cdn-public-state`와 feeder를 쓰는 booking 시나리오에서 지원한다. `queue-join-only`와 `cdn-public-state`는 `run-distributed-gatling-cdn.ps1`, booking은 `run-distributed-booking.ps1`을 호출한다. 분산 실행은 시작 초당 사용자 수를 노드당 RPS로 쓰므로 0보다 커야 한다(Closed Model 제외).
 
 `queue-join-only` 분산 실행은 인증이 필요하므로 `Token mode=토큰 파일/목록`, `Access Token 준비 방식=파일 자동 생성`을 권장한다. 이 경우 각 EC2 노드가 실행 전에 자기 노드용 access token 파일을 만들고, 노드별 memberId 범위가 겹치지 않도록 시작 ID를 자동으로 밀어 쓴다. `테스트 JWT 생성` 모드도 사용할 수 있지만 JWT 생성 비용이 Gatling 부하 발생기 CPU에 들어간다.
 
-join 분산 스크립트는 기본적으로 로컬 `gatling-test` 프로젝트를 각 EC2의 `~/gatling-test`로 압축 동기화한 뒤 실행한다. 따라서 콘솔에서 방금 수정한 simulation이나 token generator가 EC2에도 반영된다. 수동 실행에서 동기화를 건너뛰려면 `run-distributed-gatling-join.ps1`에 `-SkipSyncProject`를 지정한다.
+`queue-join-only` 분산 실행에서 콘솔은 `run-distributed-gatling-cdn.ps1`에 `-Simulation`과 `-SyncProject`를 넘겨 로컬 `gatling-test` 프로젝트를 각 EC2의 `~/gatling-test`로 압축 동기화한 뒤 실행한다. 따라서 콘솔에서 방금 수정한 simulation이나 token generator가 EC2에도 반영된다. 스크립트를 직접 실행할 때는 동기화가 필요하면 `-SyncProject`를 지정한다.
 
 `queue-join-only`에서는 `예매 오픈` 빠른 설정 또는 `예매 오픈 패턴` 주입 방식을 선택할 수 있다. 입력하는 `초당 사용자 수 / 최고 RPS`는 분산 실행 시 **노드 1대당 최고 RPS**다. 콘솔은 단계별 부하와 회복 확인까지 포함한 노드별 토큰 수를 자동 계산한다.
 
@@ -165,17 +161,6 @@ Core 예매 테스트에서는 `기존 회원 ID 파일`을 함께 지정한다.
 
 테스트 JWT 생성 모드는 로컬 검증용이다. 운영 secret이나 실제 사용자 token을 문서나 로그에 남기지 않는다.
 
-## Admission Token mode
-
-티켓 서버 보호 API는 `X-Admission-Token`을 요구한다. 콘솔은 두 방식을 지원한다.
-
-| Mode | 동작 | 사용 조건 |
-| --- | --- | --- |
-| 합성 생성 | Gatling이 `memberId + performanceId`로 admission token을 생성 | Ticket Server의 `ADMISSION_TOKEN_SECRET_KEY`, issuer, audience와 같아야 함 |
-| 직접 입력 | Queue Server가 발급한 admission token 목록 사용 | 같은 순서의 access token과 member/performance가 일치해야 함 |
-
-티켓 서버 용량 테스트는 Queue Server를 우회한다. 따라서 일반적으로 `Admission Token mode=합성 생성`을 사용하고, Ticket Server 설정과 같은 `Admission Secret`을 입력한다.
-
 Core는 이메일·비밀번호 로그인이 없다(가입·로그인은 소셜 OAuth2 전용). 그래서 콘솔에는 로그인 API로 토큰을 받는 모드가 없고, 모든 access token은 서버 `JWT_SECRET`으로 직접 서명한다. 주문 생성까지 측정하려면 JWT `sub`의 member가 DB에 ACTIVE로 존재해야 한다 — 로컬 대상은 시드 회원의 연속 ID(`Member 시작 ID`)를, 운영 대상은 `기존 회원 ID 파일`로 실제 ID를 넘긴다. DB 회원이 없는 `sub`는 조회/좌석 선택 범위 확인에는 쓸 수 있지만 주문 생성 기준 TPS 측정에는 적합하지 않다.
 
 ## 구조
@@ -188,7 +173,8 @@ gatling-test/console
 │   ├── LoadTestRequest.java         # form 입력 파싱 후 요청 모델화
 │   ├── LoadTestService.java         # Gatling 저장소 검증, Gatling 실행
 │   ├── GatlingCommandBuilder.java   # Gradle/Gatling command 생성
-│   ├── ReportRegistry.java          # 실행 결과 report directory 매핑
+│   ├── DistributedGatlingCommandBuilder.java # EC2 분산 PowerShell command 생성
+│   ├── RunEnvironmentMetadata.java  # Datadog 실행 환경 스냅샷(run-metadata.json)
 │   └── SimulationType.java          # 지원 simulation 목록
 └── src/main/resources/static
     └── index.html                   # 로컬 콘솔 UI
@@ -201,11 +187,8 @@ gatling-test/console
 ```text
 com.ticket.loadtest.simulation.QueueJoinOnlySimulation
 com.ticket.loadtest.simulation.QueueEnterSimulation
-com.ticket.loadtest.simulation.LegacyQueueStatusSimulation
 com.ticket.loadtest.simulation.CdnPublicStateSimulation
-com.ticket.loadtest.simulation.BookingCapacitySimulation
 com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation
-com.ticket.loadtest.simulation.SeatContentionSimulation
 com.ticket.loadtest.simulation.CorePerformanceSummaryApiSimulation
 com.ticket.loadtest.simulation.CoreSeatStatusApiSimulation
 com.ticket.loadtest.simulation.CoreSeatSelectApiSimulation
@@ -285,7 +268,7 @@ Console의 `테스트 종류`에서 다음 일곱 시나리오를 직접 선택�
 
 - `01 기본 예매 동작 확인`: 기본값은 사용자 1명, `at-once-users`다. 기능 계약을 먼저 확인하는 용도이므로 이 단계에서 부하를 높이지 않는다.
 - `02 인기 좌석 동시 경합`: `사용자 수`를 100 또는 1,000으로 지정하고, feeder의 모든 행에 같은 `seatId`를 넣는다. `rendezVous`가 한 JVM 안에서만 동기화되므로 반드시 로컬 실행을 사용한다.
-- `03 고정 조건 Core 수용량`: 최초 운영 SQL은 기존 회원을 건드리지 않고 좌석·30개 회차를 만든다. SQL의 마지막 결과에서 내보낸 실제 ACTIVE Member ID 파일로 JWT와 memberId/accessToken/seatId feeder를 실행 직전에 자동 생성한다. CSV 경로·토큰 수·offset은 사용자가 입력하지 않는다. 화면에서 전용 회차 ID와 권장 용도를 확인할 수 있으며, 판정 기준을 바꿔야 할 때만 접힌 `판정 기준 변경`을 연다. 좌석 새로고침·무작위 선택·재시도·이탈 없이 같은 요청 흐름을 보내므로 코드 변경 전후의 1차 비교에 사용한다. Admission Token 열은 비워 두고 전용 회차의 기존 Queue 정책을 `FORCE_OFF`로 사용한다. 테스트 묶음 종료 후 결과 보존과 Core 중지를 마치고 화면 상단의 `테스트 데이터 전체 원복` 버튼으로 30개 회차를 함께 원복한다.
+- `03 고정 조건 Core 수용량`: 전용 회차와 좌석은 ticket 저장소 `seedProd`의 부하 테스트 픽스처로 만든다([준비 절차](../docs/core-capacity-production.md)). 실제 ACTIVE Member ID 파일로 JWT와 memberId/accessToken/seatId feeder를 실행 직전에 자동 생성한다. CSV 경로·토큰 수·offset은 사용자가 입력하지 않는다. 화면에서 전용 회차 ID와 권장 용도를 확인할 수 있으며, 판정 기준을 바꿔야 할 때만 접힌 `판정 기준 변경`을 연다. 좌석 새로고침·무작위 선택·재시도·이탈 없이 같은 요청 흐름을 보내므로 코드 변경 전후의 1차 비교에 사용한다. Admission Token 열은 비워 두고 전용 회차의 기존 Queue 정책을 `FORCE_OFF`로 사용한다. 한 실행이 사용한 회차는 다음 실행에서 재사용하지 않는다.
 - `03-2 현실형 인기 좌석 경합`: Queue·Booking Feeder·Admission Token 없이 Core를 직접 호출한다. 사용자의 80%가 인기 좌석 범위에 몰리고 409 충돌 시 다른 좌석으로 최대 2회 재시도하며 일부 사용자는 주문 전에 이탈한다. Console은 같은 실제 Member ID 파일로 JWT를 만든다. 실행마다 충돌량과 요청 수가 달라질 수 있으므로 03의 고정 결과를 설명하는 보조 테스트로 사용한다.
 - `03-3 실제 사용자 흐름 혼합`: 03-2와 같은 준비로 실행한다. 사용자마다 좌석 알림 WebSocket을 흐름 끝까지 열어 두고, 배치도를 조회하며, 주문 전 이탈자는 선택을 전체 해제하고, 주문한 사용자 일부는 결제 전에 취소한다. 이탈·취소 비율(각 10%)은 가정값이다. 로컬 실행만 지원한다. 자세한 흐름은 저장소 루트 [README](../README.md)를 본다.
 - `04 Core 동시 사용자 한계`: 주입 방식을 `동시 사용자 유지 (Closed Model)`로 사용한다. `사용자 수`는 동시에 유지할 Core 사용자 수이고, `Closed Model 피더 행 수`는 노드마다 소비할 수 있는 고유 CSV 행 수다.
@@ -326,19 +309,14 @@ Booking 시나리오는 실제 좌석 선택과 주문 생성을 호출한다. �
 콘솔은 부하 테스트 시작 직전에 Datadog을 조회하고, 그 시점의 실행 대상 환경 스냅샷을 결과에 고정합니다. 메타데이터 수집 실패는 부하 테스트 자체를 중단시키지 않습니다.
 
 - Gatling HTML run description: `runId`, Queue/Core별 활성 인스턴스 수, 커밋, CPU/RAM, Docker 제한, Xmx, admission 검증 여부의 짧은 요약
-- 결과 폴더의 `run-metadata.json`: Queue/Core 대상 아래 활성 호스트별 Docker, JVM, Tomcat, Hikari, Oracle, Redis, admission 검증 여부
+- 결과 폴더의 `run-metadata.json`: Queue/Core 대상 아래 활성 호스트별 Docker, JVM Xmx, Tomcat, Hikari, Redis, admission 검증 여부
 - 콘솔 실행 결과: 대상과 호스트별 환경정보 표, JSON 복사, JSON 다운로드
 
-Datadog 자격증명은 다음 순서로 자동 해석합니다.
-
-1. 콘솔 서버 프로세스의 `DATADOG_API_KEY`, `DATADOG_APP_KEY`, `DATADOG_SITE`
-2. 환경변수에 없는 항목은 Codex의 `~/.codex/config.toml`에 있는 `[mcp_servers.datadog.env]`
-
-`CODEX_HOME`이 설정돼 있으면 `~/.codex` 대신 그 디렉터리의 `config.toml`을 읽습니다. 따라서 Datadog MCP가 이미 설정된 개발 환경에서는 콘솔을 Gradle이나 IDE로 바로 실행해도 같은 API 키를 사용합니다. 명시적인 환경변수는 MCP 설정보다 우선합니다.
+Datadog 자격증명은 콘솔 서버 프로세스의 환경변수에서만 읽습니다. 키가 없으면 메타데이터 수집만 실패로 기록되고 부하 테스트는 그대로 실행됩니다.
 
 ```text
-DATADOG_API_KEY=<optional override>
-DATADOG_APP_KEY=<optional override>
+DATADOG_API_KEY=<api key>
+DATADOG_APP_KEY=<application key>
 DATADOG_SITE=us5.datadoghq.com
 ```
 
@@ -346,9 +324,9 @@ DATADOG_SITE=us5.datadoghq.com
 
 선택자는 화면에서 입력받지 않습니다. 테스트 종류에 따라 콘솔이 다음 대상을 자동 선택합니다.
 
-- 대기열 진입 요청, 대기열 입장 처리, 기존 대기열 상태 조회, CDN 공개 대기열 상태 조회: Queue만 조회
-- 고정 좌석 예매 처리량, 동일 좌석 경합: Core만 조회
-- 예매 오픈 전체 흐름: Queue와 Core를 모두 조회
+- 대기열 진입 요청, 대기열 입장 처리, CDN 공개 대기열 상태 조회: Queue만 조회
+- 예매 오픈 전체 흐름, Queue의 Core 보호: Queue와 Core를 모두 조회
+- 나머지 Core 시나리오: Core만 조회
 
 현재 Datadog에서 확인된 자동 프로필은 다음과 같습니다.
 
@@ -374,20 +352,19 @@ Core only: ticket.hikaricp_connections_max
 redis.mem.maxmemory
 ```
 
-`run-metadata.json`의 스키마 버전은 4입니다. 각 대상은 `targets[]`, 활성 호스트는 그 아래 `instances[]`로 분리되며 `replicaCountObserved`, 관측 시각, host, container ID, 이미지 ID와 설정을 각각 기록합니다. 호스트별 커밋이나 리소스 값이 다르면 `capture.warnings`와 run description의 `mixed` 값으로 표시합니다.
+`run-metadata.json`의 스키마 버전은 5입니다(4에서 값을 채울 수 없던 `jvm.xmsBytes`, `oracle.*`, `redis.instanceProfile`, `redis.networkRttMs`를 뺐습니다). 각 대상은 `targets[]`, 활성 호스트는 그 아래 `instances[]`로 분리되며 `replicaCountObserved`, 관측 시각, host, container ID, 이미지 ID와 설정을 각각 기록합니다. 호스트별 커밋이나 리소스 값이 다르면 `capture.warnings`와 run description의 `mixed` 값으로 표시합니다.
 
 값이 없는 경우 단순히 `null`로만 두지 않고 인스턴스의 `evidence`에 원인을 함께 기록합니다.
 
 - `observed`: Datadog에서 값 확인
 - `explicit_unlimited`: Redis `maxmemory=0`처럼 명시적인 무제한
 - `not_reported`: 현재 시계열이나 태그에 값이 없음
-- `not_explicit`: JVM Xms처럼 현재 telemetry에서 명시값을 얻을 수 없음
-- `unsupported_by_datadog`: Oracle 사양처럼 현재 연동에서 수집할 수 없음
+- `unsupported_by_datadog`: admission 검증 여부처럼 태그가 없으면 현재 연동에서 수집할 수 없음
 
 일부 필드가 제공되지 않아도 대상 host를 정상 식별했다면 상태는 `captured`입니다. Queue/Core 중 일부 대상만 실패하면 `partial`, 모든 대상의 identity 수집이 실패한 경우에만 `failed`입니다.
 
 커밋 자동 수집에는 배포 시 `DD_VERSION=<commit>` 또는 `git.commit.sha:<commit>` 태그가 필요합니다. Java 버전은 `java_version` 태그를 우선 사용하고 `jvm_info`의 버전 태그로 보완합니다. Admission 상태는 `admission_enforcement` 태그가 있으면 기록합니다.
 
-Oracle 인스턴스 사양과 네트워크 위치는 현재 Datadog에 식별 가능한 인프라 메트릭이 없어 `null`과 `unsupported_by_datadog`로 남깁니다. Redis 위치는 애플리케이션 host에서 private endpoint가 관측됐다는 수준으로만 기록하며, Redis가 같은 장비에 있다고 단정하지 않습니다. 비밀번호, 토큰, JDBC URL, 내부 IP는 메타데이터에서 제외합니다.
+Oracle 인스턴스 사양과 네트워크 위치는 Datadog에 식별 가능한 인프라 메트릭이 없어 기록하지 않습니다. Redis 위치는 애플리케이션 host에서 private endpoint가 관측됐다는 수준으로만 기록하며, Redis가 같은 장비에 있다고 단정하지 않습니다. 비밀번호, 토큰, JDBC URL, 내부 IP는 메타데이터에서 제외합니다.
 
 현재 애플리케이션 메트릭에는 `container_id`나 pod 태그가 없으므로 인스턴스 구분 단위는 host입니다. 서로 다른 host로 scale-out하면 모두 정확히 기록되지만, 한 host 안에 여러 JVM 컨테이너를 띄우면 개별 JVM 값을 분리할 수 없습니다. 이 제한은 JSON의 `datadog.granularity=host`와 `granularityNote`에 명시됩니다. 부하 실행 중에 새로 생성되거나 제거되는 autoscaling 인스턴스까지 추적하려면 실행 전 스냅샷만으로는 부족하므로 추후 post-run 스냅샷과 실행 구간 합집합 수집이 필요합니다.

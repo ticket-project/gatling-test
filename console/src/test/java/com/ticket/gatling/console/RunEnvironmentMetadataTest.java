@@ -23,24 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RunEnvironmentMetadataTest {
 
     @Test
-    void parsesDatadogCredentialsOnlyFromCodexMcpSection() {
-        final Map<String, String> environment = DatadogEnvironmentClient.parseMcpEnvironment(List.of(
-                "[mcp_servers.other.env]",
-                "DATADOG_API_KEY = 'ignored-api-key'",
-                "[mcp_servers.datadog.env]",
-                "DATADOG_API_KEY = 'api-test'",
-                "DATADOG_APP_KEY = \"app-test\"",
-                "DATADOG_SITE = 'us5.datadoghq.com'",
-                "[windows]",
-                "DATADOG_API_KEY = 'also-ignored'"
-        ));
-
-        assertEquals("api-test", environment.get("DATADOG_API_KEY"));
-        assertEquals("app-test", environment.get("DATADOG_APP_KEY"));
-        assertEquals("us5.datadoghq.com", environment.get("DATADOG_SITE"));
-    }
-
-    @Test
     void parsesDecimalDatadogTimestampsAndKeepsLatestPoint() throws IOException {
         final List<MetricSeries> series = DatadogEnvironmentClient.parseSeries("""
                 {
@@ -62,11 +44,11 @@ class RunEnvironmentMetadataTest {
 
     @Test
     void keepsAllFreshScaledOutHostsAndDropsDeploymentHistory() throws IOException {
-        final MetricQueryResult identity = new MetricQueryResult("identity", List.of(
+        final List<MetricSeries> identity = List.of(
                 new MetricSeries("host:i-queue-a", Map.of("host", "i-queue-a"), 1_000_000L, 1.0),
                 new MetricSeries("host:i-queue-b", Map.of("host", "i-queue-b"), 950_000L, 1.0),
                 new MetricSeries("host:i-stale", Map.of("host", "i-stale"), 800_000L, 1.0)
-        ));
+        );
 
         assertEquals(
                 List.of("i-queue-a", "i-queue-b"),
@@ -76,9 +58,9 @@ class RunEnvironmentMetadataTest {
 
     @Test
     void rejectsIdentitySeriesWhenEveryHostIsStale() {
-        final MetricQueryResult identity = new MetricQueryResult("identity", List.of(
+        final List<MetricSeries> identity = List.of(
                 new MetricSeries("host:i-old", Map.of("host", "i-old"), 1_000_000L, 1.0)
-        ));
+        );
 
         final IOException error = assertThrows(
                 IOException.class,
@@ -153,7 +135,7 @@ class RunEnvironmentMetadataTest {
     @Test
     void selectsCoreTargetForCoreOnlySimulation() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "simulation", List.of("booking-capacity"),
+                "simulation", List.of("smoke"),
                 "coreBaseUrl", List.of("https://oneticket.site")
         ));
 
@@ -186,9 +168,8 @@ class RunEnvironmentMetadataTest {
                     "simulation", List.of(simulationType.key())
             ));
             final List<String> expectedRoles = switch (simulationType) {
-                case QUEUE_JOIN_ONLY, QUEUE_ENTER, LEGACY_QUEUE_STATUS, CDN_PUBLIC_STATE -> List.of("queue");
-                case BOOKING_CAPACITY, SEAT_CONTENTION,
-                        CORE_PERFORMANCE_SUMMARY_API, CORE_SEAT_STATUS_API, CORE_SEAT_SELECT_API,
+                case QUEUE_JOIN_ONLY, QUEUE_ENTER, CDN_PUBLIC_STATE -> List.of("queue");
+                case CORE_PERFORMANCE_SUMMARY_API, CORE_SEAT_STATUS_API, CORE_SEAT_SELECT_API,
                         CORE_ORDER_CREATE_API, CORE_ORDER_GET_API, SMOKE, HOT_SEAT_CONCURRENCY,
                         CORE_ADMISSION_CAPACITY, CORE_REALISTIC_CONTENTION, CORE_REALISTIC_USER_MIX, CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE -> List.of("core");
                 case TICKET_OPEN_END_TO_END, QUEUE_PROTECTS_CORE -> List.of("queue", "core");
@@ -219,7 +200,7 @@ class RunEnvironmentMetadataTest {
 
         final RunEnvironmentMetadata metadata = RunEnvironmentMetadata.capture(request, client);
         final RuntimeTargetGroupMetadata target = metadata.targets().getFirst();
-        final RuntimeInstanceMetadata instance = target.instances().getFirst();
+        final DatadogRuntimeSnapshot instance = target.instances().getFirst();
         final UUID runId = UUID.fromString("f8290000-0000-0000-0000-000000000001");
         final String json = metadata.toJson(runId);
         final String description = metadata.runDescription(runId);
@@ -231,13 +212,14 @@ class RunEnvironmentMetadataTest {
         assertEquals(observedAt, instance.observedAt());
         assertEquals(4, instance.vcpu());
         assertNull(instance.hikariMaximumPoolSize());
-        assertTrue(json.contains("\"schemaVersion\": 4"));
+        assertTrue(json.contains("\"schemaVersion\": 5"));
         assertTrue(json.contains("\"capturePhase\": \"preRun\""));
         assertTrue(json.contains("\"replicaCountObserved\": 1"));
         assertTrue(json.contains("\"id\": \"container-i-queue\""));
         assertTrue(json.contains("\"granularity\": \"host\""));
         assertTrue(json.contains("\"service\": \"ticket-queue\""));
-        assertTrue(json.contains("\"jvm.xmsBytes\": \"not_explicit\""));
+        assertTrue(json.contains("\"jvm.xmxBytes\": \"observed\""));
+        assertFalse(json.contains("xmsBytes"));
         assertTrue(description.contains("runId=f8290000"));
         assertTrue(description.contains("queue=4vCPU/8GiB"));
         assertTrue(description.contains("queueDocker=2CPU/4GiB"));
@@ -258,7 +240,7 @@ class RunEnvironmentMetadataTest {
         final RuntimeTargetGroupMetadata queue = metadata.targets().getFirst();
 
         assertEquals(List.of("i-queue-a", "i-queue-b"), queue.instances().stream()
-                .map(RuntimeInstanceMetadata::host)
+                .map(DatadogRuntimeSnapshot::host)
                 .toList());
         assertTrue(json.contains("\"replicaCountObserved\": 2"));
         assertTrue(json.contains("\"host\": \"i-queue-a\""));
@@ -294,15 +276,7 @@ class RunEnvironmentMetadataTest {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "simulation", List.of("queue-join-only")
         ));
-        final DatadogRuntimeSnapshot sparseQueue = new DatadogRuntimeSnapshot(
-                Instant.parse("2026-07-28T05:00:00Z"),
-                Instant.parse("2026-07-28T05:00:00Z"),
-                "i-queue",
-                null,
-                null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null,
-                List.of()
-        );
+        final DatadogRuntimeSnapshot sparseQueue = sparseSnapshot("i-queue");
 
         final RunEnvironmentMetadata metadata = RunEnvironmentMetadata.capture(
                 request,
@@ -346,7 +320,7 @@ class RunEnvironmentMetadataTest {
 
         final RunEnvironmentMetadata metadata = RunEnvironmentMetadata.capture(
                 request,
-                ignored -> List.of(DatadogRuntimeSnapshot.empty())
+                ignored -> List.of(sparseSnapshot(null))
         );
 
         assertEquals("failed", metadata.captureStatus());
@@ -362,6 +336,18 @@ class RunEnvironmentMetadataTest {
                 RunEnvironmentMetadata.sanitizeBaseUrl(
                         "https://user:password@queue.oneticket.site:8443/path?token=secret#fragment"
                 )
+        );
+    }
+
+    private static DatadogRuntimeSnapshot sparseSnapshot(final String host) {
+        return new DatadogRuntimeSnapshot(
+                Instant.parse("2026-07-28T05:00:00Z"),
+                Instant.parse("2026-07-28T05:00:00Z"),
+                host,
+                null,
+                null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                List.of()
         );
     }
 

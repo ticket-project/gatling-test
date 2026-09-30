@@ -2,7 +2,6 @@ package com.ticket.gatling.console;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -10,57 +9,37 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class LoadTestService {
-    private static final int FAILURE_BODY_PREVIEW_LIMIT = 4_000;
     private static final long CORE_CAPACITY_SEAT_START_ID = 910000001L;
     private static final int CORE_CAPACITY_DATA_ROWS = 2_000;
+    private static final String RUN_DIR_MARKER = "Run dir:";
+    private static final List<String> SECRET_ARGUMENT_PREFIXES = List.of("-DjwtSecret=", "-DaccessTokens=");
 
     private final GatlingCommandBuilder commandBuilder = new GatlingCommandBuilder();
     private final DistributedGatlingCommandBuilder distributedCommandBuilder = new DistributedGatlingCommandBuilder();
     private final DistributedRunStopper distributedRunStopper = new DistributedRunStopper();
     private final RunEnvironmentClient environmentClient = new DatadogEnvironmentClient();
-    private final ReportRegistry reportRegistry;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Map<UUID, LoadTestRun> runs = new LinkedHashMap<>();
     private final AtomicReference<UUID> runningRunId = new AtomicReference<>();
-    private final AtomicReference<Process> runningResetProcess = new AtomicReference<>();
-
-    public LoadTestService(final ReportRegistry reportRegistry) {
-        this.reportRegistry = reportRegistry;
-    }
 
     public synchronized LoadTestRun start(final LoadTestRequest request) {
         if (runningRunId.get() != null) {
             throw new IllegalStateException("A load test is already running");
         }
-        if (isResetRunning()) {
-            throw new IllegalStateException("Core Capacity reset is still running. Close its PowerShell window first");
-        }
-        validateInjectionMode(request);
-        validateTargetSelection(request);
-        validateConfiguredTokens(request);
-        validateConfiguredAdmissionTokens(request);
-        validateProofSuiteInjection(request);
-        validateSyntheticJwt(request);
-        validateSyntheticAdmissionToken(request);
-        validateBookingExecution(request);
-        validateDistributedExecution(request);
+        validate(request);
         final UUID runId = UUID.randomUUID();
         final LoadTestRun run = new LoadTestRun(runId, request);
         runs.put(runId, run);
@@ -69,12 +48,23 @@ public class LoadTestService {
         return run;
     }
 
+    void validate(final LoadTestRequest request) {
+        validateInjectionMode(request);
+        validateTargetSelection(request);
+        validateConfiguredTokens(request);
+        validateProofSuiteInjection(request);
+        validateSyntheticJwt(request);
+        validateBookingExecution(request);
+        validateDistributedExecution(request);
+    }
+
     private void validateInjectionMode(final LoadTestRequest request) {
         if ("ticket-open".equalsIgnoreCase(request.injectionMode())
                 && request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
             throw new IllegalArgumentException("예매 오픈 패턴은 대기열 진입 요청 테스트에서만 사용할 수 있습니다.");
         }
     }
+
     private void validateProofSuiteInjection(final LoadTestRequest request) {
         final String mode = request.injectionMode().toLowerCase(Locale.ROOT);
         if (request.simulationType() == SimulationType.CORE_ADMISSION_CAPACITY
@@ -108,25 +98,14 @@ public class LoadTestService {
         }
     }
 
-
     private void validateConfiguredTokens(final LoadTestRequest request) {
-        if (!request.simulationType().usesAccessTokens()) {
+        if (!request.simulationType().usesAccessTokens()
+                || request.simulationType().usesFeederAccessTokens()
+                || !"tokens".equals(request.accessTokenMode())
+                || request.generatesAccessTokensFile()) {
             return;
-        }
-        if (request.simulationType().usesFeederAccessTokens()) {
-            return;
-        }
-        if (!"tokens".equalsIgnoreCase(request.accessTokenMode())) {
-            return;
-        }
-        if (request.generatesAccessTokensFile()) {
-            return;
-        }
-        if (request.usesAccessTokensFile() && request.accessTokensFile().isBlank()) {
-            throw new IllegalArgumentException("Access Token file is required in token mode");
         }
         if (request.usesAccessTokensFile()
-                && !request.generatesAccessTokensFile()
                 && !Files.isRegularFile(resolveInputPath(request.ticketProjectPath(), request.accessTokensFile()))) {
             throw new IllegalArgumentException("Access Token file not found: " + request.accessTokensFile());
         }
@@ -135,24 +114,14 @@ public class LoadTestService {
         }
     }
 
-    private void validateConfiguredAdmissionTokens(final LoadTestRequest request) {
-        if (!request.simulationType().usesAdmissionTokens()) {
-            return;
-        }
-        if ("tokens".equalsIgnoreCase(request.admissionTokenMode()) && request.admissionTokens().isBlank()) {
-            throw new IllegalArgumentException("Admission Token list is required in token mode");
-        }
-    }
-
     private void validateSyntheticJwt(final LoadTestRequest request) {
         if (!request.simulationType().usesAccessTokens()) {
             return;
         }
-        if (!"synthetic-jwt".equalsIgnoreCase(request.accessTokenMode())
-                && !request.generatesAccessTokensFile()) {
+        if (!"synthetic-jwt".equals(request.accessTokenMode()) && !request.generatesAccessTokensFile()) {
             return;
         }
-        if (request.jwtSecret().getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
+        if (request.jwtSecret().getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("JWT Secret must be at least 32 bytes for synthetic JWT mode");
         }
         if (requiresExistingMemberIds(request)) {
@@ -174,16 +143,8 @@ public class LoadTestService {
      * 파일을 넘기지 않으면 {@code AccessTokenFileGenerator}가 syntheticMemberStartId부터 연속 ID를 쓴다.
      */
     private boolean requiresExistingMemberIds(final LoadTestRequest request) {
-        if (coreTargetIsLocal(request)) {
-            return false;
-        }
-        final SimulationType simulationType = request.simulationType();
-        return simulationType == SimulationType.CORE_SEAT_STATUS_API
-                || simulationType == SimulationType.CORE_SEAT_SELECT_API
-                || simulationType == SimulationType.CORE_ORDER_CREATE_API
-                || simulationType == SimulationType.CORE_ADMISSION_CAPACITY
-                || simulationType == SimulationType.CORE_REALISTIC_CONTENTION
-                || simulationType == SimulationType.CORE_REALISTIC_USER_MIX;
+        return !LoadTestRequest.isLocalUrl(request.coreBaseUrl())
+                && request.simulationType().usesExistingMemberIds();
     }
 
     private void validateMemberIdsFile(final LoadTestRequest request) {
@@ -196,46 +157,36 @@ public class LoadTestService {
         }
     }
 
-    private void validateSyntheticAdmissionToken(final LoadTestRequest request) {
-        if (!request.simulationType().usesAdmissionTokens()) {
-            return;
-        }
-        if (!"synthetic".equalsIgnoreCase(request.admissionTokenMode())) {
-            return;
-        }
-        if (request.admissionTokenSecret().getBytes(StandardCharsets.UTF_8).length < 32) {
-            throw new IllegalArgumentException("Admission Token Secret must be at least 32 bytes for synthetic mode");
-        }
-    }
-
     private void validateDistributedExecution(final LoadTestRequest request) {
         if (!request.distributedExecution()) {
             return;
         }
-        if (isCoreApiIsolationSimulation(request.simulationType())) {
+        final SimulationType simulationType = request.simulationType();
+        if (isCoreApiIsolationSimulation(simulationType)) {
             throw new IllegalArgumentException("API별 독립 성능 테스트는 현재 로컬 실행만 지원합니다");
         }
-        if (request.simulationType() == SimulationType.CORE_REALISTIC_CONTENTION) {
+        if (simulationType == SimulationType.CORE_REALISTIC_CONTENTION) {
             throw new IllegalArgumentException("03-2 현실형 인기 좌석 경합은 피더 없이 동작하므로 현재 로컬 실행만 지원합니다");
         }
-        if (request.simulationType() == SimulationType.CORE_REALISTIC_USER_MIX) {
+        if (simulationType == SimulationType.CORE_REALISTIC_USER_MIX) {
             throw new IllegalArgumentException("03-3 실제 사용자 흐름 혼합은 피더 없이 동작하므로 현재 로컬 실행만 지원합니다");
         }
-        if (!request.simulationType().usesBookingFeeder()
-                && request.simulationType() != SimulationType.CDN_PUBLIC_STATE
-                && request.simulationType() != SimulationType.LEGACY_QUEUE_STATUS
-                && request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
+        if (!simulationType.usesBookingFeeder()
+                && simulationType != SimulationType.CDN_PUBLIC_STATE
+                && simulationType != SimulationType.QUEUE_JOIN_ONLY) {
             throw new IllegalArgumentException(
-                    "Distributed execution supports only booking, 대기열 진입 요청, CDN 공개 대기열 상태 조회 and 기존 대기열 상태 조회"
+                    "Distributed execution supports only booking, 대기열 진입 요청 and CDN 공개 대기열 상태 조회"
             );
         }
-        if (request.simulationType().usesBookingFeeder()) {
+        if (!request.closedBookingModel() && !(request.usersPerSecond() > 0)) {
+            throw new IllegalArgumentException(
+                    "EC2 분산 실행에서는 시작 초당 사용자 수를 노드당 RPS로 사용하므로 0보다 커야 합니다"
+            );
+        }
+        if (simulationType != SimulationType.QUEUE_JOIN_ONLY) {
             return;
         }
-        if (request.simulationType() != SimulationType.QUEUE_JOIN_ONLY) {
-            return;
-        }
-        if ("synthetic-jwt".equalsIgnoreCase(request.accessTokenMode()) || request.generatesAccessTokensFile()) {
+        if ("synthetic-jwt".equals(request.accessTokenMode()) || request.generatesAccessTokensFile()) {
             return;
         }
         throw new IllegalArgumentException(
@@ -249,17 +200,9 @@ public class LoadTestService {
         }
         // 분산 실행은 VM에서 요청하므로 localhost가 대상 서버를 가리키지 않는다.
         // 로컬 Console 실행은 로컬 Ticket/Core를 대상으로 삼을 수 있어야 하므로 URL 형식만 본다.
-        if (request.distributedExecution()) {
-            validateRemoteUrl("Core URL", request.coreBaseUrl());
-        } else {
-            validateHttpUrl("Core URL", request.coreBaseUrl());
-        }
+        validateUrl("Core URL", request.coreBaseUrl(), request.distributedExecution());
         if (request.simulationType().usesQueueBaseUrl()) {
-            if (request.distributedExecution()) {
-                validateRemoteUrl("Queue URL", request.queueBaseUrl());
-            } else {
-                validateHttpUrl("Queue URL", request.queueBaseUrl());
-            }
+            validateUrl("Queue URL", request.queueBaseUrl(), request.distributedExecution());
         }
         if (request.distributedExecution()
                 && request.simulationType() == SimulationType.HOT_SEAT_CONCURRENCY) {
@@ -268,23 +211,11 @@ public class LoadTestService {
         if (request.closedBookingModel() && request.bookingFeederRows() < request.users()) {
             throw new IllegalArgumentException("Closed model feeder rows must be at least concurrent users");
         }
-
         if (request.simulationType() == SimulationType.QUEUE_PROTECTS_CORE
                 && request.maxCoreAdmissionsPerSecond() <= 0) {
             throw new IllegalArgumentException("Queue의 Core 보호 requires a positive Core admission limit");
         }
-        if (request.dbAuditEnabled()) {
-            for (String name : List.of(
-                    "BOOKING_AUDIT_DB_URL",
-                    "BOOKING_AUDIT_DB_USERNAME",
-                    "BOOKING_AUDIT_DB_PASSWORD"
-            )) {
-                if (System.getenv(name) == null || System.getenv(name).isBlank()) {
-                    throw new IllegalArgumentException("DB audit requires environment variable: " + name);
-                }
-            }
-        }
-        if (!coreTargetIsLocal(request) && !request.operationalConfirmation()) {
+        if (!LoadTestRequest.isLocalUrl(request.coreBaseUrl()) && !request.operationalConfirmation()) {
             throw new IllegalArgumentException(
                     "Operational confirmation is required for a non-local booking execution"
             );
@@ -345,22 +276,15 @@ public class LoadTestService {
         if (request.simulationType().usesCoreBookingFlow()) {
             return;
         }
-        final URI target = validateHttpUrl("Base URL", request.baseUrl());
-        if (!isLocalTarget(target) && !request.operationalConfirmation()) {
+        validateUrl("Base URL", request.baseUrl(), false);
+        if (!LoadTestRequest.isLocalUrl(request.baseUrl()) && !request.operationalConfirmation()) {
             throw new IllegalArgumentException(
                     "Operational confirmation is required for a non-local load-test target"
             );
         }
     }
 
-    private void validateRemoteUrl(final String name, final String value) {
-        final URI uri = validateHttpUrl(name, value);
-        if (isLocalTarget(uri)) {
-            throw new IllegalArgumentException(name + " must not point to localhost: " + value);
-        }
-    }
-
-    private URI validateHttpUrl(final String name, final String value) {
+    private void validateUrl(final String name, final String value, final boolean remoteOnly) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " is required");
         }
@@ -372,41 +296,12 @@ public class LoadTestService {
             if (!uri.getScheme().equalsIgnoreCase("http") && !uri.getScheme().equalsIgnoreCase("https")) {
                 throw new IllegalArgumentException(name + " must use http or https: " + value);
             }
-            return uri;
         } catch (URISyntaxException exception) {
             throw new IllegalArgumentException(name + " must be an absolute URL: " + value, exception);
         }
-    }
-
-    private boolean isLocalTarget(final URI uri) {
-        final String host = uri.getHost().toLowerCase(Locale.ROOT);
-        return host.equals("localhost")
-                || host.endsWith(".localhost")
-                || host.startsWith("127.")
-                || host.equals("::1")
-                || host.equals("0:0:0:0:0:0:0:1")
-                || host.equals("0.0.0.0");
-    }
-
-    private boolean coreTargetIsLocal(final LoadTestRequest request) {
-        final String coreBaseUrl = request.coreBaseUrl();
-        if (coreBaseUrl == null || coreBaseUrl.isBlank()) {
-            return false;
+        if (remoteOnly && LoadTestRequest.isLocalUrl(value)) {
+            throw new IllegalArgumentException(name + " must not point to localhost: " + value);
         }
-        try {
-            final URI uri = new URI(coreBaseUrl.trim());
-            return uri.getHost() != null && isLocalTarget(uri);
-        } catch (URISyntaxException exception) {
-            return false;
-        }
-    }
-
-    static void validateTargetForTest(final LoadTestRequest request) {
-        new LoadTestService(new ReportRegistry()).validateBookingExecution(request);
-    }
-
-    static void validateJwtForTest(final LoadTestRequest request) {
-        new LoadTestService(new ReportRegistry()).validateSyntheticJwt(request);
     }
 
     private int countBookingFeederRows(final Path feederPath, final SimulationType simulationType) {
@@ -417,13 +312,11 @@ public class LoadTestService {
             }
             final List<String> lines = Files.readAllLines(feederPath, StandardCharsets.UTF_8);
             final String header = lines.isEmpty() ? "" : lines.getFirst();
-            final boolean dynamicSeatSelection = switch (simulationType) {
-                case CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE -> true;
-                default -> false;
-            };
+            final boolean dynamicSeatSelection = simulationType == SimulationType.CORE_ACTIVE_USERS_CLOSED
+                    || simulationType == SimulationType.CORE_SPIKE;
             final boolean orderLookup = simulationType == SimulationType.CORE_ORDER_GET_API;
             final boolean validHeader = orderLookup
-                    ? "memberId,orderKey".equals(header) || "memberId,accessToken,orderKey".equals(header)
+                    ? "memberId,orderKey".equals(header)
                     : "memberId,accessToken,seatId,admissionToken".equals(header)
                     || (dynamicSeatSelection && "memberId,accessToken,admissionToken".equals(header));
             if (!validHeader) {
@@ -463,68 +356,9 @@ public class LoadTestService {
         return run;
     }
 
-    public synchronized void launchCoreCapacityReset(final Path ticketProjectPath) throws IOException {
-        if (runningRunId.get() != null) {
-            throw new IllegalStateException("Cannot reset while a load test is running");
-        }
-        if (isResetRunning()) {
-            throw new IllegalStateException("A Core Capacity reset window is already open");
-        }
-        final Path normalizedProject = ticketProjectPath.toAbsolutePath().normalize();
-        validateLoadTestsProject(normalizedProject);
-        final Path scriptPath = normalizedProject.resolve("scripts")
-                .resolve("core-capacity")
-                .resolve("reset-core-capacity.ps1")
-                .normalize();
-        if (!scriptPath.startsWith(normalizedProject) || !Files.isRegularFile(scriptPath)) {
-            throw new IllegalArgumentException("Core Capacity reset script not found: " + scriptPath);
-        }
-        if (!System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win")) {
-            throw new IllegalStateException("Core Capacity reset Console button is available on Windows only");
-        }
-
-        final String childArguments = String.join(",", List.of(
-                powershellQuote("-NoExit"),
-                powershellQuote("-NoProfile"),
-                powershellQuote("-ExecutionPolicy"),
-                powershellQuote("Bypass"),
-                powershellQuote("-File"),
-                powershellQuote(scriptPath.toString())
-        ));
-        final String launcher = "$reset = Start-Process -FilePath 'powershell.exe' "
-                + "-WorkingDirectory " + powershellQuote(normalizedProject.toString()) + " "
-                + "-ArgumentList @(" + childArguments + ") -WindowStyle Normal -PassThru; "
-                + "$reset.WaitForExit(); exit $reset.ExitCode";
-        final String encodedLauncher = Base64.getEncoder().encodeToString(
-                launcher.getBytes(StandardCharsets.UTF_16LE)
-        );
-        final Process process = new ProcessBuilder(
-                "powershell.exe", "-NoProfile", "-EncodedCommand", encodedLauncher
-        ).directory(normalizedProject.toFile()).start();
-        runningResetProcess.set(process);
-        process.onExit().thenRun(() -> runningResetProcess.compareAndSet(process, null));
-    }
-
-    private boolean isResetRunning() {
-        final Process process = runningResetProcess.get();
-        if (process == null) {
-            return false;
-        }
-        if (process.isAlive()) {
-            return true;
-        }
-        runningResetProcess.compareAndSet(process, null);
-        return false;
-    }
-
-    private String powershellQuote(final String value) {
-        return "'" + value.replace("'", "''") + "'";
-    }
-
     private void execute(final LoadTestRun run, final LoadTestRequest request) {
+        // 로컬 실행 폴더는 runId마다 새로 만들므로 그 안의 디렉터리는 모두 이번 실행 결과다.
         final Path executionReportsRoot = executionReportsRoot(request, run.id());
-        final Set<Path> beforeReports = listReportDirectories(executionReportsRoot);
-        Path distributedRunDirectory = null;
         int exitCode = -1;
         try {
             validateRunnableProject(request);
@@ -548,39 +382,19 @@ public class LoadTestService {
             if (!request.distributedExecution()) {
                 Files.createDirectories(executionReportsRoot);
             }
-            final List<String> command = buildCommand(run, request, executionReportsRoot);
-            run.appendLog("$ " + String.join(" ", redactSensitiveArguments(command)));
-
-            final Process process = new ProcessBuilder(command)
-                    .directory(request.ticketProjectPath().toFile())
-                    .redirectErrorStream(true)
-                    .start();
-            run.attachProcess(process);
-            try {
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
-                )) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        run.appendLog(line);
-                        if (request.distributedExecution()) {
-                            distributedRunDirectory = parseDistributedRunDirectory(line).orElse(distributedRunDirectory);
-                        }
-                    }
-                }
-                exitCode = process.waitFor();
-            } finally {
-                run.clearProcess(process);
-            }
+            exitCode = runLogged(run, buildCommand(run, request, executionReportsRoot));
         } catch (Exception exception) {
             run.appendLog("ERROR: " + exception.getMessage());
         } finally {
             boolean createdFailureReport = false;
             Path reportDirectory;
             if (request.distributedExecution()) {
-                reportDirectory = resolveDistributedReportDirectory(request, distributedRunDirectory).orElse(null);
+                reportDirectory = parseDistributedRunDirectory(run.log())
+                        .filter(Files::isDirectory)
+                        .or(() -> latestDirectory(request.reportsRoot()))
+                        .orElse(null);
             } else {
-                final Path resultDirectory = detectResultDirectory(executionReportsRoot, beforeReports).orElse(null);
+                final Path resultDirectory = latestDirectory(executionReportsRoot).orElse(null);
                 if (resultDirectory != null
                         && !hasHtmlReport(resultDirectory)
                         && Files.isRegularFile(resultDirectory.resolve("simulation.log"))
@@ -609,14 +423,32 @@ public class LoadTestService {
                         copyLocalBookingArtifacts(request, reportDirectory, run);
                     }
                 }
-                reportRegistry.register(run.id(), reportDirectory);
                 run.appendLog("Report: " + reportDirectory);
             }
             if (!request.distributedExecution()) {
                 deleteIfEmpty(executionReportsRoot);
             }
-            run.complete(exitCode, reportDirectory);
+            run.complete(exitCode, reportDirectory == null ? null : reportDirectory.toAbsolutePath().normalize());
             runningRunId.compareAndSet(run.id(), null);
+        }
+    }
+
+    /** 프로세스를 실행하고 출력을 실행 로그로 흘린 뒤 종료 코드를 돌려준다. 중지 요청 시 프로세스 트리를 끊는다. */
+    private int runLogged(final LoadTestRun run, final List<String> command) throws IOException, InterruptedException {
+        run.appendLog("$ " + String.join(" ", redactSensitiveArguments(command)));
+        final Process process = new ProcessBuilder(command)
+                .directory(run.request().ticketProjectPath().toFile())
+                .redirectErrorStream(true)
+                .start();
+        run.attachProcess(process);
+        try (BufferedReader reader = process.inputReader(StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                run.appendLog(line);
+            }
+            return process.waitFor();
+        } finally {
+            run.clearProcess(process);
         }
     }
 
@@ -626,30 +458,13 @@ public class LoadTestService {
             final Path reportsRoot,
             final Path resultDirectory
     ) {
-        final List<String> command = commandBuilder.buildReport(
-                request,
-                reportsRoot,
-                resultDirectory.getFileName().toString()
-        );
         run.appendLog("Gatling HTML report was not generated. Rebuilding it from simulation.log.");
-        run.appendLog("$ " + String.join(" ", command));
-
-        Process process = null;
         try {
-            process = new ProcessBuilder(command)
-                    .directory(request.ticketProjectPath().toFile())
-                    .redirectErrorStream(true)
-                    .start();
-            run.attachProcess(process);
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
-            )) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    run.appendLog(line);
-                }
-            }
-            final int reportExitCode = process.waitFor();
+            final int reportExitCode = runLogged(run, commandBuilder.buildReport(
+                    request,
+                    reportsRoot,
+                    resultDirectory.getFileName().toString()
+            ));
             if (reportExitCode != 0) {
                 run.appendLog("Gatling HTML report rebuild exited with code " + reportExitCode);
             }
@@ -658,10 +473,6 @@ public class LoadTestService {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             run.appendLog("Gatling HTML report rebuild was interrupted");
-        } finally {
-            if (process != null) {
-                run.clearProcess(process);
-            }
         }
     }
 
@@ -697,6 +508,7 @@ public class LoadTestService {
             }
         });
     }
+
     private void writeRunMetadata(final Path reportDirectory, final LoadTestRun run) {
         final RunEnvironmentMetadata metadata = run.environmentMetadata();
         if (metadata == null) {
@@ -718,8 +530,7 @@ public class LoadTestService {
             final LoadTestRun run,
             final int exitCode
     ) {
-        final Path reportRoot = archivedReportRoot(request);
-        final Path reportDirectory = uniqueReportDirectory(reportRoot
+        final Path reportDirectory = uniqueReportDirectory(request.reportsRoot()
                 .resolve(ReportDirectoryNameFormatter.format(request) + " - failed"));
         try {
             Files.createDirectories(reportDirectory);
@@ -785,42 +596,16 @@ public class LoadTestService {
         if (!request.generatesAccessTokensFile() || request.distributedExecution()) {
             return;
         }
-        final List<String> command = accessTokenGenerationCommand(request);
         run.appendLog("Generating access token file before Gatling run.");
-        run.appendLog("$ " + String.join(" ", redactSensitiveArguments(command)));
-
-        final Process process = new ProcessBuilder(command)
-                .directory(request.ticketProjectPath().toFile())
-                .redirectErrorStream(true)
-                .start();
-        run.attachProcess(process);
-
-        final int exitCode;
-        try {
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)
-            )) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    run.appendLog(line);
-                }
-            }
-
-            exitCode = process.waitFor();
-        } finally {
-            run.clearProcess(process);
-        }
-        if (run.stopRequested()) {
-            return;
-        }
-        if (exitCode != 0) {
+        final int exitCode = runLogged(run, accessTokenGenerationCommand(request));
+        if (!run.stopRequested() && exitCode != 0) {
             throw new IllegalStateException("Access token generation failed with exit code " + exitCode);
         }
     }
 
     private List<String> accessTokenGenerationCommand(final LoadTestRequest request) {
         final List<String> command = new ArrayList<>();
-        command.add(gradleWrapper(request));
+        command.add(request.gradleWrapper());
         command.add("-p");
         command.add("load-tests/gatling");
         command.add("generateAccessTokens");
@@ -842,11 +627,6 @@ public class LoadTestService {
         return List.copyOf(command);
     }
 
-    private String gradleWrapper(final LoadTestRequest request) {
-        final boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
-        return request.ticketProjectPath().resolve(windows ? "gradlew.bat" : "gradlew").toString();
-    }
-
     private Path resolveInputPath(final Path baseDirectory, final String value) {
         final Path path = Path.of(value);
         if (path.isAbsolute()) {
@@ -856,22 +636,19 @@ public class LoadTestService {
     }
 
     private void validateRunnableProject(final LoadTestRequest request) {
-        validateLoadTestsProject(request.ticketProjectPath());
+        final Path ticketProjectPath = request.ticketProjectPath();
+        if (!Files.exists(ticketProjectPath.resolve("gradlew.bat"))) {
+            throw new IllegalArgumentException("gradlew.bat not found: " + ticketProjectPath);
+        }
+        if (!Files.isDirectory(ticketProjectPath.resolve("load-tests").resolve("gatling"))) {
+            throw new IllegalArgumentException("Gatling load-tests project not found under: " + ticketProjectPath);
+        }
         if (!request.distributedExecution()) {
             return;
         }
         final Path scriptPath = distributedCommandBuilder.scriptPath(request);
         if (!Files.isRegularFile(scriptPath)) {
             throw new IllegalArgumentException("Distributed script not found: " + scriptPath);
-        }
-    }
-
-    private void validateLoadTestsProject(final Path ticketProjectPath) {
-        if (!Files.exists(ticketProjectPath.resolve("gradlew.bat"))) {
-            throw new IllegalArgumentException("gradlew.bat not found: " + ticketProjectPath);
-        }
-        if (!Files.isDirectory(ticketProjectPath.resolve("load-tests").resolve("gatling"))) {
-            throw new IllegalArgumentException("Gatling load-tests project not found under: " + ticketProjectPath);
         }
     }
 
@@ -882,44 +659,27 @@ public class LoadTestService {
                 .toAbsolutePath().normalize();
     }
 
-    private Optional<Path> parseDistributedRunDirectory(final String line) {
-        final String marker = "Run dir:";
-        final int markerIndex = line.indexOf(marker);
-        if (markerIndex < 0) {
-            return Optional.empty();
-        }
-        final String pathValue = line.substring(markerIndex + marker.length()).trim();
-        if (pathValue.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.of(Path.of(pathValue).toAbsolutePath().normalize());
+    /** 분산 스크립트가 로그에 남긴 마지막 "Run dir: ..." 경로. */
+    private Optional<Path> parseDistributedRunDirectory(final String log) {
+        return log.lines()
+                .filter(line -> line.contains(RUN_DIR_MARKER))
+                .reduce((first, second) -> second)
+                .map(line -> line.substring(line.indexOf(RUN_DIR_MARKER) + RUN_DIR_MARKER.length()).trim())
+                .filter(value -> !value.isBlank())
+                .map(value -> Path.of(value).toAbsolutePath().normalize());
     }
 
-    private Optional<Path> resolveDistributedReportDirectory(
-            final LoadTestRequest request,
-            final Path parsedRunDirectory
-    ) {
-        if (parsedRunDirectory != null && Files.isDirectory(parsedRunDirectory)) {
-            return Optional.of(parsedRunDirectory);
-        }
-        return latestDistributedRunDirectory(request);
-    }
-
-    private Optional<Path> latestDistributedRunDirectory(final LoadTestRequest request) {
-        final Path root = distributedReportRoot(request);
+    private Optional<Path> latestDirectory(final Path root) {
         if (!Files.isDirectory(root)) {
             return Optional.empty();
         }
         try (Stream<Path> stream = Files.list(root)) {
             return stream.filter(Files::isDirectory)
+                    .map(path -> path.toAbsolutePath().normalize())
                     .max(Comparator.comparingLong(this::lastModified));
         } catch (IOException exception) {
             return Optional.empty();
         }
-    }
-
-    private Path distributedReportRoot(final LoadTestRequest request) {
-        return request.reportsRoot().toAbsolutePath().normalize();
     }
 
     private void writeDistributedIndex(final Path runDirectory, final LoadTestRun run) {
@@ -934,13 +694,6 @@ public class LoadTestService {
                 .append("a{color:#1d4ed8;font-weight:650;text-decoration:none;}a:hover{text-decoration:underline;}")
                 .append(".muted{color:#66758a;font-size:12px}.path{overflow-wrap:anywhere}.actions{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 18px;}")
                 .append(".actions a{border:1px solid #b8c3d1;border-radius:6px;background:#fff;padding:7px 10px;}")
-                .append(".cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(136px,1fr));gap:10px;margin:18px 0;}")
-                .append(".card{border:1px solid #d7dee8;border-radius:8px;background:#fff;padding:12px}.label{color:#66758a;font-size:11px;font-weight:700}.value{margin-top:4px;font-size:20px;font-weight:760;}")
-                .append(".table-wrap{overflow:auto;border:1px solid #d7dee8;border-radius:8px;background:#fff;}table{width:100%;border-collapse:collapse;white-space:nowrap;}")
-                .append("th,td{border-bottom:1px solid #e5eaf0;padding:9px 10px;text-align:right;}th{background:#f8fafc;color:#66758a;font-size:12px;}td:first-child,th:first-child{text-align:left;}")
-                .append(".status{font-weight:760}.SUCCESS{color:#067647}.FAILED{color:#b42318}.UNKNOWN{color:#b54708}.note{margin-top:10px;color:#66758a;font-size:12px;}")
-                .append(".failure-preview{background:#fff;border:1px solid #d7dee8;border-radius:8px;margin:8px 0;padding:10px;}.failure-preview summary{cursor:pointer;font-weight:700;text-align:left;}")
-                .append(".failure-preview pre{max-height:320px;white-space:pre-wrap;overflow:auto;margin:10px 0 0;}.status-code{font-weight:760;color:#b42318;}")
                 .append("pre{padding:14px;border:1px solid #d7dee8;background:#fff;overflow:auto;}")
                 .append("</style></head><body>")
                 .append("<main>")
@@ -948,41 +701,43 @@ public class LoadTestService {
                 .append("<div class=\"muted path\">Run directory: ")
                 .append(htmlEscape(runDirectory.toString()))
                 .append("</div><div class=\"actions\">");
-        appendFileLink(html, runDirectory, "summary.csv");
-        appendFileLink(html, runDirectory, "summary.md");
-        appendFileLink(html, runDirectory, "run-metadata.json");
-        appendFileLink(html, runDirectory, "booking-summary.json");
-        appendFileLink(html, runDirectory, "booking-results-merged.csv");
-        appendFileLink(html, runDirectory, "booking-admissions-global.csv");
-        appendFileLink(html, runDirectory, "booking-db-audit.json");
+        for (String fileName : List.of("summary.csv", "summary.md", "run-metadata.json", "booking-summary.json",
+                "booking-results-merged.csv", "booking-admissions-global.csv", "booking-db-audit.json")) {
+            if (Files.isRegularFile(runDirectory.resolve(fileName))) {
+                html.append("<a href=\"").append(htmlEscape(fileName)).append("\">")
+                        .append(htmlEscape(fileName)).append("</a>");
+            }
+        }
         html.append("</div>");
 
-        if (!appendDistributedSummary(html, runDirectory, run)) {
-            final Path summary = runDirectory.resolve("summary.md");
-            if (Files.isRegularFile(summary)) {
-                try {
-                    html.append("<h2>Summary</h2><pre>")
-                            .append(htmlEscape(Files.readString(summary, StandardCharsets.UTF_8)))
-                            .append("</pre>");
-                } catch (IOException exception) {
-                    run.appendLog("Distributed summary preview skipped: " + exception.getMessage());
-                }
+        final Path summary = runDirectory.resolve("summary.md");
+        if (Files.isRegularFile(summary)) {
+            try {
+                html.append("<h2>Summary</h2><pre>")
+                        .append(htmlEscape(Files.readString(summary, StandardCharsets.UTF_8)))
+                        .append("</pre>");
+            } catch (IOException exception) {
+                run.appendLog("Distributed summary preview skipped: " + exception.getMessage());
             }
         }
 
-        appendFailureResponseBodies(html, runDirectory, run);
-
+        // 노드별 Gatling 리포트와 -DumpFailureBody로 저장된 실패 응답 body(failure-bodies/*.html)
         html.append("<h2>Node reports</h2><ul>");
         try (Stream<Path> stream = Files.walk(runDirectory, 8)) {
             stream.filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().equals("index.html"))
                     .filter(path -> !path.equals(index))
+                    .filter(path -> path.getFileName().toString().equals("index.html")
+                            || (path.toString().contains("failure-bodies")
+                            && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".html")))
                     .sorted()
-                    .forEach(path -> html.append("<li><a href=\"")
-                            .append(htmlEscape(runDirectory.relativize(path).toString().replace('\\', '/')))
-                            .append("\">")
-                            .append(htmlEscape(runDirectory.relativize(path).toString()))
-                            .append("</a></li>"));
+                    .forEach(path -> {
+                        final String relative = runDirectory.relativize(path).toString();
+                        html.append("<li><a href=\"")
+                                .append(htmlEscape(relative.replace('\\', '/')))
+                                .append("\">")
+                                .append(htmlEscape(relative))
+                                .append("</a></li>");
+                    });
         } catch (IOException exception) {
             run.appendLog("Node report list skipped: " + exception.getMessage());
         }
@@ -995,437 +750,11 @@ public class LoadTestService {
         }
     }
 
-    private boolean appendDistributedSummary(
-            final StringBuilder html,
-            final Path runDirectory,
-            final LoadTestRun run
-    ) {
-        final Path summaryCsv = runDirectory.resolve("summary.csv");
-        if (!Files.isRegularFile(summaryCsv)) {
-            return false;
-        }
-        final List<Map<String, String>> rows;
-        try {
-            rows = readSummaryCsv(summaryCsv);
-        } catch (IOException exception) {
-            run.appendLog("Distributed summary table skipped: " + exception.getMessage());
-            return false;
-        }
-        if (rows.isEmpty()) {
-            return false;
-        }
-
-        final double total = rows.stream().mapToDouble(row -> numberValue(row, "TotalRequests")).sum();
-        final double ok = rows.stream().mapToDouble(row -> numberValue(row, "OkRequests")).sum();
-        final double ko = rows.stream().mapToDouble(row -> numberValue(row, "KoRequests")).sum();
-        final double rps = rows.stream().mapToDouble(row -> numberValue(row, "RequestsPerSec")).sum();
-        final double min = rows.stream()
-                .mapToDouble(row -> numberValue(row, "MinMs"))
-                .filter(value -> value > 0)
-                .min()
-                .orElse(0);
-        final double max = rows.stream().mapToDouble(row -> numberValue(row, "MaxMs")).max().orElse(0);
-        final double meanNumerator = rows.stream()
-                .mapToDouble(row -> numberValue(row, "MeanMs") * numberValue(row, "TotalRequests"))
-                .sum();
-        final double mean = total > 0 ? meanNumerator / total : 0;
-        final double koPercent = total > 0 ? ko * 100.0 / total : 0;
-
-        html.append("<h2>Overall</h2><section class=\"cards\">");
-        appendMetricCard(html, "Nodes", String.valueOf(rows.size()));
-        appendMetricCard(html, "Total", formatDisplayNumber(total));
-        appendMetricCard(html, "OK", formatDisplayNumber(ok));
-        appendMetricCard(html, "KO", formatDisplayNumber(ko));
-        appendMetricCard(html, "KO %", formatDisplayNumber(koPercent));
-        appendMetricCard(html, "Cnt/s", formatDisplayNumber(rps));
-        appendMetricCard(html, "Mean ms", formatDisplayNumber(mean));
-        appendMetricCard(html, "Max ms", formatDisplayNumber(max));
-        html.append("</section>");
-        if (min > 0) {
-            html.append("<p class=\"note\">Min ms: ")
-                    .append(htmlEscape(formatDisplayNumber(min)))
-                    .append(". p50/p75/p95/p99는 노드별 값입니다.</p>");
-        }
-
-        html.append("<h2>Node Metrics</h2><div class=\"table-wrap\"><table><thead><tr>")
-                .append("<th>Node</th><th>Status</th><th>Total</th><th>OK</th><th>KO</th><th>KO %</th>")
-                .append("<th>Cnt/s</th><th>Min</th><th>p50</th><th>p75</th><th>p95</th><th>p99</th>")
-                .append("<th>Max</th><th>Mean</th><th>Report</th><th>Log</th></tr></thead><tbody>");
-        for (Map<String, String> row : rows) {
-            html.append("<tr>")
-                    .append("<td>").append(htmlEscape(rowValue(row, "Node"))).append("</td>")
-                    .append("<td class=\"status ").append(htmlEscape(rowValue(row, "Status"))).append("\">")
-                    .append(htmlEscape(rowValue(row, "Status"))).append("</td>");
-            appendMetricCell(html, row, "TotalRequests");
-            appendMetricCell(html, row, "OkRequests");
-            appendMetricCell(html, row, "KoRequests");
-            appendMetricCell(html, row, "KoPercent");
-            appendMetricCell(html, row, "RequestsPerSec");
-            appendMetricCell(html, row, "MinMs");
-            appendMetricCell(html, row, "P50Ms");
-            appendMetricCell(html, row, "P75Ms");
-            appendMetricCell(html, row, "P95Ms");
-            appendMetricCell(html, row, "P99Ms");
-            appendMetricCell(html, row, "MaxMs");
-            appendMetricCell(html, row, "MeanMs");
-            appendPathLinkCell(html, runDirectory, rowValue(row, "ReportPath"), "Report");
-            appendPathLinkCell(html, runDirectory, rowValue(row, "LogPath"), "Log");
-            html.append("</tr>");
-        }
-        html.append("</tbody></table></div>");
-        return true;
-    }
-
-    private void appendFailureResponseBodies(
-            final StringBuilder html,
-            final Path runDirectory,
-            final LoadTestRun run
-    ) {
-        final List<FailureResponseBody> bodies = findFailureResponseBodies(runDirectory, run);
-        if (bodies.isEmpty()) {
-            return;
-        }
-
-        html.append("<h2>Failure Response Bodies</h2>")
-                .append("<p class=\"note\">")
-                .append("`-DumpFailureBody`로 저장된 실패 응답입니다. Body 링크는 원본 HTML을 그대로 열고, Preview는 일부를 텍스트로 보여줍니다.")
-                .append("</p>")
-                .append("<div class=\"table-wrap\"><table><thead><tr>")
-                .append("<th>Node</th><th>Status</th><th>Server</th><th>CF-Ray</th><th>CF Cache</th><th>Body</th><th>Meta</th>")
-                .append("</tr></thead><tbody>");
-
-        for (FailureResponseBody body : bodies) {
-            html.append("<tr>")
-                    .append("<td>").append(htmlEscape(body.node())).append("</td>")
-                    .append("<td><span class=\"status-code\">").append(htmlEscape(body.status())).append("</span></td>")
-                    .append("<td>").append(htmlEscape(body.server())).append("</td>")
-                    .append("<td>").append(htmlEscape(body.cfRay())).append("</td>")
-                    .append("<td>").append(htmlEscape(body.cfCacheStatus())).append("</td>")
-                    .append("<td>");
-            appendPathLink(html, runDirectory, body.bodyPath(), "Body");
-            html.append("</td><td>");
-            appendPathLink(html, runDirectory, body.metadataPath(), "Meta");
-            html.append("</td></tr>");
-
-            final String preview = failureBodyPreview(body.bodyPath(), run);
-            if (!preview.isBlank()) {
-                html.append("<tr><td colspan=\"7\"><details class=\"failure-preview\"><summary>")
-                        .append(htmlEscape(body.node()))
-                        .append(" / ")
-                        .append(htmlEscape(body.bodyPath().getFileName().toString()))
-                        .append(" preview</summary><pre>")
-                        .append(htmlEscape(preview))
-                        .append("</pre></details></td></tr>");
-            }
-        }
-
-        html.append("</tbody></table></div>");
-    }
-
-    private List<FailureResponseBody> findFailureResponseBodies(final Path runDirectory, final LoadTestRun run) {
-        if (!Files.isDirectory(runDirectory)) {
-            return List.of();
-        }
-        try (Stream<Path> stream = Files.walk(runDirectory, 8)) {
-            return stream.filter(Files::isRegularFile)
-                    .filter(this::isFailureBodyHtml)
-                    .sorted(Comparator.comparing(path -> runDirectory.relativize(path).toString()))
-                    .map(path -> toFailureResponseBody(runDirectory, path, run))
-                    .flatMap(Optional::stream)
-                    .toList();
-        } catch (IOException exception) {
-            run.appendLog("Failure response body list skipped: " + exception.getMessage());
-            return List.of();
-        }
-    }
-
-    private boolean isFailureBodyHtml(final Path path) {
-        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".html")
-                && path.toString().contains("failure-bodies");
-    }
-
-    private Optional<FailureResponseBody> toFailureResponseBody(
-            final Path runDirectory,
-            final Path bodyPath,
-            final LoadTestRun run
-    ) {
-        final Path metadataPath = siblingWithExtension(bodyPath, ".txt");
-        final Map<String, String> metadata = readFailureBodyMetadata(metadataPath, run);
-        final Path relativePath = runDirectory.relativize(bodyPath);
-        final String node = relativePath.getNameCount() > 0 ? relativePath.getName(0).toString() : "";
-        return Optional.of(new FailureResponseBody(
-                bodyPath,
-                metadataPath,
-                node,
-                metadataValue(metadata, "status", statusFromFileName(bodyPath)),
-                metadataValue(metadata, "server", ""),
-                metadataValue(metadata, "cfRay", ""),
-                metadataValue(metadata, "cfCacheStatus", "")
-        ));
-    }
-
-    private Map<String, String> readFailureBodyMetadata(final Path metadataPath, final LoadTestRun run) {
-        if (!Files.isRegularFile(metadataPath)) {
-            return Map.of();
-        }
-        final Map<String, String> metadata = new LinkedHashMap<>();
-        try {
-            for (String line : Files.readAllLines(metadataPath, StandardCharsets.UTF_8)) {
-                final int separator = line.indexOf('=');
-                if (separator <= 0) {
-                    continue;
-                }
-                metadata.put(line.substring(0, separator).trim(), line.substring(separator + 1).trim());
-            }
-        } catch (IOException exception) {
-            run.appendLog("Failure response metadata skipped: " + exception.getMessage());
-        }
-        return metadata;
-    }
-
-    private Path siblingWithExtension(final Path path, final String extension) {
-        final String fileName = path.getFileName().toString();
-        final int dotIndex = fileName.lastIndexOf('.');
-        final String baseName = dotIndex < 0 ? fileName : fileName.substring(0, dotIndex);
-        return path.resolveSibling(baseName + extension);
-    }
-
-    private String metadataValue(
-            final Map<String, String> metadata,
-            final String key,
-            final String defaultValue
-    ) {
-        return metadata.getOrDefault(key, defaultValue);
-    }
-
-    private String statusFromFileName(final Path bodyPath) {
-        final String name = bodyPath.getFileName().toString();
-        final String marker = "-status-";
-        final int markerIndex = name.indexOf(marker);
-        if (markerIndex < 0) {
-            return "";
-        }
-        int endIndex = markerIndex + marker.length();
-        while (endIndex < name.length() && Character.isDigit(name.charAt(endIndex))) {
-            endIndex++;
-        }
-        return name.substring(markerIndex + marker.length(), endIndex);
-    }
-
-    private String failureBodyPreview(final Path bodyPath, final LoadTestRun run) {
-        try {
-            final String body = Files.readString(bodyPath, StandardCharsets.UTF_8);
-            if (body.length() <= FAILURE_BODY_PREVIEW_LIMIT) {
-                return body;
-            }
-            return body.substring(0, FAILURE_BODY_PREVIEW_LIMIT) + "\n... preview truncated ...";
-        } catch (IOException exception) {
-            run.appendLog("Failure response body preview skipped: " + exception.getMessage());
-            return "";
-        }
-    }
-
-    private List<Map<String, String>> readSummaryCsv(final Path summaryCsv) throws IOException {
-        final List<String> lines = Files.readAllLines(summaryCsv, StandardCharsets.UTF_8);
-        if (lines.size() < 2) {
-            return List.of();
-        }
-        final List<String> headers = parseCsvLine(lines.getFirst());
-        final List<Map<String, String>> rows = new ArrayList<>();
-        for (int index = 1; index < lines.size(); index++) {
-            if (lines.get(index).isBlank()) {
-                continue;
-            }
-            final List<String> values = parseCsvLine(lines.get(index));
-            final Map<String, String> row = new LinkedHashMap<>();
-            for (int column = 0; column < headers.size(); column++) {
-                row.put(headers.get(column), column < values.size() ? values.get(column) : "");
-            }
-            rows.add(row);
-        }
-        return rows;
-    }
-
-    private List<String> parseCsvLine(final String line) {
-        final List<String> values = new ArrayList<>();
-        final StringBuilder value = new StringBuilder();
-        boolean quoted = false;
-        for (int index = 0; index < line.length(); index++) {
-            final char current = line.charAt(index);
-            if (quoted && current == '"' && index + 1 < line.length() && line.charAt(index + 1) == '"') {
-                value.append('"');
-                index++;
-            } else if (current == '"') {
-                quoted = !quoted;
-            } else if (current == ',' && !quoted) {
-                values.add(value.toString());
-                value.setLength(0);
-            } else {
-                value.append(current);
-            }
-        }
-        values.add(value.toString());
-        return values;
-    }
-
-    private void appendMetricCard(final StringBuilder html, final String label, final String value) {
-        html.append("<div class=\"card\"><div class=\"label\">")
-                .append(htmlEscape(label))
-                .append("</div><div class=\"value\">")
-                .append(htmlEscape(value))
-                .append("</div></div>");
-    }
-
-    private void appendMetricCell(
-            final StringBuilder html,
-            final Map<String, String> row,
-            final String key
-    ) {
-        html.append("<td>").append(htmlEscape(formatDisplayNumber(rowValue(row, key)))).append("</td>");
-    }
-
-    private void appendPathLinkCell(
-            final StringBuilder html,
-            final Path runDirectory,
-            final String value,
-            final String label
-    ) {
-        final Optional<String> link = relativeLink(runDirectory, value);
-        if (link.isEmpty()) {
-            html.append("<td>-</td>");
-            return;
-        }
-        html.append("<td><a href=\"")
-                .append(htmlEscape(link.get()))
-                .append("\">")
-                .append(htmlEscape(label))
-                .append("</a></td>");
-    }
-
-    private void appendPathLink(
-            final StringBuilder html,
-            final Path runDirectory,
-            final Path path,
-            final String label
-    ) {
-        if (!Files.isRegularFile(path)) {
-            html.append("-");
-            return;
-        }
-        final Optional<String> link = relativeLink(runDirectory, path.toString());
-        if (link.isEmpty()) {
-            html.append("-");
-            return;
-        }
-        html.append("<a href=\"")
-                .append(htmlEscape(link.get()))
-                .append("\">")
-                .append(htmlEscape(label))
-                .append("</a>");
-    }
-
-    private Optional<String> relativeLink(final Path runDirectory, final String value) {
-        if (value == null || value.isBlank()) {
-            return Optional.empty();
-        }
-        try {
-            final Path path = Path.of(value).toAbsolutePath().normalize();
-            if (!path.startsWith(runDirectory.toAbsolutePath().normalize())) {
-                return Optional.empty();
-            }
-            return Optional.of(runDirectory.relativize(path).toString().replace('\\', '/'));
-        } catch (IllegalArgumentException exception) {
-            return Optional.empty();
-        }
-    }
-
-    private String rowValue(final Map<String, String> row, final String key) {
-        return row.getOrDefault(key, "");
-    }
-
-    private double numberValue(final Map<String, String> row, final String key) {
-        final String value = rowValue(row, key);
-        if (value.isBlank()) {
-            return 0;
-        }
-        try {
-            return Double.parseDouble(value);
-        } catch (NumberFormatException exception) {
-            return 0;
-        }
-    }
-
-    private String formatDisplayNumber(final String value) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-        try {
-            return formatDisplayNumber(Double.parseDouble(value));
-        } catch (NumberFormatException exception) {
-            return value;
-        }
-    }
-
-    private String formatDisplayNumber(final double value) {
-        if (Math.abs(value - Math.round(value)) < 0.001) {
-            return String.valueOf(Math.round(value));
-        }
-        return String.format(Locale.ROOT, "%.2f", value);
-    }
-
-    private void appendFileLink(final StringBuilder html, final Path directory, final String fileName) {
-        if (Files.isRegularFile(directory.resolve(fileName))) {
-            html.append("<a href=\"")
-                    .append(htmlEscape(fileName))
-                    .append("\">")
-                    .append(htmlEscape(fileName))
-                    .append("</a>");
-        }
-    }
-
     private String htmlEscape(final String value) {
         return value.replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");
-    }
-
-    private record FailureResponseBody(
-            Path bodyPath,
-            Path metadataPath,
-            String node,
-            String status,
-            String server,
-            String cfRay,
-            String cfCacheStatus
-    ) {
-    }
-
-    private Set<Path> listReportDirectories(final Path reportsRoot) {
-        if (!Files.isDirectory(reportsRoot)) {
-            return Set.of();
-        }
-        try (Stream<Path> stream = Files.list(reportsRoot)) {
-            return stream.filter(Files::isDirectory)
-                    .map(path -> path.toAbsolutePath().normalize())
-                    .collect(Collectors.toSet());
-        } catch (IOException exception) {
-            return ConcurrentHashMap.newKeySet();
-        }
-    }
-
-    private Optional<Path> detectResultDirectory(final Path reportsRoot, final Set<Path> beforeReports) {
-        if (!Files.isDirectory(reportsRoot)) {
-            return Optional.empty();
-        }
-        try (Stream<Path> stream = Files.list(reportsRoot)) {
-            return stream.filter(Files::isDirectory)
-                    .map(path -> path.toAbsolutePath().normalize())
-                    .filter(path -> !beforeReports.contains(path))
-                    .max(Comparator.comparingLong(this::lastModified));
-        } catch (IOException exception) {
-            return Optional.empty();
-        }
     }
 
     private boolean hasHtmlReport(final Path resultDirectory) {
@@ -1437,7 +766,7 @@ public class LoadTestService {
             final LoadTestRequest request,
             final LoadTestRun run
     ) {
-        final Path target = uniqueReportDirectory(archivedReportRoot(request)
+        final Path target = uniqueReportDirectory(request.reportsRoot()
                 .resolve(ReportDirectoryNameFormatter.format(request)));
         if (reportDirectory.equals(target)) {
             return reportDirectory;
@@ -1466,10 +795,6 @@ public class LoadTestService {
         return candidate;
     }
 
-    private Path archivedReportRoot(final LoadTestRequest request) {
-        return request.reportsRoot();
-    }
-
     private void deleteIfEmpty(final Path directory) {
         try {
             Files.deleteIfExists(directory);
@@ -1495,22 +820,12 @@ public class LoadTestService {
                 redactNext = false;
                 continue;
             }
-            if (argument.equals("-JwtSecret")) {
-                redacted.add(argument);
-                redactNext = true;
-                continue;
-            }
-            if (argument.startsWith("-DjwtSecret=")) {
-                redacted.add("-DjwtSecret=****");
-            } else if (argument.startsWith("-DaccessTokens=")) {
-                redacted.add("-DaccessTokens=****");
-            } else if (argument.startsWith("-DadmissionTokenSecret=")) {
-                redacted.add("-DadmissionTokenSecret=****");
-            } else if (argument.startsWith("-DadmissionTokens=")) {
-                redacted.add("-DadmissionTokens=****");
-            } else {
-                redacted.add(argument);
-            }
+            redactNext = argument.equals("-JwtSecret");
+            redacted.add(SECRET_ARGUMENT_PREFIXES.stream()
+                    .filter(argument::startsWith)
+                    .findFirst()
+                    .map(prefix -> prefix + "****")
+                    .orElse(argument));
         }
         return List.copyOf(redacted);
     }

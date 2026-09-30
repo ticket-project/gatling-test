@@ -3,6 +3,7 @@ package com.ticket.gatling.console;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
+import java.awt.Desktop;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,25 +14,29 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 public class ConsoleServer {
+    private static final Map<String, String> CONTENT_TYPES = Map.of(
+            "html", "text/html; charset=UTF-8",
+            "css", "text/css; charset=UTF-8",
+            "js", "application/javascript; charset=UTF-8",
+            "json", "application/json; charset=UTF-8",
+            "txt", "text/plain; charset=UTF-8",
+            "csv", "text/plain; charset=UTF-8",
+            "md", "text/plain; charset=UTF-8",
+            "png", "image/png",
+            "svg", "image/svg+xml"
+    );
+
     private final HttpServer server;
     private final LoadTestService loadTestService;
-    private final ReportRegistry reportRegistry;
-    private final LocalFolderOpener localFolderOpener;
 
-    public ConsoleServer(
-            final int port,
-            final LoadTestService loadTestService,
-            final ReportRegistry reportRegistry
-    ) throws IOException {
+    public ConsoleServer(final int port, final LoadTestService loadTestService) throws IOException {
         this.server = HttpServer.create(new InetSocketAddress(port), 0);
         this.loadTestService = loadTestService;
-        this.reportRegistry = reportRegistry;
-        this.localFolderOpener = new LocalFolderOpener();
         server.createContext("/", this::handle);
         server.setExecutor(Executors.newCachedThreadPool());
     }
@@ -53,10 +58,6 @@ public class ConsoleServer {
             }
             if (path.equals("/api/runs")) {
                 handleRuns(exchange);
-                return;
-            }
-            if (path.equals("/api/core-capacity/reset")) {
-                handleCoreCapacityReset(exchange);
                 return;
             }
             if (path.startsWith("/api/runs/")) {
@@ -90,9 +91,7 @@ public class ConsoleServer {
                         + "\"coreBaseUrl\":\"" + Json.escape(target.coreBaseUrl()) + "\","
                         + "\"queueBaseUrl\":\"" + Json.escape(target.queueBaseUrl()) + "\""
                         + "}")
-                .reduce((left, right) -> left + "," + right)
-                .map(value -> "[" + value + "]")
-                .orElse("[]");
+                .collect(Collectors.joining(",", "[", "]"));
     }
 
     private void handleSimulations(final HttpExchange exchange) throws IOException {
@@ -101,19 +100,14 @@ public class ConsoleServer {
                 .map(type -> "{"
                         + "\"key\":\"" + type.key() + "\","
                         + "\"label\":\"" + Json.escape(type.label()) + "\","
-                        + "\"defaultBaseUrl\":\"" + Json.escape(type.defaultBaseUrl()) + "\","
-                        + "\"usesSeatIds\":" + type.usesSeatIds() + ","
-                        + "\"usesAdmissionTokens\":" + type.usesAdmissionTokens() + ","
                         + "\"usesStatusPolling\":" + type.usesStatusPolling() + ","
                         + "\"usesAccessTokens\":" + type.usesAccessTokens() + ","
                         + "\"usesBookingFeeder\":" + type.usesBookingFeeder() + ","
                         + "\"usesCoreBookingFlow\":" + type.usesCoreBookingFlow() + ","
                         + "\"usesQueueBaseUrl\":" + type.usesQueueBaseUrl() + ","
-                        + "\"bookingScenario\":\"" + Json.escape(type.bookingScenario()) + "\""
+                        + "\"usesExistingMemberIds\":" + type.usesExistingMemberIds()
                         + "}")
-                .reduce((left, right) -> left + "," + right)
-                .map(value -> "[" + value + "]")
-                .orElse("[]");
+                .collect(Collectors.joining(",", "[", "]"));
         writeJson(exchange, 200, json);
     }
 
@@ -127,26 +121,6 @@ public class ConsoleServer {
         final LoadTestRequest request = LoadTestRequest.fromForm(FormParser.parse(body));
         final LoadTestRun run = loadTestService.start(request);
         writeJson(exchange, 202, run.toJson());
-    }
-
-    private void handleCoreCapacityReset(final HttpExchange exchange) throws IOException {
-        requireMethod(exchange, "POST");
-        final String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-        final Map<String, java.util.List<String>> form = FormParser.parse(body);
-        final String projectPath = firstValue(form, "ticketProjectPath");
-        loadTestService.launchCoreCapacityReset(Path.of(projectPath));
-        writeJson(exchange, 202, "{\"launched\":true}");
-    }
-
-    private String firstValue(
-            final Map<String, java.util.List<String>> form,
-            final String name
-    ) {
-        final java.util.List<String> values = form.get(name);
-        if (values == null || values.isEmpty() || values.getFirst().isBlank()) {
-            throw new IllegalArgumentException(name + " is required");
-        }
-        return values.getFirst().trim();
     }
 
     private void handleRunApi(final HttpExchange exchange, final String path) throws IOException {
@@ -188,7 +162,10 @@ public class ConsoleServer {
         if (reportDirectory == null) {
             throw new IllegalStateException("Report folder is not available yet: " + runId);
         }
-        localFolderOpener.open(reportDirectory);
+        if (!Files.isDirectory(reportDirectory)) {
+            throw new IllegalArgumentException("Report folder not found: " + reportDirectory);
+        }
+        Desktop.getDesktop().open(reportDirectory.toFile());
         writeJson(exchange, 200, "{\"opened\":true}");
     }
 
@@ -201,14 +178,14 @@ public class ConsoleServer {
             return;
         }
         final UUID runId = UUID.fromString(remaining.substring(0, slash));
-        final String relativePath = remaining.substring(slash + 1);
-        final Optional<Path> resolved = reportRegistry.resolve(runId, relativePath);
-        if (resolved.isEmpty() || !Files.isRegularFile(resolved.get())) {
+        final String relativePath = remaining.substring(slash + 1).isBlank() ? "index.html" : remaining.substring(slash + 1);
+        final Path reportDirectory = loadTestService.find(runId).map(LoadTestRun::reportDirectory).orElse(null);
+        final Path resolved = reportDirectory == null ? null : reportDirectory.resolve(relativePath).normalize();
+        if (resolved == null || !resolved.startsWith(reportDirectory) || !Files.isRegularFile(resolved)) {
             writeText(exchange, 404, "Not found", "text/plain; charset=UTF-8");
             return;
         }
-        final byte[] bytes = Files.readAllBytes(resolved.get());
-        writeBytes(exchange, 200, bytes, contentType(resolved.get()));
+        writeBytes(exchange, 200, Files.readAllBytes(resolved), contentType(resolved));
     }
 
     private void handleStatic(final HttpExchange exchange, final String path) throws IOException {
@@ -266,27 +243,6 @@ public class ConsoleServer {
 
     private String contentType(final Path path) {
         final String name = path.getFileName().toString().toLowerCase();
-        if (name.endsWith(".html")) {
-            return "text/html; charset=UTF-8";
-        }
-        if (name.endsWith(".css")) {
-            return "text/css; charset=UTF-8";
-        }
-        if (name.endsWith(".js")) {
-            return "application/javascript; charset=UTF-8";
-        }
-        if (name.endsWith(".json")) {
-            return "application/json; charset=UTF-8";
-        }
-        if (name.endsWith(".txt") || name.endsWith(".csv") || name.endsWith(".md")) {
-            return "text/plain; charset=UTF-8";
-        }
-        if (name.endsWith(".png")) {
-            return "image/png";
-        }
-        if (name.endsWith(".svg")) {
-            return "image/svg+xml";
-        }
-        return "application/octet-stream";
+        return CONTENT_TYPES.getOrDefault(name.substring(name.lastIndexOf('.') + 1), "application/octet-stream");
     }
 }

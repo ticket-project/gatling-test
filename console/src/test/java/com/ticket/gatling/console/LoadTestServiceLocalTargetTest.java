@@ -48,20 +48,20 @@ class LoadTestServiceLocalTargetTest {
     @Test
     void acceptsLocalhostCoreUrlWithoutOperationalConfirmation() {
         assertDoesNotThrow(() ->
-                LoadTestService.validateTargetForTest(summaryRequest("http://localhost:8080", false)));
+                new LoadTestService().validate(summaryRequest("http://localhost:8080", false)));
     }
 
     @Test
     void acceptsLoopbackAddressCoreUrl() {
         assertDoesNotThrow(() ->
-                LoadTestService.validateTargetForTest(summaryRequest("http://127.0.0.1:8080", false)));
+                new LoadTestService().validate(summaryRequest("http://127.0.0.1:8080", false)));
     }
 
     @Test
     void stillRequiresOperationalConfirmationForRemoteCoreUrl() {
         final IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
-                () -> LoadTestService.validateTargetForTest(summaryRequest("https://oneticket.site", false))
+                () -> new LoadTestService().validate(summaryRequest("https://oneticket.site", false))
         );
 
         assertTrue(exception.getMessage().contains("confirmation"));
@@ -70,20 +70,20 @@ class LoadTestServiceLocalTargetTest {
     @Test
     void acceptsRemoteCoreUrlWithOperationalConfirmation() {
         assertDoesNotThrow(() ->
-                LoadTestService.validateTargetForTest(summaryRequest("https://oneticket.site", true)));
+                new LoadTestService().validate(summaryRequest("https://oneticket.site", true)));
     }
 
     @Test
     void localTargetDoesNotRequireMemberIdFile() {
         assertDoesNotThrow(() ->
-                LoadTestService.validateJwtForTest(seatStatusRequest("http://localhost:8080")));
+                new LoadTestService().validate(seatStatusRequest("http://localhost:8080")));
     }
 
     @Test
     void remoteTargetStillRequiresMemberIdFile() {
         final IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
-                () -> LoadTestService.validateJwtForTest(seatStatusRequest("https://oneticket.site"))
+                () -> new LoadTestService().validate(seatStatusRequest("https://oneticket.site"))
         );
 
         assertTrue(exception.getMessage().contains("Member ID"));

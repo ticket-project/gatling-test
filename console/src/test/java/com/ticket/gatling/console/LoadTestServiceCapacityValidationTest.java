@@ -40,7 +40,7 @@ class LoadTestServiceCapacityValidationTest {
 
         final IllegalArgumentException failure = assertThrows(
                 IllegalArgumentException.class,
-                () -> new LoadTestService(new ReportRegistry()).start(request)
+                () -> new LoadTestService().start(request)
         );
 
         assertTrue(failure.getMessage().contains("offset=2"));
@@ -64,7 +64,7 @@ class LoadTestServiceCapacityValidationTest {
 
         final IllegalArgumentException failure = assertThrows(
                 IllegalArgumentException.class,
-                () -> new LoadTestService(new ReportRegistry()).start(request)
+                () -> new LoadTestService().start(request)
         );
 
         assertTrue(failure.getMessage().contains("Member ID file"));
@@ -89,7 +89,7 @@ class LoadTestServiceCapacityValidationTest {
 
         final IllegalArgumentException failure = assertThrows(
                 IllegalArgumentException.class,
-                () -> new LoadTestService(new ReportRegistry()).start(request)
+                () -> new LoadTestService().start(request)
         );
 
         assertTrue(failure.getMessage().contains("2,000 seats"));

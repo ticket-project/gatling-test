@@ -27,15 +27,6 @@ class LoadTestRequestTest {
     }
 
     @Test
-    void leavesLegacyBaseUrlBlankUntilExplicitlyEntered() {
-        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "simulation", List.of("legacy-queue-status")
-        ));
-
-        assertEquals("", request.baseUrl());
-    }
-
-    @Test
     void leavesCdnBaseUrlBlankUntilExplicitlyEntered() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "simulation", List.of("cdn-public-state")
@@ -126,25 +117,6 @@ class LoadTestRequestTest {
     }
 
     @Test
-    void readsAdmissionTokenOptionsFromForm() {
-        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "admissionTokenMode", List.of("tokens"),
-                "admissionTokens", List.of("adm-1,adm-2"),
-                "admissionTokenIssuer", List.of("queue"),
-                "admissionTokenAudience", List.of("api"),
-                "admissionTokenSecret", List.of("secret-0123456789abcdef0123456789"),
-                "admissionTokenTtlSeconds", List.of("600")
-        ));
-
-        assertEquals("tokens", request.admissionTokenMode());
-        assertEquals("adm-1,adm-2", request.admissionTokens());
-        assertEquals("queue", request.admissionTokenIssuer());
-        assertEquals("api", request.admissionTokenAudience());
-        assertEquals("secret-0123456789abcdef0123456789", request.admissionTokenSecret());
-        assertEquals(600, request.admissionTokenTtlSeconds());
-    }
-
-    @Test
     void estimatesVirtualUsersForConstantRateInjection() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "injectionMode", List.of("constant-users-per-sec"),
@@ -184,8 +156,6 @@ class LoadTestRequestTest {
                 "coreBaseUrl", List.of("https://api.example.com"),
                 "queueBaseUrl", List.of("https://queue.example.com"),
                 "bookingFeederFile", List.of("C:/feeders/booking.csv"),
-                "bookingScenario", List.of("TICKET_OPEN_END_TO_END"),
-                "nodeIndex", List.of("2"),
                 "resultFile", List.of("build/results/node-2.csv"),
                 "pollingTimeoutSeconds", List.of("240"),
                 "distributedRemoteProjectDir", List.of("~/gatling-booking"),
@@ -195,8 +165,6 @@ class LoadTestRequestTest {
         assertEquals("https://api.example.com", request.coreBaseUrl());
         assertEquals("https://queue.example.com", request.queueBaseUrl());
         assertEquals("C:/feeders/booking.csv", request.bookingFeederFile());
-        assertEquals("TICKET_OPEN_END_TO_END", request.bookingScenario());
-        assertEquals(2, request.nodeIndex());
         assertEquals("build/results/node-2.csv", request.resultFile());
         assertEquals(240, request.pollingTimeoutSeconds());
         assertEquals("~/gatling-booking", request.distributedRemoteProjectDir());

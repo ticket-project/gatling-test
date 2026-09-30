@@ -651,7 +651,6 @@
     <div class="panel-header">
       <h2>테스트 설정</h2>
       <div class="panel-header-actions">
-        <button id="capacityResetButton" class="danger-button" type="button" title="전용 테스트 회차 30개의 주문 실행 이력과 Redis hold를 전체 원복합니다.">테스트 데이터 전체 원복</button>
         <button id="resetButton" class="secondary-button" type="button">초기화</button>
       </div>
     </div>
@@ -724,7 +723,7 @@ ubuntu@43.203.136.184</textarea>
           <option value="__custom__">직접 입력</option>
         </select>
 
-        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 HTTP(S) base URL입니다. Queue·legacy·CDN 시나리오는 안전을 위해 실행할 때마다 직접 입력합니다.">?</span></label>
+        <label for="baseUrl">대상 API <span class="help-chip" tabindex="0" data-help="부하를 받을 HTTP(S) base URL입니다. Queue·CDN 시나리오는 안전을 위해 실행할 때마다 직접 입력합니다.">?</span></label>
         <input id="baseUrl" name="baseUrl" value="" placeholder="http://localhost:8090 또는 승인받은 대상 URL">
 
         <label class="inline-check">
@@ -789,10 +788,6 @@ ubuntu@43.203.136.184</textarea>
           </div>
           <div class="grid-2">
             <div>
-              <label for="nodeIndex">노드 인덱스 <span class="help-chip" tabindex="0" data-help="로컬 단일 실행에서 결과 CSV에 남길 nodeIndex입니다. 분산 실행에서는 스크립트가 노드별로 지정합니다.">?</span></label>
-              <input id="nodeIndex" name="nodeIndex" type="number" min="0" value="0">
-            </div>
-            <div>
               <label for="pollingTimeoutSeconds">Queue 대기 최대 시간(초) <span class="help-chip" tabindex="0" data-help="Ticket Open E2E에서 queue state polling을 최대 몇 초까지 기다릴지 정합니다.">?</span></label>
               <input id="pollingTimeoutSeconds" name="pollingTimeoutSeconds" type="number" min="0" value="300">
             </div>
@@ -838,10 +833,6 @@ ubuntu@43.203.136.184</textarea>
             <p class="field-note hidden" data-option="core-capacity-data">
               전용 회차: 001..007(03 최초), 008..021(03 경계·재검증), 022..028(API 단계), 029..030(03-2·정합성·예비)
             </p>
-          </div>
-          <div data-option="seat">
-            <label for="seatIds">좌석 ID <span class="help-chip" tabindex="0" data-help="홀드를 시도할 좌석 ID 목록입니다. 여러 개면 쉼표로 입력합니다. 예: 1,2,3. 같은 좌석 하나만 넣으면 동시성 경합 테스트가 됩니다.">?</span></label>
-            <input id="seatIds" name="seatIds" value="1">
           </div>
         </div>
       </fieldset>
@@ -966,40 +957,6 @@ ubuntu@43.203.136.184</textarea>
           </div>
         </div>
 
-        <div data-option="admission-token">
-          <label for="admissionTokenMode">Admission Token 모드 <span class="help-chip" tabindex="0" data-help="X-Admission-Token 준비 방식입니다. 합성 모드는 accessToken의 memberId와 performanceId로 테스트용 admission token을 생성하고, 직접 입력은 Queue Server에서 받은 admission token 목록을 그대로 사용합니다.">?</span></label>
-          <select id="admissionTokenMode" name="admissionTokenMode">
-            <option value="synthetic">합성 생성</option>
-            <option value="tokens">직접 입력</option>
-          </select>
-
-          <div class="grid-2" data-admission-token-mode="synthetic">
-            <div>
-              <label for="admissionTokenIssuer">Admission Issuer <span class="help-chip" tabindex="0" data-help="Ticket Server의 security.admission.issuer와 같아야 합니다. 기본값은 ticket-queue입니다.">?</span></label>
-              <input id="admissionTokenIssuer" name="admissionTokenIssuer" value="ticket-queue">
-            </div>
-            <div>
-              <label for="admissionTokenAudience">Admission Audience <span class="help-chip" tabindex="0" data-help="Ticket Server의 security.admission.audience와 같아야 합니다. 기본값은 ticket-api입니다.">?</span></label>
-              <input id="admissionTokenAudience" name="admissionTokenAudience" value="ticket-api">
-            </div>
-          </div>
-
-          <div class="grid-2" data-admission-token-mode="synthetic">
-            <div>
-              <label for="admissionTokenSecret">Admission Secret <span class="help-chip" tabindex="0" data-help="Ticket Server의 ADMISSION_TOKEN_SECRET_KEY와 같은 HS256 secret입니다. 실행 로그에는 마스킹됩니다.">?</span></label>
-              <input id="admissionTokenSecret" name="admissionTokenSecret" type="password" value="0123456789abcdef0123456789abcdef" autocomplete="off">
-            </div>
-            <div>
-              <label for="admissionTokenTtlSeconds">Admission TTL(초) <span class="help-chip" tabindex="0" data-help="합성 admission token 만료 시간입니다. 부하 테스트 시간보다 충분히 크게 잡습니다.">?</span></label>
-              <input id="admissionTokenTtlSeconds" name="admissionTokenTtlSeconds" type="number" min="1" value="300">
-            </div>
-          </div>
-
-          <div data-admission-token-mode="tokens" class="hidden">
-            <label for="admissionTokens">Admission Token 목록 <span class="help-chip" tabindex="0" data-help="Queue Server가 발급한 admission token을 쉼표로 입력합니다. 같은 순서의 access token과 memberId/performanceId가 일치해야 합니다.">?</span></label>
-            <textarea id="admissionTokens" name="admissionTokens" placeholder="admission-token-1,admission-token-2"></textarea>
-          </div>
-        </div>
       </fieldset>
 
       <button id="runButton" class="run-button" type="submit">실행</button>
@@ -1095,7 +1052,6 @@ ubuntu@43.203.136.184</textarea>
 const form = document.querySelector('#runForm');
 const runButton = document.querySelector('#runButton');
 const resetButton = document.querySelector('#resetButton');
-const capacityResetButton = document.querySelector('#capacityResetButton');
 const refreshButton = document.querySelector('#refreshButton');
 const simulationSelect = document.querySelector('#simulation');
 const injectionMode = document.querySelector('#injectionMode');
@@ -1124,7 +1080,6 @@ const tooltip = document.querySelector('#tooltip');
 const simulationHelpChip = document.querySelector('#simulationHelpChip');
 const copyLogButton = document.querySelector('#copyLog');
 const stopRunButton = document.querySelector('#stopRun');
-const admissionTokenMode = document.querySelector('#admissionTokenMode');
 const jwtIdentitySettings = document.querySelector('#jwtIdentitySettings');
 const capacityAdvancedSettings = document.querySelector('#capacityAdvancedSettings');
 const environmentStatus = document.querySelector('#environmentStatus');
@@ -1163,21 +1118,6 @@ const proofSimulationDefaults = {
   'queue-protects-core': { users: 1, durationSeconds: 60, injectionMode: 'constant-users-per-sec', usersPerSecond: 2000, targetUsersPerSecond: 2000, pollingTimeoutSeconds: 600, maxCoreAdmissionsPerSecond: 300, resultFile: '../../distributed-results-join/_latest/queue-protects-core.csv' }
 };
 
-const coreApiSimulationKeys = new Set([
-  'core-performance-summary-api',
-  'core-seat-status-api',
-  'core-seat-select-api',
-  'core-order-create-api',
-  'core-order-get-api'
-]);
-const existingMemberIdSimulationKeys = new Set([
-  'core-seat-status-api',
-  'core-seat-select-api',
-  'core-order-create-api',
-  'core-admission-capacity',
-  'core-realistic-contention',
-  'core-realistic-user-mix'
-]);
 const simulationHelp = {
   'core-performance-summary-api': '무엇을 보나요? GET 공연 요약 API 하나의 처리량과 응답 시간을 측정합니다.\n실제 흐름: 공연 요약 조회 1회입니다. 인증·좌석·주문 API는 호출하지 않습니다.\n준비: 인증이 필요 없는 읽기 전용 API이므로 같은 회차로 반복할 수 있습니다.',
   'core-seat-status-api': '무엇을 보나요? GET 좌석 상태 API 하나가 큰 좌석 응답과 동시 조회를 얼마나 감당하는지 측정합니다.\n실제 흐름: 사용자별 Access Token 준비 → 좌석 상태 조회 1회입니다. 좌석 선점과 주문은 만들지 않습니다.\n준비: 같은 회차와 같은 좌석 수로 실행해야 응답 크기가 같아집니다. 캐시 상태와 AVAILABLE·HELD·SOLD 비율도 실행마다 맞추세요.',
@@ -1186,11 +1126,8 @@ const simulationHelp = {
   'core-order-get-api': '무엇을 보나요? GET 주문 조회 API 하나의 DB 조회 처리량과 응답 시간을 측정합니다.\n실제 흐름: 피더의 주문 키로 주문 조회 1회만 호출합니다.\n준비: 주문 생성 테스트가 만든 memberId,orderKey 결과 CSV를 사용합니다. JWT는 해당 memberId로 메모리에서 생성해 결과 파일에 저장하지 않습니다. 성공 주문 행이 부족하면 HTTP 부하 전에 실패합니다.',
   'queue-join-only': '무엇을 보나요? 예매 오픈 순간 Queue의 대기 등록(/join)이 초당 몇 명까지 안정적으로 받아지는지 확인합니다.\n실제 흐름: 사용자별 Access Token으로 /join을 한 번 호출하고, queueToken·대기 순번 관련 값이 정상인지 검사합니다.\n언제 쓰나요? Queue 입구의 최대 처리량, HTTP/1.1과 HTTP/2 차이, 오픈 직후 트래픽 패턴을 비교할 때 씁니다.\n주의: 초당 사용자 수가 거의 초당 /join 요청 수입니다. 분산 3대라면 노드별 설정값을 합산해야 하며, 토큰 수도 노드별 예상 사용자 수에 맞춰 준비합니다.',
   'queue-enter': '무엇을 보나요? 대기열을 통과한 사용자가 입장 토큰을 받는 /enter API의 응답과 방어 동작을 확인합니다.\n실제 흐름: 준비된 Queue 정보로 /enter를 호출하고 성공·만료·아직 입장 불가·과부하 응답을 구분합니다.\n언제 쓰나요? 입장 전환 API만 빠르게 점검하거나 잘못된 입장 요청이 차단되는지 볼 때 씁니다.\n주의: join부터 기다리는 전체 흐름은 아닙니다. 전체 검증은 예매 오픈 전체 흐름를 사용합니다.',
-  'legacy-queue-status': '무엇을 보나요? 기존 Queue의 사용자별 상태 조회(/status)가 많은 반복 조회를 감당하는지 확인합니다.\n실제 흐름: 각 사용자가 자신의 Queue 세션으로 /status를 여러 번 호출하며 응답 시간과 실패율을 측정합니다.\n언제 쓰나요? 기존 개인화 조회의 기준선을 남기거나 CDN 방식과 비교할 때 씁니다.\n주의: 사용자마다 응답이 달라 CDN 캐시 효과를 받기 어렵고, 조회 횟수와 간격이 총 요청 수를 크게 바꿉니다.',
   'cdn-public-state': '무엇을 보나요? 인증 없는 공개 Queue 상태(/state)가 CDN 캐시로 얼마나 효율적으로 제공되는지 확인합니다.\n실제 흐름: 여러 사용자가 같은 공개 URL을 반복 조회하고 응답 시간·실패율·캐시 응답을 살핍니다.\n언제 쓰나요? Legacy 방식과 비교해 원본 서버 부하 감소와 캐시 효과를 증명할 때 씁니다.\n주의: 실제 CDN 도메인을 대상으로 해야 하며 캐시 HIT/MISS 헤더도 함께 봐야 합니다.',
-  'booking-capacity': '무엇을 보나요? Queue를 거치지 않은 Ticket/Core 일반 예매 흐름의 처리 한계를 확인합니다.\n실제 흐름: 좌석 상태 → 좌석 선택 → 주문 생성 → 주문 상태 확인을 사용자별 고유 데이터로 진행합니다.\n언제 쓰나요? Queue가 보호해야 할 Core 자체의 한계와 병목을 먼저 찾을 때 씁니다.\n주의: 실제 좌석 선점과 주문이 생성됩니다. 피더의 회원·좌석·Admission Token이 서로 맞아야 합니다.',
   'ticket-open-end-to-end': '무엇을 보나요? 예매 오픈 사용자가 Queue에 들어와 실제 주문까지 가는 전체 체인을 확인합니다.\n실제 흐름: join → 공개 state 반복 조회 → enter → 좌석 상태 → 선택 → 주문 생성 → 주문 상태 확인 순서입니다.\n언제 쓰나요? Queue와 Core의 실제 고객 여정, 전체 성공률, 구간별 병목을 최종 검증할 때 씁니다.\n주의: Queue 입장이 느리면 테스트가 길어지므로 대기 최대 시간을 충분히 잡아야 합니다.',
-  'seat-contention': '무엇을 보나요? 여러 사용자가 같은 좌석을 동시에 잡을 때 중복 선점이나 주문이 생기지 않는지 확인합니다.\n실제 흐름: 같은 좌석에 동시 요청을 보내 한 명의 성공과 나머지의 정상적인 비즈니스 거절을 구분합니다.\n언제 쓰나요? 좌석 락과 중복 주문 방지를 집중 검증할 때 씁니다.\n주의: 거절은 기대 결과일 수 있습니다. 정확히 한 명 성공을 강하게 증명하려면 인기 좌석 동시 경합를 사용합니다.',
   'smoke': '무엇을 보나요? 큰 부하 전에 Core 예매의 기본 기능과 테스트 데이터가 정상인지 1명으로 빠르게 확인합니다.\n실제 흐름: 좌석 상태 → 좌석 선택 → 주문 생성 → 주문 상태 확인을 한 번 수행합니다.\n언제 쓰나요? 모든 부하 테스트의 첫 단계로 사용하며, 실패하면 큰 테스트를 시작하지 않는 것이 좋습니다.\n주의: 성능 한계 테스트가 아닙니다. 실패하면 URL·토큰·회차·좌석 데이터부터 확인합니다.',
   'hot-seat-concurrency': '무엇을 보나요? 여러 사용자가 한 좌석을 정확히 동시에 요청해 오직 한 명만 성공하는지 검증합니다.\n실제 흐름: 사용자를 시작선에 모은 뒤 같은 좌석 선택을 동시에 실행하고 승자 한 명만 주문 가능한지 검사합니다.\n언제 쓰나요? 좌석 락과 주문 정합성을 증명하거나 동시성 버그를 재현할 때 씁니다.\n주의: 시작 장벽은 한 Gatling 프로세스 안에서만 정확하므로 분산 실행하지 말고 DB 감사도 확인합니다.',
   'core-admission-capacity': '무엇을 보나요? 매번 같은 회원과 고유 좌석으로 똑같은 요청을 보내 Queue를 제외한 Core의 순수 처리 한계를 비교합니다.\n실제 흐름: 피더의 고정 회원·좌석으로 공연 요약 → 좌석 상태 → 좌석 선택 → 주문 생성 → 주문 확인을 각각 한 번씩 수행합니다. 무작위 좌석 선택, 새로고침, 재시도, 사용자 이탈은 없습니다.\n왜 이렇게 하나요? 실행마다 요청 수와 충돌량이 달라지면 코드 변경 전후를 공정하게 비교할 수 없기 때문입니다.\n준비: 사용자 수만큼 서로 다른 ACTIVE 회원·AVAILABLE 좌석이 들어 있는 Booking Feeder가 필요합니다. Admission Token 열은 비워도 되며 Core의 ADMISSION_TOKEN_ENFORCEMENT_ENABLED=false여야 합니다. 재실행 전 주문·선점 상태를 같은 초기 상태로 복원하세요.',
@@ -1294,11 +1231,6 @@ async function startRun(event) {
   serverState.textContent = '실행 중';
   const body = new URLSearchParams(new FormData(form));
   normalizeAccessTokenSourceForRun(body);
-  const validationError = validateBeforeRun(body);
-  if (validationError) {
-    restoreIdleState(validationError);
-    return;
-  }
   if (simulationSelect.value === 'core-admission-capacity'
           && !window.confirm(`운영 Core에 다음 부하를 실행합니다.\n\n${capacityRunText(body)}\n\n계속하시겠습니까?`)) {
     restoreIdleState('Core Admission Capacity 실행을 취소했습니다.');
@@ -1429,7 +1361,7 @@ function renderEnvironment(metadata) {
         [`${roleLabel} host / container`, `${display(host)} / ${evidenceDisplay(instance.container?.id, evidence['container.id'])}`],
         [`${roleLabel} vCPU / RAM`, `${evidenceDisplay(instance.machine?.vcpu, evidence['machine.vcpu'])} / ${formatBytesWithEvidence(instance.machine?.ramBytes, evidence['machine.ramBytes'])}`],
         [`${roleLabel} Docker CPU / memory`, `${evidenceDisplay(instance.container?.cpuLimit, evidence['container.cpuLimit'])} / ${formatBytesWithEvidence(instance.container?.memoryLimitBytes, evidence['container.memoryLimitBytes'])}`],
-        [`${roleLabel} JVM Xms / Xmx`, `${formatBytesWithEvidence(instance.jvm?.xmsBytes, evidence['jvm.xmsBytes'])} / ${formatBytesWithEvidence(instance.jvm?.xmxBytes, evidence['jvm.xmxBytes'])}`],
+        [`${roleLabel} JVM Xmx`, formatBytesWithEvidence(instance.jvm?.xmxBytes, evidence['jvm.xmxBytes'])],
         [`${roleLabel} Java`, evidenceDisplay(instance.application?.javaVersion, evidence['application.javaVersion'])],
         [`${roleLabel} commit`, evidenceDisplay(instance.application?.commit, evidence['application.commit'])],
         [`${roleLabel} image`, `${evidenceDisplay(instance.application?.imageName, evidence['application.imageName'])} / ${evidenceDisplay(instance.application?.imageId, evidence['application.imageId'])}`],
@@ -1438,7 +1370,6 @@ function renderEnvironment(metadata) {
       if (group.role === 'core') {
         rows.push(
           ['Core Hikari maximum pool', evidenceDisplay(instance.hikari?.maximumPoolSize, evidence['hikari.maximumPoolSize'])],
-          ['Oracle', infrastructureDisplay(instance.oracle)],
           ['Admission 검증', evidenceDisplay(
             instance.features?.admissionTokenEnforcementEnabled,
             evidence['features.admissionTokenEnforcementEnabled']
@@ -1471,21 +1402,13 @@ function formatBytesWithEvidence(value, status) {
   return status && status !== 'observed' ? `${formatted} (${status})` : formatted;
 }
 
-function infrastructureDisplay(value) {
-  if (!value) return '-';
-  const parts = [value.instanceProfile, value.networkLocation]
-    .filter(item => item != null && String(item).trim());
-  if (value.networkRttMs != null) parts.push(`${value.networkRttMs} ms`);
-  return parts.length ? parts.join(' · ') : '-';
-}
-
 function redisDisplay(value) {
   if (!value) return '-';
-  const parts = [infrastructureDisplay(value)];
+  const parts = [value.networkLocation];
   if (value.maxMemoryBytes != null) {
     parts.push(`maxmemory=${Number(value.maxMemoryBytes) === 0 ? 'unlimited' : formatBytes(value.maxMemoryBytes)}`);
   }
-  return parts.filter(part => part && part !== '-').join(' · ') || '-';
+  return parts.filter(part => part != null && String(part).trim()).join(' · ') || '-';
 }
 
 function formatBytes(value) {
@@ -1511,9 +1434,9 @@ function updateVisibility() {
   const tokenSource = accessTokenSource?.value || 'generate-file';
   const proof = Boolean(proofSimulationDefaults[selected?.key]);
   const capacity = selected?.key === 'core-admission-capacity';
-  const coreCapacityData = capacity
-    || coreApiSimulationKeys.has(selected?.key)
-    || ['smoke', 'hot-seat-concurrency', 'core-realistic-contention', 'core-realistic-user-mix'].includes(selected?.key);
+  const coreCapacityData = ['core-admission-capacity', 'core-performance-summary-api', 'core-seat-status-api',
+    'core-seat-select-api', 'core-order-create-api', 'core-order-get-api', 'smoke', 'hot-seat-concurrency',
+    'core-realistic-contention', 'core-realistic-user-mix'].includes(selected?.key);
   document.querySelectorAll('[data-capacity-auto]').forEach(element => {
     element.classList.toggle('capacity-hidden', capacity);
   });
@@ -1536,11 +1459,10 @@ function updateVisibility() {
   setVisible('label[for="injectionMode"], #injectionMode', !proof);
   setInputContainerVisible('users', mode === 'ramp-users' || mode === 'at-once-users' || mode === 'closed-core');
   setVisible('[data-option="http2"]', selected?.key === 'queue-join-only');
-  setVisible('[data-option="seat"]', selected?.usesSeatIds);
   setVisible('[data-option="booking"]', selected?.usesCoreBookingFlow);
   setVisible('[data-option="booking-feeder"]', selected?.usesBookingFeeder);
   setVisible('[data-option="member-ids-file"]',
-          existingMemberIdSimulationKeys.has(selected?.key) && !coreTargetIsLocal());
+          selected?.usesExistingMemberIds && !coreTargetIsLocal());
   setVisible('[data-option="queue-url"]', selected?.usesCoreBookingFlow && selected?.usesQueueBaseUrl);
   setVisible('[data-option="queue-proof"]', selected?.key === 'queue-protects-core');
   setVisible('[data-option="capacity"]', capacity);
@@ -1548,12 +1470,10 @@ function updateVisibility() {
   setInputContainerVisible('admissionRateTolerancePercent', false);
   setInputContainerVisible('resultFile', false);
   setInputContainerVisible('pollingTimeoutSeconds', selected?.usesQueueBaseUrl);
-  setInputContainerVisible('nodeIndex', distributed);
   setVisible('[data-option="closed-booking"]', selected?.key === 'core-active-users-closed');
   setVisible('[data-option="poll"]', selected?.usesStatusPolling);
   setVisible('[data-option="poll-jitter"]', selected?.usesStatusPolling);
   setVisible('[data-option="access-token"]', selected?.usesAccessTokens);
-  setVisible('[data-option="admission-token"]', selected?.usesAdmissionTokens);
   setVisible('[data-injection="duration"]', mode !== 'at-once-users' && mode !== 'ticket-open');
   setVisible('[data-injection="rate"]', distributed || mode === 'constant-users-per-sec' || mode === 'ramp-users-per-sec' || mode === 'spike' || mode === 'ticket-open');
   setVisible('[data-injection="target-rate"]', mode === 'ramp-users-per-sec' || mode === 'spike');
@@ -1564,8 +1484,6 @@ function updateVisibility() {
   setVisible('[data-access-token-source="inline"]', tokenMode === 'tokens' && tokenSource === 'inline');
   setVisible('[data-access-token-file-path]', tokenMode === 'tokens'
           && (tokenSource === 'generate-file' || tokenSource === 'file'));
-  setVisible('[data-admission-token-mode="synthetic"]', selected?.usesAdmissionTokens && admissionTokenMode.value === 'synthetic');
-  setVisible('[data-admission-token-mode="tokens"]', selected?.usesAdmissionTokens && admissionTokenMode.value === 'tokens');
 }
 
 function setVisible(selector, visible) {
@@ -1618,40 +1536,6 @@ function updateSummary() {
   updateApiPreview();
 }
 
-async function launchCoreCapacityReset() {
-  const warning = [
-    '전용 테스트 회차 30개의 주문 실행 이력과 Redis hold를 모두 원복하는 별도 PowerShell 창을 엽니다.',
-    '',
-    'PERFORMANCE IDS: 910000001..910000030',
-    '',
-    '모든 부하 결과를 먼저 보존하고 모든 Core 인스턴스를 중지한 뒤, PowerShell 창의 전체 원복 확인 절차를 진행해야 합니다.',
-    '계속하시겠습니까?'
-  ].join('\n');
-  if (!window.confirm(warning)) return;
-
-  capacityResetButton.disabled = true;
-  try {
-    const body = new URLSearchParams({
-      ticketProjectPath: String(ticketProjectPathInput?.value || '').trim()
-    });
-    const response = await fetch('/api/core-capacity/reset', { method: 'POST', body });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      logView.textContent = data.error || 'Core Capacity 원복 창을 열지 못했습니다.';
-      return;
-    }
-    logView.textContent = [
-      '전용 Performance 30개 전체 원복용 PowerShell 창을 열었습니다.',
-      '그 창에서 Oracle·Redis 접속값과 확인 문구를 입력하세요.',
-      '원복이 끝나면 PowerShell 창을 닫아야 다음 부하 테스트를 시작할 수 있습니다.'
-    ].join('\n');
-  } catch (error) {
-    logView.textContent = error.message || 'Core Capacity 원복 창을 열지 못했습니다.';
-  } finally {
-    capacityResetButton.disabled = false;
-  }
-}
-
 function capacityRunDetails(body) {
   const offset = Number(body.get('bookingFeederOffset') || 0);
   const expectedUsers = estimateVirtualUsers(body);
@@ -1699,135 +1583,6 @@ function capacityRunText(body) {
     `seatId ${details.seatStart} ~ ${details.seatEnd}`,
     '실행 직전 자동 생성'
   ].join('\n');
-}
-
-function validateBeforeRun(body) {
-  const selected = selectedSimulation();
-  const distributed = String(body.get('executionMode') || 'local') === 'distributed';
-  const mode = String(body.get('accessTokenMode') || 'synthetic-jwt');
-  const tokenSource = String(body.get('accessTokenSource') || 'generate-file');
-  const accessTokens = String(body.get('accessTokens') || '').trim();
-  const accessTokensFile = String(body.get('accessTokensFile') || '').trim();
-  const admissionMode = String(body.get('admissionTokenMode') || 'synthetic');
-  const admissionTokens = String(body.get('admissionTokens') || '').trim();
-
-  if (!selected?.usesCoreBookingFlow) {
-    const baseUrl = String(body.get('baseUrl') || '').trim();
-    if (!baseUrl) return '대상 API URL을 직접 입력해야 합니다.';
-    if (!isAbsoluteHttpUrl(baseUrl)) return '대상 API는 절대 HTTP(S) URL이어야 합니다.';
-    if (!isLocalhostUrl(baseUrl) && body.get('operationalConfirmation') !== 'on') {
-      return 'localhost가 아닌 대상에 부하를 보내는 실행 확인이 필요합니다.';
-    }
-  }
-
-  if (selected?.usesCoreBookingFlow) {
-    const coreBaseUrl = String(body.get('coreBaseUrl') || '').trim();
-    const queueBaseUrl = String(body.get('queueBaseUrl') || '').trim();
-    const feederFile = String(body.get('bookingFeederFile') || '').trim();
-    if (!coreBaseUrl) return 'Booking 시나리오는 Ticket/Core URL을 입력해야 합니다.';
-    if (distributed && isLocalhostUrl(coreBaseUrl)) return 'EC2 분산 실행의 Ticket/Core URL은 localhost를 사용할 수 없습니다.';
-    if (selected.usesQueueBaseUrl && !queueBaseUrl) return 'Queue를 사용하는 시나리오는 Queue URL을 입력해야 합니다.';
-    if (distributed && selected.usesQueueBaseUrl && isLocalhostUrl(queueBaseUrl)) return 'EC2 분산 실행의 Queue URL은 localhost를 사용할 수 없습니다.';
-    if (selected.usesBookingFeeder && !feederFile) return 'Booking Feeder CSV 경로를 입력해야 합니다.';
-    if (selected.key === 'core-active-users-closed' && Number(body.get('bookingFeederRows') || 0) < Number(body.get('users') || 0)) return 'Closed Model 피더 행 수는 동시 사용자 수 이상이어야 합니다.';
-    if (distributed && selected.key === 'hot-seat-concurrency') return 'Hot Seat는 프로세스 단위 rendezVous를 사용하므로 로컬 PC 한 대에서 실행해야 합니다.';
-    if (Number(body.get('queueTimeoutThresholdPercent') || 0) < 0) return 'Queue timeout 허용률은 0 이상이어야 합니다.';
-    if (Number(body.get('admissionRateTolerancePercent') || 0) < 0) return '입장률 측정 오차 허용치는 0 이상이어야 합니다.';
-    if (selected.key === 'queue-protects-core' && Number(body.get('maxCoreAdmissionsPerSecond') || 0) <= 0) return 'Queue 보호 증명에는 Core 안전 입장률을 입력해야 합니다.';
-    if (distributed && selected.key === 'core-realistic-contention') return '03-2 현실형 인기 좌석 경합은 현재 로컬 실행만 지원합니다.';
-    if (distributed && selected.key === 'core-realistic-user-mix') return '03-3 실제 사용자 흐름 혼합은 현재 로컬 실행만 지원합니다.';
-    if (distributed && coreApiSimulationKeys.has(selected.key)) return 'API별 독립 성능 테스트는 현재 로컬 실행만 지원합니다.';
-    if (!isLocalhostUrl(coreBaseUrl) && body.get('operationalConfirmation') !== 'on') return '운영 API에 실제 좌석 선점·주문 요청을 보내는 실행 확인이 필요합니다.';
-    if (distributed && distributedHostCount(body) === 0) return 'Booking 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
-    if (['core-seat-select-api', 'core-order-create-api'].includes(selected.key)
-            && mode === 'tokens' && tokenSource === 'generate-file'
-            && estimateVirtualUsers(body) > 2000) {
-      return '좌석 선점·주문 생성 API 테스트의 예상 사용자는 전용 좌석 2,000개를 초과할 수 없습니다.';
-    }
-    if (selected.key === 'core-admission-capacity') {
-      const offset = Number(body.get('bookingFeederOffset'));
-      const technicalFailureThreshold = Number(body.get('technicalFailureThresholdPercent'));
-      if (String(body.get('injectionMode')) !== 'constant-users-per-sec') return 'Core Admission Capacity는 constant-users-per-sec만 사용할 수 있습니다.';
-      if (!Number.isInteger(offset) || offset < 0) return 'Feeder Offset은 0 이상의 정수여야 합니다.';
-      if (mode === 'tokens' && tokenSource === 'generate-file') {
-        const requiredRows = offset + estimateVirtualUsers(body);
-        const generatedRows = Number(body.get('generatedAccessTokenCount'));
-        if (!isLocalhostUrl(coreBaseUrl) && !String(body.get('memberIdsFile') || '').trim()) return '기존 회원 ID 파일 경로를 입력해야 합니다.';
-        if (distributed) return 'Core Capacity JWT/feeder 자동 생성은 로컬 Console 실행에서만 지원합니다.';
-        if (requiredRows > 2000) return `자동 feeder에 필요한 회원·좌석 ${requiredRows}개가 전용 데이터 2,000개를 초과합니다.`;
-        if (generatedRows < requiredRows) return `자동 생성할 토큰/feeder 행은 최소 ${requiredRows}개여야 합니다.`;
-        if (generatedRows > 2000) return '자동 생성할 토큰/feeder 행은 전용 데이터 2,000개를 초과할 수 없습니다.';
-      }
-      if (!Number.isFinite(technicalFailureThreshold) || technicalFailureThreshold <= 0 || technicalFailureThreshold > 100) return 'Technical failure 허용률은 0보다 크고 100 이하여야 합니다.';
-    }
-  }
-
-  const injection = String(body.get('injectionMode') || 'ramp-users');
-  if (injection === 'spike' && Number(body.get('targetUsersPerSecond') || 0) <= Number(body.get('usersPerSecond') || 0)) {
-    return 'Spike 목표 RPS는 기준 RPS보다 커야 합니다.';
-  }
-  if (distributed) {
-    if (!selected?.usesBookingFeeder && !['cdn-public-state', 'legacy-queue-status', 'queue-join-only'].includes(selected?.key)) {
-      return 'EC2 분산 실행은 Booking, 대기열 진입 요청, CDN 공개 대기열 상태 조회, 기존 대기열 상태 조회 시나리오에서 지원합니다.';
-    }
-    if (distributedHostCount(body) === 0) {
-      return 'EC2 분산 실행에서는 VM Public IP 또는 user@IP 대상을 하나 이상 입력해야 합니다.';
-    }
-    if (selected?.key !== 'core-active-users-closed' && Number(body.get('usersPerSecond') || 0) <= 0) {
-      return 'EC2 분산 실행에서는 시작 초당 사용자 수를 노드당 RPS로 사용하므로 0보다 커야 합니다.';
-    }
-    if (selected?.key === 'queue-join-only') {
-      if (mode === 'tokens' && tokenSource !== 'generate-file') {
-        return '대기열 진입 요청 EC2 분산 실행의 토큰 파일/목록 모드는 파일 자동 생성만 지원합니다.';
-      }
-    }
-  }
-
-  if (selected?.usesAdmissionTokens) {
-    if (admissionMode === 'tokens' && !admissionTokens) {
-      return '직접 입력 모드에서는 Admission Token 목록을 하나 이상 입력해야 합니다.';
-    }
-    if (admissionMode === 'synthetic') {
-      const admissionSecret = String(body.get('admissionTokenSecret') || '').trim();
-      if (new TextEncoder().encode(admissionSecret).length < 32) {
-        return 'Admission Token 합성 생성 모드에서는 Ticket Server와 같은 Admission Secret을 32바이트 이상으로 입력해야 합니다.';
-      }
-    }
-  }
-
-  if (!selected?.usesAccessTokens) return '';
-  if (mode === 'tokens') {
-    if ((tokenSource === 'generate-file' || tokenSource === 'file') && !accessTokensFile) {
-      return 'Access Token 파일 경로를 입력해야 합니다.';
-    }
-    if (tokenSource === 'inline' && !accessTokens) {
-      return '토큰 목록 붙여넣기 방식에서는 Access Token 목록을 하나 이상 입력해야 합니다.';
-    }
-    if (tokenSource === 'generate-file') {
-      const count = Number(body.get('generatedAccessTokenCount') || 0);
-      const secret = String(body.get('jwtSecret') || '').trim();
-      const existingMemberRequired = existingMemberIdSimulationKeys.has(selected?.key);
-      if (count <= 0) {
-        return '생성할 토큰 수는 1 이상이어야 합니다.';
-      }
-      if (existingMemberRequired && !String(body.get('memberIdsFile') || '').trim()) {
-        return '이 Core 테스트에는 기존 회원 ID 파일 경로가 필요합니다.';
-      }
-      if (new TextEncoder().encode(secret).length < 32) {
-        return '토큰 파일 자동 생성에는 ticket 서버와 같은 JWT Secret을 32바이트 이상으로 입력해야 합니다.';
-      }
-    }
-    return '';
-  }
-  if (mode === 'synthetic-jwt') {
-    const secret = String(body.get('jwtSecret') || '').trim();
-    if (new TextEncoder().encode(secret).length < 32) {
-      return '테스트 JWT 생성 모드에서는 ticket 서버와 같은 JWT Secret을 32바이트 이상으로 입력해야 합니다.';
-    }
-    return '';
-  }
-
-  return '';
 }
 
 function estimateVirtualUsers(body) {
@@ -1971,7 +1726,7 @@ function updateTargetRouteSummary() {
 
 function updateApiPreview() {
   const selected = selectedSimulation();
-  const baseUrl = trimTrailingSlash(baseUrlInput.value || selected?.defaultBaseUrl || '');
+  const baseUrl = trimTrailingSlash(baseUrlInput.value || '');
   const coreBaseUrl = trimTrailingSlash(coreBaseUrlInput?.value || '(대상 미지정)');
   const queueUrl = trimTrailingSlash(selected?.usesQueueBaseUrl
     ? (queueBaseUrlInput?.value || '(대상 미지정)')
@@ -1987,17 +1742,8 @@ function updateApiPreview() {
     'queue-enter': [
       ['POST', `${queueBase}/enter`]
     ],
-    'legacy-queue-status': [
-      ['GET', `${queueBase}/status`]
-    ],
     'cdn-public-state': [
       ['GET', `${queueBase}/state`]
-    ],
-    'booking-capacity': [
-      ['GET', `${performanceBase}/seats/status`],
-      ['POST', `${performanceBase}/seats/{seatId}/select`],
-      ['POST', `${coreBaseUrl}/api/v1/orders`],
-      ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
     ],
     'smoke': [
       ['GET', `${performanceBase}/seats/status`],
@@ -2076,12 +1822,6 @@ function updateApiPreview() {
       ['POST', `${performanceBase}/seats/{seatId}/select`],
       ['POST', `${coreBaseUrl}/api/v1/orders`],
       ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
-    ],
-    'seat-contention': [
-      ['GET', `${performanceBase}/seats/status`],
-      ['POST', `${performanceBase}/seats/{seatId}/select`],
-      ['POST', `${coreBaseUrl}/api/v1/orders`],
-      ['GET', `${coreBaseUrl}/api/v1/orders/{orderKey}`]
     ]
   }[simulation] || [];
 
@@ -2116,23 +1856,17 @@ function selectedSimulation() {
   return simulationMeta.find(item => item.key === simulationSelect.value);
 }
 
+// Queue·CDN 대상 URL은 이전 선택에서 물려받지 않고 매번 직접 입력한다.
 function applySimulationDefaultBaseUrl() {
-  const selected = selectedSimulation();
-  baseUrlInput.value = selected?.defaultBaseUrl || '';
+  baseUrlInput.value = '';
 }
 
-function isAbsoluteHttpUrl(value) {
-  try {
-    return ['http:', 'https:'].includes(new URL(value).protocol);
-  } catch (error) {
-    return false;
-  }
-}
-
+// LoadTestRequest.isLocalUrl과 같은 규칙
 function isLocalhostUrl(value) {
   try {
-    const host = new URL(value).hostname.toLowerCase();
-    return ['localhost', '127.0.0.1', '::1'].includes(host);
+    const host = new URL(value).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host.endsWith('.localhost') || host.startsWith('127.')
+      || ['::1', '0:0:0:0:0:0:0:1', '0.0.0.0'].includes(host);
   } catch (error) {
     return false;
   }
@@ -2202,9 +1936,7 @@ accessTokenSource.addEventListener('change', () => { updateVisibility(); updateS
 generatedAccessTokenCount.addEventListener('input', () => { generatedAccessTokenCountTouched = true; });
 accessTokensFileInput.addEventListener('input', () => { accessTokensFileTouched = true; });
 ticketProjectPathInput.addEventListener('input', () => { updateSummary(); });
-admissionTokenMode.addEventListener('change', () => { updateVisibility(); updateSummary(); });
 resetButton.addEventListener('click', resetForm);
-capacityResetButton.addEventListener('click', launchCoreCapacityReset);
 refreshButton.addEventListener('click', refreshRuns);
 copyReportUrlButton.addEventListener('click', async () => {
   if (!reportUrlInput.value || reportUrlInput.value === '-') return;

@@ -1,25 +1,20 @@
 package com.ticket.gatling.console;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 
 public class DistributedGatlingCommandBuilder {
-
-    public List<String> build(final LoadTestRequest request, final UUID runId) {
-        return build(request, runId, "");
-    }
 
     public List<String> build(
             final LoadTestRequest request,
             final UUID runId,
             final String runDescription
     ) {
+        final boolean booking = request.simulationType().usesBookingFeeder();
         final List<String> command = new ArrayList<>();
-        command.add(powershellExecutable());
+        command.add("powershell.exe");
         command.add("-NoProfile");
         command.add("-ExecutionPolicy");
         command.add("Bypass");
@@ -37,6 +32,8 @@ public class DistributedGatlingCommandBuilder {
         command.add(String.join(",", request.distributedHostList()));
         command.add("-RemoteProjectDir");
         command.add(request.distributedRemoteProjectDir());
+        command.add("-Simulation");
+        command.add(request.simulationType().className());
         command.add("-RpsPerNode");
         final int loadPerNode = "at-once-users".equals(request.injectionMode())
                 ? request.users() : (int) Math.ceil(request.usersPerSecond());
@@ -46,16 +43,15 @@ public class DistributedGatlingCommandBuilder {
         command.add("-PerformanceId");
         command.add(request.performanceId());
 
-        if (request.simulationType().usesBookingFeeder()) {
+        if (booking) {
             addBookingArguments(command, request);
-        } else {
-            addLegacyDistributedArguments(command, request);
+            return List.copyOf(command);
         }
-
-        if (request.distributedIncludeLocal() && !request.simulationType().usesBookingFeeder()) {
+        addQueueArguments(command, request);
+        if (request.distributedIncludeLocal()) {
             command.add("-IncludeLocal");
         }
-        if (request.distributedDumpFailureBody() && !request.simulationType().usesBookingFeeder()) {
+        if (request.distributedDumpFailureBody()) {
             command.add("-DumpFailureBody");
             command.add("-DumpFailureBodyLimit");
             command.add(String.valueOf(request.distributedDumpFailureBodyLimit()));
@@ -63,13 +59,10 @@ public class DistributedGatlingCommandBuilder {
         if (request.distributedCollectReports() || request.distributedDumpFailureBody()) {
             command.add("-CollectReports");
         }
-
         return List.copyOf(command);
     }
 
     private void addBookingArguments(final List<String> command, final LoadTestRequest request) {
-        command.add("-Simulation");
-        command.add(request.simulationType().className());
         command.add("-CoreBaseUrl");
         command.add(request.coreBaseUrl());
         command.add("-QueueBaseUrl");
@@ -102,15 +95,14 @@ public class DistributedGatlingCommandBuilder {
         command.add(String.valueOf(request.admissionRateTolerancePercent()));
         command.add("-TechnicalFailureThresholdPercent");
         command.add(String.valueOf(request.technicalFailureThresholdPercent()));
-        if (request.dbAuditEnabled()) {
-            command.add("-DbAuditEnabled");
-        }
     }
 
-    private void addLegacyDistributedArguments(final List<String> command, final LoadTestRequest request) {
+    private void addQueueArguments(final List<String> command, final LoadTestRequest request) {
         command.add("-BaseUrl");
         command.add(request.baseUrl());
         if (request.simulationType() == SimulationType.QUEUE_JOIN_ONLY) {
+            // 예전 join 래퍼 스크립트가 하던 일: 로컬 프로젝트를 VM에 동기화한다.
+            command.add("-SyncProject");
             command.add("-InjectionMode");
             command.add(request.injectionMode());
         }
@@ -128,7 +120,7 @@ public class DistributedGatlingCommandBuilder {
         if (request.simulationType().usesAccessTokens()) {
             command.add("-AccessTokenMode");
             command.add(request.accessTokenMode());
-            if ("synthetic-jwt".equalsIgnoreCase(request.accessTokenMode()) || request.generatesAccessTokensFile()) {
+            if ("synthetic-jwt".equals(request.accessTokenMode()) || request.generatesAccessTokensFile()) {
                 command.add("-JwtSecret");
                 command.add(request.jwtSecret());
                 command.add("-JwtIssuer");
@@ -140,6 +132,8 @@ public class DistributedGatlingCommandBuilder {
                 command.add("-SyntheticTokenTtlSeconds");
                 command.add(String.valueOf(request.syntheticTokenTtlSeconds()));
             }
+            // 분산 join은 synthetic-jwt 또는 파일 자동 생성만 허용되므로(LoadTestService 검증)
+            // tokens 모드는 항상 여기서 -GenerateAccessTokens로 간다.
             if (request.generatesAccessTokensFile()) {
                 command.add("-GenerateAccessTokens");
                 command.add("-TokenCountPerNode");
@@ -157,35 +151,12 @@ public class DistributedGatlingCommandBuilder {
 
     private String scriptName(final SimulationType simulationType) {
         return switch (simulationType) {
-            case BOOKING_CAPACITY, TICKET_OPEN_END_TO_END, SEAT_CONTENTION,
-                    SMOKE, HOT_SEAT_CONCURRENCY, CORE_ADMISSION_CAPACITY, CORE_ACTIVE_USERS_CLOSED,
-                    CORE_SPIKE, QUEUE_PROTECTS_CORE -> "run-distributed-booking.ps1";
-            case QUEUE_JOIN_ONLY -> "run-distributed-gatling-join.ps1";
-            case CDN_PUBLIC_STATE -> "run-distributed-gatling-cdn.ps1";
-            case LEGACY_QUEUE_STATUS -> "run-distributed-gatling-legacy.ps1";
+            case TICKET_OPEN_END_TO_END, SMOKE, HOT_SEAT_CONCURRENCY, CORE_ADMISSION_CAPACITY,
+                    CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE, QUEUE_PROTECTS_CORE -> "run-distributed-booking.ps1";
+            case QUEUE_JOIN_ONLY, CDN_PUBLIC_STATE -> "run-distributed-gatling-cdn.ps1";
             default -> throw new IllegalArgumentException(
-                    "Distributed execution supports only booking, 대기열 진입 요청, CDN 공개 대기열 상태 조회 and 기존 대기열 상태 조회"
+                    "Distributed execution supports only booking, 대기열 진입 요청 and CDN 공개 대기열 상태 조회"
             );
         };
-    }
-
-    private String powershellExecutable() {
-        final boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
-        if (!windows) {
-            return "pwsh";
-        }
-
-        final String systemRoot = System.getenv().getOrDefault("SystemRoot", "C:\\Windows");
-        final List<Path> candidates = List.of(
-                Path.of(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-                Path.of("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
-                Path.of("C:\\Windows\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe")
-        );
-        for (Path candidate : candidates) {
-            if (Files.isRegularFile(candidate)) {
-                return candidate.toString();
-            }
-        }
-        return "powershell.exe";
     }
 }

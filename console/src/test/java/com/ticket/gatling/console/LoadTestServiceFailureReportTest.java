@@ -24,7 +24,7 @@ class LoadTestServiceFailureReportTest {
                 "simulation", List.of("cdn-public-state"),
                 "baseUrl", List.of("http://localhost:8090")
         ));
-        final LoadTestService service = new LoadTestService(new ReportRegistry());
+        final LoadTestService service = new LoadTestService();
 
         final LoadTestRun run = service.start(request);
         waitUntilFinished(run);
@@ -44,7 +44,7 @@ class LoadTestServiceFailureReportTest {
                 "baseUrl", List.of("http://localhost:8090"),
                 "accessTokenMode", List.of("synthetic-jwt")
         ));
-        final LoadTestService service = new LoadTestService(new ReportRegistry());
+        final LoadTestService service = new LoadTestService();
 
         final LoadTestRun run = service.start(request);
         waitUntilFinished(run);
@@ -65,7 +65,7 @@ class LoadTestServiceFailureReportTest {
                 "baseUrl", List.of("http://localhost:8090"),
                 "accessTokenMode", List.of("synthetic-jwt")
         ));
-        final LoadTestService service = new LoadTestService(new ReportRegistry());
+        final LoadTestService service = new LoadTestService();
 
         final LoadTestRun run = service.start(request);
         waitUntilFinished(run);

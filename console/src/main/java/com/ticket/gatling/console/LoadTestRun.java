@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class LoadTestRun {
     private static final Pattern BEARER_AUTHORIZATION = Pattern.compile(
@@ -133,24 +134,10 @@ public class LoadTestRun {
     }
 
     public String toJson() {
-        final String reportUrl = reportDirectory == null ? null : "/reports/" + id + "/index.html";
-        final String reportPath = reportDirectory == null ? null : reportDirectory.resolve("index.html").toString();
-        return "{"
-                + "\"id\":\"" + id + "\","
-                + "\"simulation\":\"" + Json.escape(request.simulationType().label()) + "\","
-                + "\"status\":\"" + status + "\","
-                + "\"startedAt\":\"" + startedAt + "\","
-                + "\"finishedAt\":" + Json.nullable(finishedAt == null ? null : finishedAt.toString()) + ","
-                + "\"exitCode\":" + exitCode + ","
-                + "\"reportUrl\":" + Json.nullable(reportUrl) + ","
-                + "\"reportPath\":" + Json.nullable(reportPath) + ","
-                + "\"environment\":"
-                + (environmentMetadata == null ? "null" : environmentMetadata.toJson(id)) + ","
-                + "\"log\":\"" + Json.escape(log()) + "\""
-                + "}";
+        return toJson(true);
     }
 
-    private String toListJson() {
+    private String toJson(final boolean detail) {
         final String reportUrl = reportDirectory == null ? null : "/reports/" + id + "/index.html";
         final String reportPath = reportDirectory == null ? null : reportDirectory.resolve("index.html").toString();
         return "{"
@@ -162,14 +149,16 @@ public class LoadTestRun {
                 + "\"exitCode\":" + exitCode + ","
                 + "\"reportUrl\":" + Json.nullable(reportUrl) + ","
                 + "\"reportPath\":" + Json.nullable(reportPath)
+                + (detail
+                        ? ",\"environment\":" + (environmentMetadata == null ? "null" : environmentMetadata.toJson(id))
+                        + ",\"log\":\"" + Json.escape(log()) + "\""
+                        : "")
                 + "}";
     }
 
     public static String listJson(final List<LoadTestRun> runs) {
         return runs.stream()
-                .map(LoadTestRun::toListJson)
-                .reduce((left, right) -> left + "," + right)
-                .map(value -> "[" + value + "]")
-                .orElse("[]");
+                .map(run -> run.toJson(false))
+                .collect(Collectors.joining(",", "[", "]"));
     }
 }

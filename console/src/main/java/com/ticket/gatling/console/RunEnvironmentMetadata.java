@@ -3,13 +3,15 @@ package com.ticket.gatling.console;
 import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public record RunEnvironmentMetadata(
         Instant capturedAt,
@@ -21,6 +23,43 @@ public record RunEnvironmentMetadata(
 ) {
     private static final String CAPTURE_SOURCE = "datadog";
     private static final String CAPTURE_PHASE = "preRun";
+    private static final String NOT_REPORTED = "not_reported";
+
+    /** 인스턴스별로 기록하는 값. path의 점 앞은 JSON 그룹, 뒤는 키다. */
+    record Field(
+            String path,
+            Function<DatadogRuntimeSnapshot, Object> getter,
+            String missingStatus,
+            boolean coreOnly
+    ) {
+        String group() {
+            return path.substring(0, path.indexOf('.'));
+        }
+
+        String key() {
+            return path.substring(path.indexOf('.') + 1);
+        }
+    }
+
+    static final List<Field> FIELDS = List.of(
+            new Field("machine.vcpu", DatadogRuntimeSnapshot::vcpu, NOT_REPORTED, false),
+            new Field("machine.ramBytes", DatadogRuntimeSnapshot::ramBytes, NOT_REPORTED, false),
+            new Field("application.commit", DatadogRuntimeSnapshot::commit, NOT_REPORTED, false),
+            new Field("application.javaVersion", DatadogRuntimeSnapshot::javaVersion, NOT_REPORTED, false),
+            new Field("application.imageName", DatadogRuntimeSnapshot::imageName, NOT_REPORTED, false),
+            new Field("application.imageId", DatadogRuntimeSnapshot::imageId, NOT_REPORTED, false),
+            new Field("container.id", DatadogRuntimeSnapshot::containerId, NOT_REPORTED, false),
+            new Field("container.cpuLimit", DatadogRuntimeSnapshot::containerCpuLimit, NOT_REPORTED, false),
+            new Field("container.memoryLimitBytes", DatadogRuntimeSnapshot::containerMemoryLimitBytes, NOT_REPORTED, false),
+            new Field("jvm.xmxBytes", DatadogRuntimeSnapshot::jvmXmxBytes, NOT_REPORTED, false),
+            new Field("tomcat.maxThreads", DatadogRuntimeSnapshot::tomcatMaxThreads, NOT_REPORTED, false),
+            new Field("tomcat.maxConnections", DatadogRuntimeSnapshot::tomcatMaxConnections, NOT_REPORTED, false),
+            new Field("hikari.maximumPoolSize", DatadogRuntimeSnapshot::hikariMaximumPoolSize, NOT_REPORTED, true),
+            new Field("redis.maxMemoryBytes", DatadogRuntimeSnapshot::redisMaxMemoryBytes, NOT_REPORTED, false),
+            new Field("redis.networkLocation", DatadogRuntimeSnapshot::inferredRedisNetworkLocation, NOT_REPORTED, false),
+            new Field("features.admissionTokenEnforcementEnabled",
+                    DatadogRuntimeSnapshot::admissionTokenEnforcementEnabled, "unsupported_by_datadog", true)
+    );
 
     public RunEnvironmentMetadata {
         captureWarnings = captureWarnings == null ? List.of() : List.copyOf(captureWarnings);
@@ -48,19 +87,14 @@ public record RunEnvironmentMetadata(
                 final List<DatadogRuntimeSnapshot> runtimes = client.capture(target);
                 validateRuntimes(runtimes);
 
-                final Set<String> targetWarnings = new LinkedHashSet<>();
-                runtimes.getFirst().warnings().forEach(targetWarnings::add);
+                final Set<String> targetWarnings = new LinkedHashSet<>(runtimes.getFirst().warnings());
                 for (DatadogRuntimeSnapshot runtime : runtimes) {
                     addUnavailableWarnings(target, runtime, targetWarnings);
                 }
                 addHeterogeneousWarnings(target, runtimes, targetWarnings);
                 targetWarnings.forEach(warning -> warnings.add(target.role() + ": " + warning));
 
-                targetGroups.add(RuntimeTargetGroupMetadata.captured(
-                        target,
-                        runtimes.stream().map(RuntimeInstanceMetadata::from).toList(),
-                        List.copyOf(targetWarnings)
-                ));
+                targetGroups.add(RuntimeTargetGroupMetadata.captured(target, runtimes, List.copyOf(targetWarnings)));
                 capturedTargetCount++;
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
@@ -104,27 +138,57 @@ public record RunEnvironmentMetadata(
         parts.add("runId=" + runId.toString().substring(0, 8));
         for (RuntimeTargetGroupMetadata target : targets) {
             final String role = target.role();
-            final List<RuntimeInstanceMetadata> instances = target.instances();
+            final List<DatadogRuntimeSnapshot> instances = target.instances();
             if (instances.isEmpty()) {
                 parts.add(role + "Env=failed");
                 continue;
             }
+            final String count = instances.size() > 1 ? instances.size() + "x" : "";
             if (instances.size() > 1) {
                 parts.add(role + "Instances=" + instances.size());
             }
-
-            appendCommit(parts, role, instances);
-            appendMachine(parts, role, instances);
-            appendContainer(parts, role, instances);
-            appendXmx(parts, role, instances);
-            appendAdmission(parts, role, instances);
+            describe(parts, role + "Commit", instances, instance ->
+                    hasText(instance.commit()) && !"unknown".equalsIgnoreCase(instance.commit())
+                            ? compact(instance.commit(), 12) : null);
+            describe(parts, role, instances, instance ->
+                    instance.vcpu() == null && instance.ramBytes() == null ? null
+                            : count + (instance.vcpu() == null ? "unknown" : instance.vcpu() + "vCPU")
+                            + "/" + gibibytes(instance.ramBytes()));
+            describe(parts, role + "Docker", instances, instance ->
+                    instance.containerCpuLimit() == null && instance.containerMemoryLimitBytes() == null ? null
+                            : decimal(instance.containerCpuLimit()) + "CPU/"
+                            + gibibytes(instance.containerMemoryLimitBytes()));
+            describe(parts, role + "Xmx", instances, instance ->
+                    instance.jvmXmxBytes() == null ? null : gibibytes(instance.jvmXmxBytes()));
+            if ("core".equals(role)) {
+                describe(parts, "admission", instances, instance ->
+                        instance.admissionTokenEnforcementEnabled() == null ? null
+                                : instance.admissionTokenEnforcementEnabled().toString());
+            }
         }
         return String.join(",", parts);
     }
 
+    /** 모든 인스턴스가 같은 값이면 key=value, 다르면 key=mixed, 값이 없으면 생략. */
+    private static void describe(
+            final List<String> parts,
+            final String key,
+            final List<DatadogRuntimeSnapshot> instances,
+            final Function<DatadogRuntimeSnapshot, String> format
+    ) {
+        if (instances.stream().map(format).distinct().count() > 1) {
+            parts.add(key + "=mixed");
+            return;
+        }
+        final String value = format.apply(instances.getFirst());
+        if (value != null) {
+            parts.add(key + "=" + value);
+        }
+    }
+
     String toJson(final UUID runId) {
         return "{\n"
-                + "  \"schemaVersion\": 4,\n"
+                + "  \"schemaVersion\": 5,\n"
                 + "  \"runId\": \"" + runId + "\",\n"
                 + "  \"capturedAt\": \"" + capturedAt + "\",\n"
                 + "  \"capturePhase\": \"" + CAPTURE_PHASE + "\",\n"
@@ -135,7 +199,7 @@ public record RunEnvironmentMetadata(
                 + "  \"targets\": [\n"
                 + targets.stream()
                         .map(RunEnvironmentMetadata::targetJson)
-                        .collect(java.util.stream.Collectors.joining(",\n"))
+                        .collect(Collectors.joining(",\n"))
                 + "\n  ]\n"
                 + "}";
     }
@@ -159,80 +223,40 @@ public record RunEnvironmentMetadata(
                 + "      \"instances\": [\n"
                 + target.instances().stream()
                         .map(RunEnvironmentMetadata::instanceJson)
-                        .collect(java.util.stream.Collectors.joining(",\n"))
+                        .collect(Collectors.joining(",\n"))
                 + "\n      ]\n"
                 + "    }";
     }
 
-    private static String instanceJson(final RuntimeInstanceMetadata instance) {
-        return "        {\n"
-                + "          \"instanceKey\": " + Json.nullable(instanceKey(instance)) + ",\n"
-                + "          \"host\": " + Json.nullable(nullIfBlank(instance.host())) + ",\n"
-                + "          \"observedAt\": " + instant(instance.observedAt()) + ",\n"
-                + "          \"identityObservedAt\": " + instant(instance.identityObservedAt()) + ",\n"
-                + "          \"machine\": {\"vcpu\": " + number(instance.vcpu())
-                + ", \"ramBytes\": " + number(instance.ramBytes()) + "},\n"
-                + "          \"application\": {\"commit\": "
-                + Json.nullable(nullIfBlank(instance.commit()))
-                + ", \"javaVersion\": " + Json.nullable(nullIfBlank(instance.javaVersion()))
-                + ", \"imageName\": " + Json.nullable(nullIfBlank(instance.imageName()))
-                + ", \"imageId\": " + Json.nullable(nullIfBlank(instance.imageId())) + "},\n"
-                + "          \"container\": {\"id\": " + Json.nullable(nullIfBlank(instance.containerId()))
-                + ", \"cpuLimit\": " + number(instance.containerCpuLimit())
-                + ", \"memoryLimitBytes\": " + number(instance.containerMemoryLimitBytes()) + "},\n"
-                + "          \"jvm\": {\"xmsBytes\": null, \"xmxBytes\": "
-                + number(instance.jvmXmxBytes()) + "},\n"
-                + "          \"tomcat\": {\"maxThreads\": " + number(instance.tomcatMaxThreads())
-                + ", \"maxConnections\": " + number(instance.tomcatMaxConnections()) + "},\n"
-                + "          \"hikari\": {\"maximumPoolSize\": "
-                + number(instance.hikariMaximumPoolSize()) + "},\n"
-                + "          \"oracle\": {\"instanceProfile\": null, \"networkLocation\": null,"
-                + " \"networkRttMs\": null},\n"
-                + "          \"redis\": {\"instanceProfile\": null, \"networkLocation\": "
-                + Json.nullable(nullIfBlank(instance.redisNetworkLocation()))
-                + ", \"networkRttMs\": null, \"maxMemoryBytes\": "
-                + number(instance.redisMaxMemoryBytes()) + "},\n"
-                + "          \"features\": {\"admissionTokenEnforcementEnabled\": "
-                + booleanValue(instance.admissionTokenEnforcementEnabled()) + "},\n"
-                + "          \"evidence\": " + evidenceJson(instance) + "\n"
-                + "        }";
+    private static String instanceJson(final DatadogRuntimeSnapshot instance) {
+        final Map<String, List<Field>> groups = FIELDS.stream()
+                .collect(Collectors.groupingBy(Field::group, LinkedHashMap::new, Collectors.toList()));
+        final StringBuilder json = new StringBuilder("        {\n")
+                .append("          \"instanceKey\": ").append(Json.nullable(instanceKey(instance))).append(",\n")
+                .append("          \"host\": ").append(Json.nullable(nullIfBlank(instance.host()))).append(",\n")
+                .append("          \"observedAt\": ").append(instant(instance.observedAt())).append(",\n")
+                .append("          \"identityObservedAt\": ").append(instant(instance.identityObservedAt())).append(",\n");
+        groups.forEach((group, fields) -> json.append("          \"").append(group).append("\": ")
+                .append(fields.stream()
+                        .map(field -> "\"" + field.key() + "\": " + jsonValue(field.getter().apply(instance)))
+                        .collect(Collectors.joining(", ", "{", "}")))
+                .append(",\n"));
+        return json.append("          \"evidence\": ")
+                .append(FIELDS.stream()
+                        .map(field -> "\"" + field.path() + "\": " + Json.nullable(evidence(field, instance)))
+                        .collect(Collectors.joining(", ", "{", "}")))
+                .append("\n        }")
+                .toString();
     }
 
-    private static String evidenceJson(final RuntimeInstanceMetadata instance) {
-        return "{"
-                + "\"machine.vcpu\": " + Json.nullable(evidence(instance.vcpu(), "not_reported"))
-                + ", \"machine.ramBytes\": " + Json.nullable(evidence(instance.ramBytes(), "not_reported"))
-                + ", \"application.commit\": " + Json.nullable(evidence(instance.commit(), "not_reported"))
-                + ", \"application.javaVersion\": "
-                + Json.nullable(evidence(instance.javaVersion(), "not_reported"))
-                + ", \"application.imageName\": "
-                + Json.nullable(evidence(instance.imageName(), "not_reported"))
-                + ", \"application.imageId\": "
-                + Json.nullable(evidence(instance.imageId(), "not_reported"))
-                + ", \"container.id\": " + Json.nullable(evidence(instance.containerId(), "not_reported"))
-                + ", \"container.cpuLimit\": "
-                + Json.nullable(evidence(instance.containerCpuLimit(), "not_reported"))
-                + ", \"container.memoryLimitBytes\": "
-                + Json.nullable(evidence(instance.containerMemoryLimitBytes(), "not_reported"))
-                + ", \"jvm.xmsBytes\": \"not_explicit\""
-                + ", \"jvm.xmxBytes\": " + Json.nullable(evidence(instance.jvmXmxBytes(), "not_reported"))
-                + ", \"tomcat.maxThreads\": "
-                + Json.nullable(evidence(instance.tomcatMaxThreads(), "not_reported"))
-                + ", \"tomcat.maxConnections\": "
-                + Json.nullable(evidence(instance.tomcatMaxConnections(), "not_reported"))
-                + ", \"hikari.maximumPoolSize\": "
-                + Json.nullable(evidence(instance.hikariMaximumPoolSize(), "not_reported"))
-                + ", \"oracle.instanceProfile\": \"unsupported_by_datadog\""
-                + ", \"oracle.networkLocation\": \"unsupported_by_datadog\""
-                + ", \"redis.maxMemoryBytes\": " + Json.nullable(redisMaxMemoryEvidence(instance))
-                + ", \"redis.networkLocation\": "
-                + Json.nullable(evidence(instance.redisNetworkLocation(), "not_reported"))
-                + ", \"features.admissionTokenEnforcementEnabled\": "
-                + Json.nullable(evidence(
-                        instance.admissionTokenEnforcementEnabled(),
-                        "unsupported_by_datadog"
-                ))
-                + "}";
+    private static String evidence(final Field field, final DatadogRuntimeSnapshot instance) {
+        final Object value = field.getter().apply(instance);
+        if (!hasValue(value)) {
+            return field.missingStatus();
+        }
+        return "redis.maxMemoryBytes".equals(field.path()) && Long.valueOf(0L).equals(value)
+                ? "explicit_unlimited"
+                : "observed";
     }
 
     private static void validateRuntimes(final List<DatadogRuntimeSnapshot> runtimes) {
@@ -255,52 +279,10 @@ public record RunEnvironmentMetadata(
             final DatadogRuntimeSnapshot runtime,
             final Set<String> warnings
     ) {
-        final String instance = runtime.host() + ": ";
-        addUnavailable(warnings, runtime.vcpu() == null, instance + "not reported: machine.vcpu");
-        addUnavailable(warnings, runtime.ramBytes() == null, instance + "not reported: machine.ramBytes");
-        addUnavailable(warnings, !hasText(runtime.commit()), instance + "not reported: application.commit");
-        addUnavailable(warnings, !hasText(runtime.javaVersion()), instance + "not reported: application.javaVersion");
-        addUnavailable(warnings, !hasText(runtime.imageName()), instance + "not reported: application.imageName");
-        addUnavailable(warnings, !hasText(runtime.imageId()), instance + "not reported: application.imageId");
-        addUnavailable(warnings, !hasText(runtime.containerId()), instance + "not reported: container.id");
-        addUnavailable(warnings, runtime.containerCpuLimit() == null, instance + "not reported: container.cpuLimit");
-        addUnavailable(
-                warnings,
-                runtime.containerMemoryLimitBytes() == null,
-                instance + "not reported: container.memoryLimitBytes"
-        );
-        warnings.add(instance + "not explicit: jvm.xmsBytes");
-        addUnavailable(warnings, runtime.jvmXmxBytes() == null, instance + "not reported: jvm.xmxBytes");
-        addUnavailable(warnings, runtime.tomcatMaxThreads() == null, instance + "not reported: tomcat.maxThreads");
-        addUnavailable(
-                warnings,
-                runtime.tomcatMaxConnections() == null,
-                instance + "not reported: tomcat.maxConnections"
-        );
-        addUnavailable(
-                warnings,
-                runtime.redisMaxMemoryBytes() == null,
-                instance + "not reported: redis.maxMemoryBytes"
-        );
-        addUnavailable(
-                warnings,
-                !hasText(runtime.inferredRedisNetworkLocation()),
-                instance + "not reported: redis.networkLocation"
-        );
-        if (target.core()) {
-            addUnavailable(
-                    warnings,
-                    runtime.hikariMaximumPoolSize() == null,
-                    instance + "not reported: hikari.maximumPoolSize"
-            );
-            warnings.add(instance + "unsupported by current Datadog telemetry: oracle.instanceProfile");
-            warnings.add(instance + "unsupported by current Datadog telemetry: oracle.networkLocation");
-            addUnavailable(
-                    warnings,
-                    runtime.admissionTokenEnforcementEnabled() == null,
-                    instance + "unsupported by current Datadog telemetry: "
-                            + "features.admissionTokenEnforcementEnabled"
-            );
+        for (Field field : FIELDS) {
+            if ((!field.coreOnly() || target.core()) && !hasValue(field.getter().apply(runtime))) {
+                warnings.add(runtime.host() + ": " + field.missingStatus().replace('_', ' ') + ": " + field.path());
+            }
         }
     }
 
@@ -309,158 +291,12 @@ public record RunEnvironmentMetadata(
             final List<DatadogRuntimeSnapshot> runtimes,
             final Set<String> warnings
     ) {
-        if (runtimes.size() < 2) {
-            return;
+        for (Field field : FIELDS) {
+            if ((!field.coreOnly() || target.core())
+                    && runtimes.stream().map(field.getter()).distinct().count() > 1) {
+                warnings.add("heterogeneous across active hosts: " + field.path());
+            }
         }
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::vcpu, "machine.vcpu");
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::ramBytes, "machine.ramBytes");
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::commit, "application.commit");
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::javaVersion, "application.javaVersion");
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::imageId, "application.imageId");
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::containerId, "container.id");
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::containerCpuLimit, "container.cpuLimit");
-        addHeterogeneous(
-                warnings,
-                runtimes,
-                DatadogRuntimeSnapshot::containerMemoryLimitBytes,
-                "container.memoryLimitBytes"
-        );
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::jvmXmxBytes, "jvm.xmxBytes");
-        addHeterogeneous(warnings, runtimes, DatadogRuntimeSnapshot::tomcatMaxThreads, "tomcat.maxThreads");
-        addHeterogeneous(
-                warnings,
-                runtimes,
-                DatadogRuntimeSnapshot::tomcatMaxConnections,
-                "tomcat.maxConnections"
-        );
-        if (target.core()) {
-            addHeterogeneous(
-                    warnings,
-                    runtimes,
-                    DatadogRuntimeSnapshot::hikariMaximumPoolSize,
-                    "hikari.maximumPoolSize"
-            );
-            addHeterogeneous(
-                    warnings,
-                    runtimes,
-                    DatadogRuntimeSnapshot::admissionTokenEnforcementEnabled,
-                    "features.admissionTokenEnforcementEnabled"
-            );
-        }
-    }
-
-    private static <T> void addHeterogeneous(
-            final Set<String> warnings,
-            final List<DatadogRuntimeSnapshot> runtimes,
-            final Function<DatadogRuntimeSnapshot, T> value,
-            final String field
-    ) {
-        final T first = value.apply(runtimes.getFirst());
-        if (runtimes.stream().skip(1).anyMatch(runtime -> !Objects.equals(first, value.apply(runtime)))) {
-            warnings.add("heterogeneous across active hosts: " + field);
-        }
-    }
-
-    private static void addUnavailable(
-            final Set<String> warnings,
-            final boolean unavailable,
-            final String warning
-    ) {
-        if (unavailable) {
-            warnings.add(warning);
-        }
-    }
-
-    private static void appendCommit(
-            final List<String> parts,
-            final String role,
-            final List<RuntimeInstanceMetadata> instances
-    ) {
-        if (!uniform(instances, RuntimeInstanceMetadata::commit)) {
-            parts.add(role + "Commit=mixed");
-            return;
-        }
-        final String commit = instances.getFirst().commit();
-        if (hasText(commit) && !"unknown".equalsIgnoreCase(commit)) {
-            parts.add(role + "Commit=" + compact(commit, 12));
-        }
-    }
-
-    private static void appendMachine(
-            final List<String> parts,
-            final String role,
-            final List<RuntimeInstanceMetadata> instances
-    ) {
-        if (!uniform(instances, RuntimeInstanceMetadata::vcpu)
-                || !uniform(instances, RuntimeInstanceMetadata::ramBytes)) {
-            parts.add(role + "=mixed");
-            return;
-        }
-        final RuntimeInstanceMetadata first = instances.getFirst();
-        if (first.vcpu() != null || first.ramBytes() != null) {
-            final String count = instances.size() > 1 ? instances.size() + "x" : "";
-            parts.add(role + "=" + count
-                    + (first.vcpu() == null ? "unknown" : first.vcpu() + "vCPU")
-                    + "/" + gibibytes(first.ramBytes()));
-        }
-    }
-
-    private static void appendContainer(
-            final List<String> parts,
-            final String role,
-            final List<RuntimeInstanceMetadata> instances
-    ) {
-        if (!uniform(instances, RuntimeInstanceMetadata::containerCpuLimit)
-                || !uniform(instances, RuntimeInstanceMetadata::containerMemoryLimitBytes)) {
-            parts.add(role + "Docker=mixed");
-            return;
-        }
-        final RuntimeInstanceMetadata first = instances.getFirst();
-        if (first.containerCpuLimit() != null || first.containerMemoryLimitBytes() != null) {
-            parts.add(role + "Docker=" + decimal(first.containerCpuLimit())
-                    + "CPU/" + gibibytes(first.containerMemoryLimitBytes()));
-        }
-    }
-
-    private static void appendXmx(
-            final List<String> parts,
-            final String role,
-            final List<RuntimeInstanceMetadata> instances
-    ) {
-        if (!uniform(instances, RuntimeInstanceMetadata::jvmXmxBytes)) {
-            parts.add(role + "Xmx=mixed");
-            return;
-        }
-        final Long xmx = instances.getFirst().jvmXmxBytes();
-        if (xmx != null) {
-            parts.add(role + "Xmx=" + gibibytes(xmx));
-        }
-    }
-
-    private static void appendAdmission(
-            final List<String> parts,
-            final String role,
-            final List<RuntimeInstanceMetadata> instances
-    ) {
-        if (!"core".equals(role)) {
-            return;
-        }
-        if (!uniform(instances, RuntimeInstanceMetadata::admissionTokenEnforcementEnabled)) {
-            parts.add("admission=mixed");
-            return;
-        }
-        final Boolean admission = instances.getFirst().admissionTokenEnforcementEnabled();
-        if (admission != null) {
-            parts.add("admission=" + admission);
-        }
-    }
-
-    private static <T> boolean uniform(
-            final List<RuntimeInstanceMetadata> instances,
-            final Function<RuntimeInstanceMetadata, T> value
-    ) {
-        final T first = value.apply(instances.getFirst());
-        return instances.stream().skip(1).allMatch(instance -> Objects.equals(first, value.apply(instance)));
     }
 
     static String sanitizeBaseUrl(final String value) {
@@ -506,29 +342,19 @@ public record RunEnvironmentMetadata(
                 : String.format(Locale.ROOT, "%.2f", value);
     }
 
-    private static String instanceKey(final RuntimeInstanceMetadata instance) {
+    private static String instanceKey(final DatadogRuntimeSnapshot instance) {
         return hasText(instance.containerId()) ? instance.containerId() : nullIfBlank(instance.host());
     }
 
-    private static String evidence(final Object value, final String unavailableStatus) {
-        return value == null || value instanceof String string && string.isBlank()
-                ? unavailableStatus
-                : "observed";
-    }
-
-    private static String redisMaxMemoryEvidence(final RuntimeInstanceMetadata instance) {
-        if (instance.redisMaxMemoryBytes() == null) {
-            return "not_reported";
+    private static String jsonValue(final Object value) {
+        if (value instanceof String string) {
+            return Json.nullable(nullIfBlank(string));
         }
-        return instance.redisMaxMemoryBytes() == 0L ? "explicit_unlimited" : "observed";
-    }
-
-    private static String number(final Number value) {
         return value == null ? "null" : value.toString();
     }
 
-    private static String booleanValue(final Boolean value) {
-        return value == null ? "null" : value.toString();
+    private static boolean hasValue(final Object value) {
+        return value != null && !(value instanceof String string && string.isBlank());
     }
 
     private static String instant(final Instant value) {
@@ -538,7 +364,7 @@ public record RunEnvironmentMetadata(
     private static String stringArray(final List<String> values) {
         return values.stream()
                 .map(Json::nullable)
-                .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
+                .collect(Collectors.joining(", ", "[", "]"));
     }
 
     private static String nullIfBlank(final String value) {
@@ -560,7 +386,7 @@ record RuntimeTargetGroupMetadata(
         String datadogService,
         String datadogMetricPrefix,
         String datadogContainerName,
-        List<RuntimeInstanceMetadata> instances
+        List<DatadogRuntimeSnapshot> instances
 ) {
     RuntimeTargetGroupMetadata {
         captureWarnings = captureWarnings == null ? List.of() : List.copyOf(captureWarnings);
@@ -569,7 +395,7 @@ record RuntimeTargetGroupMetadata(
 
     static RuntimeTargetGroupMetadata captured(
             final DatadogTargetInput target,
-            final List<RuntimeInstanceMetadata> instances,
+            final List<DatadogRuntimeSnapshot> instances,
             final List<String> warnings
     ) {
         return new RuntimeTargetGroupMetadata(
@@ -598,52 +424,6 @@ record RuntimeTargetGroupMetadata(
                 target.datadogMetricPrefix(),
                 target.datadogContainerName(),
                 List.of()
-        );
-    }
-}
-
-record RuntimeInstanceMetadata(
-        Instant observedAt,
-        Instant identityObservedAt,
-        String host,
-        String containerId,
-        Integer vcpu,
-        Long ramBytes,
-        Double containerCpuLimit,
-        Long containerMemoryLimitBytes,
-        Long jvmXmxBytes,
-        String javaVersion,
-        String commit,
-        String imageName,
-        String imageId,
-        Integer tomcatMaxThreads,
-        Integer tomcatMaxConnections,
-        Integer hikariMaximumPoolSize,
-        Long redisMaxMemoryBytes,
-        String redisNetworkLocation,
-        Boolean admissionTokenEnforcementEnabled
-) {
-    static RuntimeInstanceMetadata from(final DatadogRuntimeSnapshot runtime) {
-        return new RuntimeInstanceMetadata(
-                runtime.observedAt(),
-                runtime.identityObservedAt(),
-                runtime.host(),
-                runtime.containerId(),
-                runtime.vcpu(),
-                runtime.ramBytes(),
-                runtime.containerCpuLimit(),
-                runtime.containerMemoryLimitBytes(),
-                runtime.jvmXmxBytes(),
-                runtime.javaVersion(),
-                runtime.commit(),
-                runtime.imageName(),
-                runtime.imageId(),
-                runtime.tomcatMaxThreads(),
-                runtime.tomcatMaxConnections(),
-                runtime.hikariMaximumPoolSize(),
-                runtime.redisMaxMemoryBytes(),
-                runtime.inferredRedisNetworkLocation(),
-                runtime.admissionTokenEnforcementEnabled()
         );
     }
 }

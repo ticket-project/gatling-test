@@ -12,10 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GatlingCommandBuilderTest {
 
     @Test
-    void buildsBookingCapacityCommandFromFeederContract() {
+    void buildsSmokeCommandFromFeederContract() {
         final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
                 "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
-                "simulation", List.of("booking-capacity"),
+                "simulation", List.of("smoke"),
                 "coreBaseUrl", List.of("https://api.example.com"),
                 "queueBaseUrl", List.of("https://queue.example.com"),
                 "bookingFeederFile", List.of("C:/feeders/booking.csv"),
@@ -23,55 +23,17 @@ class GatlingCommandBuilderTest {
                 "pollingTimeoutSeconds", List.of("300")
         ));
 
-        final List<String> command = new GatlingCommandBuilder().build(request);
+        final List<String> command = new GatlingCommandBuilder().build(request, null, "");
 
-        assertTrue(command.contains("com.ticket.loadtest.simulation.BookingCapacitySimulation"));
+        assertTrue(command.contains("com.ticket.loadtest.simulation.SmokeSimulation"));
         assertTrue(command.contains("-DcoreBaseUrl=https://api.example.com"));
         assertFalse(command.contains("-DqueueBaseUrl=https://queue.example.com"));
         assertTrue(command.contains("-DbookingFeederFile=C:/feeders/booking.csv"));
-        assertTrue(command.contains("-DbookingScenario=BOOKING_CAPACITY"));
+        assertTrue(command.contains("-DbookingScenario=SMOKE"));
         assertTrue(command.contains("-DresultFile=build/results/booking.csv"));
         assertTrue(command.contains("-DpollingTimeoutSeconds=300"));
-        assertFalse(command.stream().anyMatch(value -> value.startsWith("-DadmissionTokenSecret=")));
-    }
-
-    @Test
-    void buildsSeatContentionCommandWithoutTokenSecrets() {
-        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
-                "simulation", List.of("seat-contention"),
-                "coreBaseUrl", List.of("https://api.example.com"),
-                "bookingFeederFile", List.of("C:/feeders/contention.csv")
-        ));
-
-        final List<String> command = new GatlingCommandBuilder().build(request);
-
-        assertTrue(command.contains("com.ticket.loadtest.simulation.SeatContentionSimulation"));
-        assertTrue(command.contains("-DbookingScenario=SEAT_CONTENTION"));
-        assertTrue(command.contains("-DbookingFeederFile=C:/feeders/contention.csv"));
-        assertFalse(command.stream().anyMatch(value -> value.startsWith("-DadmissionTokens=")));
-        assertFalse(command.stream().anyMatch(value -> value.startsWith("-DadmissionTokenSecret=")));
-    }
-    @Test
-    void buildsLegacyQueueStatusCommandWithPollingOptions() {
-        final LoadTestRequest request = LoadTestRequest.fromForm(Map.of(
-                "ticketProjectPath", List.of("C:/ticket-gatling-load-tests"),
-                "simulation", List.of("legacy-queue-status"),
-                "baseUrl", List.of("http://localhost:8090"),
-                "performanceId", List.of("13669679"),
-                "statusPolls", List.of("20"),
-                "statusPollPauseSeconds", List.of("5"),
-                "statusPollPauseJitterSeconds", List.of("2")
-        ));
-
-        final List<String> command = new GatlingCommandBuilder().build(request);
-
-        assertTrue(command.contains("com.ticket.loadtest.simulation.LegacyQueueStatusSimulation"));
-        assertTrue(command.contains("-DbaseUrl=http://localhost:8090"));
-        assertTrue(command.contains("-DperformanceId=13669679"));
-        assertTrue(command.contains("-DstatusPolls=20"));
-        assertTrue(command.contains("-DstatusPollPauseSeconds=5"));
-        assertTrue(command.contains("-DstatusPollPauseJitterSeconds=2"));
+        assertFalse(command.stream().anyMatch(value -> value.startsWith("-DadmissionToken")));
+        assertFalse(command.stream().anyMatch(value -> value.startsWith("-DnodeIndex=")));
     }
 
     @Test
@@ -83,7 +45,7 @@ class GatlingCommandBuilderTest {
                 "accessTokenMode", List.of("synthetic-jwt")
         ));
 
-        final List<String> command = new GatlingCommandBuilder().build(request);
+        final List<String> command = new GatlingCommandBuilder().build(request, null, "");
 
         assertTrue(command.contains("com.ticket.loadtest.simulation.QueueJoinOnlySimulation"));
         assertTrue(command.contains("-DbaseUrl="));
@@ -91,8 +53,6 @@ class GatlingCommandBuilderTest {
         assertTrue(command.contains("-DperformanceId=13669679"));
         assertTrue(command.contains("-DaccessTokenMode=synthetic-jwt"));
         assertFalse(command.contains("-DstatusPolls=3"));
-        assertFalse(command.contains("-DseatIds=1"));
-        assertFalse(command.contains("-DadmissionTokenMode=synthetic"));
     }
 
     @Test
@@ -105,7 +65,7 @@ class GatlingCommandBuilderTest {
                 "accessTokensFile", List.of("C:/tokens/access-tokens.txt")
         ));
 
-        final List<String> command = new GatlingCommandBuilder().build(request);
+        final List<String> command = new GatlingCommandBuilder().build(request, null, "");
 
         assertTrue(command.contains("-DaccessTokensFile=C:/tokens/access-tokens.txt"));
         assertFalse(command.contains("-DaccessTokens=inline-token"));
@@ -121,7 +81,7 @@ class GatlingCommandBuilderTest {
                 "accessTokensFile", List.of("C:/tokens/generated-access-tokens.txt")
         ));
 
-        final List<String> command = new GatlingCommandBuilder().build(request);
+        final List<String> command = new GatlingCommandBuilder().build(request, null, "");
 
         assertTrue(command.contains("-DaccessTokensFile=C:/tokens/generated-access-tokens.txt"));
         assertFalse(command.stream().anyMatch(value -> value.startsWith("-DaccessTokens=")));
@@ -140,7 +100,7 @@ class GatlingCommandBuilderTest {
                 "statusPollPauseJitterSeconds", List.of("2")
         ));
 
-        final List<String> command = new GatlingCommandBuilder().build(request);
+        final List<String> command = new GatlingCommandBuilder().build(request, null, "");
 
         assertTrue(command.contains("com.ticket.loadtest.simulation.CdnPublicStateSimulation"));
         assertTrue(command.contains("-DbaseUrl=https://queue.example.com"));
@@ -161,7 +121,7 @@ class GatlingCommandBuilderTest {
                 "statusPollPauseJitterSeconds", List.of("2")
         ));
 
-        final List<String> command = new GatlingCommandBuilder().build(request);
+        final List<String> command = new GatlingCommandBuilder().build(request, null, "");
 
         assertTrue(command.contains("com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation"));
         assertTrue(command.contains("-DpollingTimeoutSeconds=240"));
@@ -177,7 +137,8 @@ class GatlingCommandBuilderTest {
 
         final List<String> command = new GatlingCommandBuilder().build(
                 request,
-                Path.of("C:/ticket/load-tests/gatling/build/tmp/gatling-console-runs/run-1")
+                Path.of("C:/ticket/load-tests/gatling/build/tmp/gatling-console-runs/run-1"),
+                ""
         );
 
         assertTrue(command.contains("-DgatlingReportDir=C:\\ticket\\load-tests\\gatling\\build\\tmp\\gatling-console-runs\\run-1")
@@ -232,7 +193,7 @@ class GatlingCommandBuilderTest {
                 "injectionMode", List.of("closed-core")
         ));
 
-        final List<String> command = new GatlingCommandBuilder().build(request);
+        final List<String> command = new GatlingCommandBuilder().build(request, null, "");
 
         assertTrue(command.contains("com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation"));
         assertTrue(command.contains("-DbookingFeederRows=10000"));
@@ -269,7 +230,7 @@ class GatlingCommandBuilderTest {
                 Map.entry("jwtSecret", List.of("0123456789abcdef0123456789abcdef"))
         ));
 
-        final List<String> command = new GatlingCommandBuilder().build(request);
+        final List<String> command = new GatlingCommandBuilder().build(request, null, "");
 
         assertTrue(command.contains("-DbookingFeederFile=C:/feeders/order-lookup.csv"));
         assertTrue(command.contains("-DaccessTokenMode=synthetic-jwt"));

@@ -3,17 +3,8 @@ package com.ticket.gatling.console;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 public class GatlingCommandBuilder {
-
-    public List<String> build(final LoadTestRequest request) {
-        return build(request, null, "");
-    }
-
-    public List<String> build(final LoadTestRequest request, final Path gatlingReportDir) {
-        return build(request, gatlingReportDir, "");
-    }
 
     public List<String> build(
             final LoadTestRequest request,
@@ -21,7 +12,7 @@ public class GatlingCommandBuilder {
             final String runDescription
     ) {
         final List<String> command = new ArrayList<>();
-        command.add(gradleWrapper(request));
+        command.add(request.gradleWrapper());
         command.add("-p");
         command.add("load-tests/gatling");
         command.add("gatlingRun");
@@ -46,15 +37,13 @@ public class GatlingCommandBuilder {
                     command.add("-DbookingFeederRows=" + request.bookingFeederRows());
                 }
             }
-            command.add("-DbookingScenario=" + request.bookingScenario());
-            command.add("-DnodeIndex=" + request.nodeIndex());
+            command.add("-DbookingScenario=" + request.simulationType().bookingScenario());
             command.add("-DresultFile=" + request.resultFile());
             command.add("-DtechnicalFailureThresholdPercent=" + request.technicalFailureThresholdPercent());
             command.add("-DpollingTimeoutSeconds=" + request.pollingTimeoutSeconds());
             command.add("-DqueueTimeoutThresholdPercent=" + request.queueTimeoutThresholdPercent());
             command.add("-DmaxCoreAdmissionsPerSecond=" + request.maxCoreAdmissionsPerSecond());
             command.add("-DadmissionRateTolerancePercent=" + request.admissionRateTolerancePercent());
-            command.add("-DdbAuditEnabled=" + request.dbAuditEnabled());
         } else {
             command.add("-DbaseUrl=" + request.baseUrl());
         }
@@ -71,7 +60,7 @@ public class GatlingCommandBuilder {
                 && !request.simulationType().usesFeederAccessTokens()) {
             command.add("-DaccessTokenMode=" + request.accessTokenMode());
 
-            if ("synthetic-jwt".equalsIgnoreCase(request.accessTokenMode())) {
+            if ("synthetic-jwt".equals(request.accessTokenMode())) {
                 command.add("-DjwtSecret=" + request.jwtSecret());
                 command.add("-DjwtIssuer=" + request.jwtIssuer());
                 command.add("-DsyntheticMemberStartId=" + request.syntheticMemberStartId());
@@ -83,25 +72,10 @@ public class GatlingCommandBuilder {
                 command.add("-DaccessTokens=" + request.accessTokens());
             }
         }
-
-        if (request.simulationType().usesSeatIds()) {
-            command.add("-DseatIds=" + request.seatIds());
-        }
         if (request.simulationType().usesStatusPolling()) {
             command.add("-DstatusPolls=" + request.statusPolls());
             command.add("-DstatusPollPauseSeconds=" + request.statusPollPauseSeconds());
             command.add("-DstatusPollPauseJitterSeconds=" + request.statusPollPauseJitterSeconds());
-        }
-        if (request.simulationType().usesAdmissionTokens()) {
-            command.add("-DadmissionTokenMode=" + request.admissionTokenMode());
-            if ("synthetic".equalsIgnoreCase(request.admissionTokenMode())) {
-                command.add("-DadmissionTokenIssuer=" + request.admissionTokenIssuer());
-                command.add("-DadmissionTokenAudience=" + request.admissionTokenAudience());
-                command.add("-DadmissionTokenSecret=" + request.admissionTokenSecret());
-                command.add("-DadmissionTokenTtlSeconds=" + request.admissionTokenTtlSeconds());
-            } else if (!request.admissionTokens().isBlank()) {
-                command.add("-DadmissionTokens=" + request.admissionTokens());
-            }
         }
         return List.copyOf(command);
     }
@@ -112,17 +86,12 @@ public class GatlingCommandBuilder {
             final String reportDirectoryName
     ) {
         return List.of(
-                gradleWrapper(request),
+                request.gradleWrapper(),
                 "-p",
                 "load-tests/gatling",
                 "gatlingReport",
                 "-DgatlingReportDir=" + gatlingReportDir.toAbsolutePath().normalize(),
                 "-DgatlingReportName=" + reportDirectoryName
         );
-    }
-
-    private String gradleWrapper(final LoadTestRequest request) {
-        final boolean windows = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
-        return request.ticketProjectPath().resolve(windows ? "gradlew.bat" : "gradlew").toString();
     }
 }

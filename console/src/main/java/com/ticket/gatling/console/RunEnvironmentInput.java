@@ -20,37 +20,11 @@ public record RunEnvironmentInput(
                 simulationType.usesQueueBaseUrl() ? queueBaseUrl : baseUrl
         );
         final DatadogTargetInput core = DatadogTargetInput.core(coreBaseUrl);
-        final List<DatadogTargetInput> targets = switch (simulationType) {
-            case QUEUE_JOIN_ONLY, QUEUE_ENTER, LEGACY_QUEUE_STATUS, CDN_PUBLIC_STATE -> List.of(queue);
-            case BOOKING_CAPACITY, SEAT_CONTENTION,
-                    CORE_PERFORMANCE_SUMMARY_API, CORE_SEAT_STATUS_API, CORE_SEAT_SELECT_API,
-                    CORE_ORDER_CREATE_API, CORE_ORDER_GET_API, SMOKE, HOT_SEAT_CONCURRENCY,
-                    CORE_ADMISSION_CAPACITY, CORE_REALISTIC_CONTENTION, CORE_REALISTIC_USER_MIX,
-                    CORE_ACTIVE_USERS_CLOSED, CORE_SPIKE -> List.of(core);
-            case TICKET_OPEN_END_TO_END, QUEUE_PROTECTS_CORE -> List.of(queue, core);
-        };
+        final List<DatadogTargetInput> targets = !simulationType.usesCoreBookingFlow()
+                ? List.of(queue)
+                : simulationType.usesQueueBaseUrl() ? List.of(queue, core) : List.of(core);
         // 로컬 대상에는 Datadog 에이전트가 없다. 캡처를 시도하면 실패 로그만 남으므로 아예 끈다.
-        return new RunEnvironmentInput(!isLocalHost(coreBaseUrl), targets);
-    }
-
-    private static boolean isLocalHost(final String url) {
-        if (url == null || url.isBlank()) {
-            return false;
-        }
-        try {
-            final String host = new java.net.URI(url.trim()).getHost();
-            if (host == null) {
-                return false;
-            }
-            final String normalized = host.toLowerCase(java.util.Locale.ROOT);
-            return normalized.equals("localhost")
-                    || normalized.endsWith(".localhost")
-                    || normalized.startsWith("127.")
-                    || normalized.equals("0:0:0:0:0:0:0:1")
-                    || normalized.equals("0.0.0.0");
-        } catch (java.net.URISyntaxException exception) {
-            return false;
-        }
+        return new RunEnvironmentInput(!LoadTestRequest.isLocalUrl(coreBaseUrl), targets);
     }
 }
 

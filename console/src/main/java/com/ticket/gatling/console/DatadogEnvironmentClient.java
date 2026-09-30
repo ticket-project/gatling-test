@@ -7,9 +7,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -42,15 +39,11 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
     private final String appKey;
 
     DatadogEnvironmentClient() {
-        this(DatadogCredentials.load());
-    }
-
-    private DatadogEnvironmentClient(final DatadogCredentials credentials) {
         this(
                 HttpClient.newBuilder().connectTimeout(TIMEOUT).build(),
-                siteUri(credentials.site()),
-                credentials.apiKey(),
-                credentials.appKey()
+                siteUri(System.getenv("DATADOG_SITE")),
+                System.getenv("DATADOG_API_KEY"),
+                System.getenv("DATADOG_APP_KEY")
         );
     }
 
@@ -71,97 +64,39 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
             throws IOException, InterruptedException {
         requireCredentials();
         final List<String> warnings = new ArrayList<>();
-        final List<MetricQueryResult> observations = new ArrayList<>();
-        final String metricPrefix = target.datadogMetricPrefix();
-        final String applicationSelector = applicationSelector(target);
-        final String identityQuery = "max:" + metricPrefix + ".jvm_info{" + applicationSelector
-                + "} by {host,version,git.commit.sha,image_name,java_version,admission_enforcement}";
-        final MetricQueryResult identity = requiredQuery(identityQuery);
-        observations.add(identity);
+        final List<List<MetricSeries>> observed = new ArrayList<>();
+        final String prefix = target.datadogMetricPrefix();
+        final String app = applicationSelector(target);
+        final List<MetricSeries> identity = requiredQuery("max:" + prefix + ".jvm_info{" + app
+                + "} by {host,version,git.commit.sha,image_name,java_version,admission_enforcement}");
+        observed.add(identity);
         final List<String> hosts = resolveActiveHosts(identity, Instant.now().toEpochMilli());
 
-        final String infrastructureSelector = infrastructureSelector(target, hosts);
-        final MetricQueryResult machineCpu = optionalQuery(
-                "system.cpu.num_cores",
-                "max:system.cpu.num_cores{" + infrastructureSelector + "} by {host}",
-                warnings,
-                observations
-        );
-        final MetricQueryResult machineRam = optionalQuery(
-                "system.mem.total",
-                "max:system.mem.total{" + infrastructureSelector + "} by {host}",
-                warnings,
-                observations
-        );
-        final String containerSelector = infrastructureSelector
-                + " AND container_name:" + target.datadogContainerName();
-        final MetricQueryResult containerCpu = optionalQuery(
-                "container.cpu.limit",
-                "max:container.cpu.limit{" + containerSelector
-                        + "} by {host,container_id,container_name,image_id,image_name,image_tag}",
-                warnings,
-                observations
-        );
-        final MetricQueryResult containerMemory = optionalQuery(
-                "container.memory.limit",
-                "max:container.memory.limit{" + containerSelector
-                        + "} by {host,container_id,container_name,image_id,image_name,image_tag}",
-                warnings,
-                observations
-        );
-        final MetricQueryResult jvmGcMax = optionalQuery(
-                metricPrefix + ".jvm_gc_max_data_size_bytes",
-                "max:" + metricPrefix + ".jvm_gc_max_data_size_bytes{" + applicationSelector
-                        + "} by {host}",
-                warnings,
-                observations
-        );
-        final MetricQueryResult jvmMax = optionalQuery(
-                metricPrefix + ".jvm_memory_max_bytes",
-                "max:" + metricPrefix + ".jvm_memory_max_bytes{" + applicationSelector
-                        + "} by {host,area,id}",
-                warnings,
-                observations
-        );
-        final MetricQueryResult tomcatThreads = optionalQuery(
-                metricPrefix + ".tomcat_threads_config_max_threads",
-                "max:" + metricPrefix + ".tomcat_threads_config_max_threads{"
-                        + applicationSelector + "} by {host}",
-                warnings,
-                observations
-        );
-        final MetricQueryResult tomcatConnections = optionalQuery(
-                metricPrefix + ".tomcat_connections_config_max_connections",
-                "max:" + metricPrefix + ".tomcat_connections_config_max_connections{"
-                        + applicationSelector + "} by {host}",
-                warnings,
-                observations
-        );
-        final MetricQueryResult hikariMaximumPool = target.core()
-                ? optionalQuery(
-                        metricPrefix + ".hikaricp_connections_max",
-                        "max:" + metricPrefix + ".hikaricp_connections_max{"
-                                + applicationSelector + "} by {host}",
-                        warnings,
-                        observations
-                )
-                : MetricQueryResult.empty("");
-        final MetricQueryResult redisMaxMemory = optionalQuery(
-                "redis.mem.maxmemory",
-                "max:redis.mem.maxmemory{" + infrastructureSelector + "} by {host,redis_host}",
-                warnings,
-                observations
-        );
+        final String infra = infrastructureSelector(target, hosts);
+        final String container = infra + " AND container_name:" + target.datadogContainerName();
+        final String containerTags = "host,container_id,container_name,image_id,image_name,image_tag";
+        final List<MetricSeries> machineCpu = metric("system.cpu.num_cores", infra, "host", warnings, observed);
+        final List<MetricSeries> machineRam = metric("system.mem.total", infra, "host", warnings, observed);
+        final List<MetricSeries> containerCpu = metric("container.cpu.limit", container, containerTags, warnings, observed);
+        final List<MetricSeries> containerMemory = metric("container.memory.limit", container, containerTags, warnings, observed);
+        final List<MetricSeries> jvmGcMax = metric(prefix + ".jvm_gc_max_data_size_bytes", app, "host", warnings, observed);
+        final List<MetricSeries> jvmMax = metric(prefix + ".jvm_memory_max_bytes", app, "host,area,id", warnings, observed);
+        final List<MetricSeries> tomcatThreads = metric(prefix + ".tomcat_threads_config_max_threads", app, "host", warnings, observed);
+        final List<MetricSeries> tomcatConnections = metric(prefix + ".tomcat_connections_config_max_connections", app, "host", warnings, observed);
+        final List<MetricSeries> hikariMaximumPool = target.core()
+                ? metric(prefix + ".hikaricp_connections_max", app, "host", warnings, observed)
+                : List.of();
+        final List<MetricSeries> redisMaxMemory = metric("redis.mem.maxmemory", infra, "host,redis_host", warnings, observed);
 
         final List<DatadogRuntimeSnapshot> snapshots = new ArrayList<>();
         for (String host : hosts) {
-            final MetricSeries identitySeries = identity.series().stream()
+            final MetricSeries identitySeries = identity.stream()
                     .filter(series -> host.equals(series.tags().get("host")))
                     .max(java.util.Comparator.comparingLong(MetricSeries::timestamp))
                     .orElse(null);
             final MetricSeries containerSeries = latestSeries(containerCpu, host);
             snapshots.add(new DatadogRuntimeSnapshot(
-                    latestObservedAt(observations, host),
+                    latestObservedAt(observed, host),
                     identitySeries == null ? null : Instant.ofEpochMilli(identitySeries.timestamp()),
                     host,
                     tag(containerSeries, "container_id"),
@@ -217,26 +152,27 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
         return List.copyOf(series);
     }
 
-    private MetricQueryResult optionalQuery(
-            final String label,
-            final String query,
+    private List<MetricSeries> metric(
+            final String name,
+            final String selector,
+            final String byTags,
             final List<String> warnings,
-            final List<MetricQueryResult> observations
+            final List<List<MetricSeries>> observed
     ) throws InterruptedException {
         try {
-            final MetricQueryResult result = query(query);
-            observations.add(result);
+            final List<MetricSeries> result = query("max:" + name + "{" + selector + "} by {" + byTags + "}");
+            observed.add(result);
             return result;
         } catch (IOException exception) {
-            warnings.add("query failed: " + label + " (" + safeError(exception) + ")");
-            return MetricQueryResult.empty(query);
+            warnings.add("query failed: " + name + " (" + safeError(exception) + ")");
+            return List.of();
         }
     }
 
-    private MetricQueryResult requiredQuery(final String query) throws IOException, InterruptedException {
+    private List<MetricSeries> requiredQuery(final String query) throws IOException, InterruptedException {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            final MetricQueryResult result = query(query);
-            if (!result.series().isEmpty()) {
+            final List<MetricSeries> result = query(query);
+            if (!result.isEmpty()) {
                 return result;
             }
             if (attempt < MAX_ATTEMPTS) {
@@ -245,7 +181,7 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
         }
         throw new IOException("Datadog did not return an active series for the automatically selected service");
     }
-    private MetricQueryResult query(final String query) throws IOException, InterruptedException {
+    private List<MetricSeries> query(final String query) throws IOException, InterruptedException {
         final long now = Instant.now().getEpochSecond();
         final String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20");
         final URI uri = baseUri.resolve("/api/v1/query?from=" + (now - QUERY_WINDOW_SECONDS)
@@ -275,7 +211,7 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
             }
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 try {
-                    return new MetricQueryResult(query, parseSeries(response.body()));
+                    return parseSeries(response.body());
                 } catch (IOException exception) {
                     lastFailure = exception;
                     if (attempt == MAX_ATTEMPTS) {
@@ -299,11 +235,11 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
     }
 
     static List<String> resolveActiveHosts(
-            final MetricQueryResult identity,
+            final List<MetricSeries> identity,
             final long captureTimeMillis
     ) throws IOException {
         final Map<String, Long> latestByHost = new LinkedHashMap<>();
-        for (MetricSeries series : identity.series()) {
+        for (MetricSeries series : identity) {
             final String host = tag(series, "host");
             if (host != null) {
                 latestByHost.merge(host, series.timestamp(), Math::max);
@@ -392,10 +328,10 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
         return List.copyOf(values);
     }
     private static Double maximumPositiveHeapValue(
-            final MetricQueryResult result,
+            final List<MetricSeries> result,
             final String host
     ) {
-        return result.series().stream()
+        return result.stream()
                 .filter(series -> host.equals(series.tags().get("host")))
                 .filter(series -> "heap".equalsIgnoreCase(series.tags().get("area")))
                 .map(MetricSeries::value)
@@ -405,15 +341,15 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
                 .orElse(null);
     }
 
-    private static MetricSeries latestSeries(final MetricQueryResult result, final String host) {
-        return result.series().stream()
+    private static MetricSeries latestSeries(final List<MetricSeries> result, final String host) {
+        return result.stream()
                 .filter(series -> host.equals(series.tags().get("host")))
                 .max(java.util.Comparator.comparingLong(MetricSeries::timestamp))
                 .orElse(null);
     }
 
-    private static Double latestValue(final MetricQueryResult result, final String host) {
-        return result.series().stream()
+    private static Double latestValue(final List<MetricSeries> result, final String host) {
+        return result.stream()
                 .filter(series -> host.equals(series.tags().get("host")))
                 .filter(series -> series.value() != null)
                 .max(java.util.Comparator.comparingLong(MetricSeries::timestamp))
@@ -422,11 +358,11 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
     }
 
     private static Instant latestObservedAt(
-            final List<MetricQueryResult> results,
+            final List<List<MetricSeries>> results,
             final String host
     ) {
         return results.stream()
-                .flatMap(result -> result.series().stream())
+                .flatMap(List::stream)
                 .filter(series -> host.equals(series.tags().get("host")))
                 .mapToLong(MetricSeries::timestamp)
                 .max()
@@ -436,10 +372,10 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
                 .orElse(null);
     }
     private static String inferRedisNetworkLocation(
-            final MetricQueryResult redisMaxMemory,
+            final List<MetricSeries> redisMaxMemory,
             final String coreHost
     ) {
-        final boolean privateEndpointFound = redisMaxMemory.series().stream()
+        final boolean privateEndpointFound = redisMaxMemory.stream()
                 .filter(series -> coreHost.equals(series.tags().get("host")))
                 .map(series -> tag(series, "redis_host"))
                 .filter(Objects::nonNull)
@@ -521,61 +457,9 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
     private void requireCredentials() throws IOException {
         if (apiKey == null || appKey == null) {
             throw new IOException(
-                    "Datadog credentials are not configured in the console environment or Codex MCP config"
+                    "Datadog credentials are not configured: set DATADOG_API_KEY and DATADOG_APP_KEY"
             );
         }
-    }
-
-    static Map<String, String> parseMcpEnvironment(final List<String> lines) {
-        final Map<String, String> values = new LinkedHashMap<>();
-        boolean inDatadogEnvironment = false;
-        for (String line : lines) {
-            final String trimmed = line.trim();
-            if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-                inDatadogEnvironment = "[mcp_servers.datadog.env]".equals(trimmed);
-                continue;
-            }
-            if (!inDatadogEnvironment || trimmed.isEmpty() || trimmed.startsWith("#")) {
-                continue;
-            }
-
-            final int separator = trimmed.indexOf('=');
-            if (separator <= 0) {
-                continue;
-            }
-            final String key = trimmed.substring(0, separator).trim();
-            if (!"DATADOG_API_KEY".equals(key)
-                    && !"DATADOG_APP_KEY".equals(key)
-                    && !"DATADOG_SITE".equals(key)) {
-                continue;
-            }
-            final String value = quotedTomlValue(trimmed.substring(separator + 1));
-            if (value != null) {
-                values.put(key, value);
-            }
-        }
-        return Map.copyOf(values);
-    }
-
-    private static String quotedTomlValue(final String rawValue) {
-        final String value = rawValue.trim();
-        if (value.length() < 2 || (value.charAt(0) != '\'' && value.charAt(0) != '"')) {
-            return null;
-        }
-        final char quote = value.charAt(0);
-        boolean escaped = false;
-        for (int index = 1; index < value.length(); index++) {
-            final char current = value.charAt(index);
-            if (quote == '"' && current == '\\' && !escaped) {
-                escaped = true;
-                continue;
-            }
-            if (current == quote && !escaped) {
-                return trimToNull(value.substring(1, index));
-            }
-            escaped = false;
-        }
-        return null;
     }
 
     private static URI siteUri(final String configuredSite) {
@@ -689,63 +573,11 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private record DatadogCredentials(String site, String apiKey, String appKey) {
-        private static DatadogCredentials load() {
-            final Map<String, String> environment = System.getenv();
-            final Map<String, String> mcpEnvironment = readMcpEnvironment(environment);
-            return new DatadogCredentials(
-                    resolve(environment, mcpEnvironment, "DATADOG_SITE"),
-                    resolve(environment, mcpEnvironment, "DATADOG_API_KEY"),
-                    resolve(environment, mcpEnvironment, "DATADOG_APP_KEY")
-            );
-        }
-
-        private static Map<String, String> readMcpEnvironment(final Map<String, String> environment) {
-            try {
-                final String configuredHome = trimToNull(environment.get("CODEX_HOME"));
-                final String userHome = trimToNull(System.getProperty("user.home"));
-                final Path configPath;
-                if (configuredHome != null) {
-                    configPath = Path.of(configuredHome, "config.toml");
-                } else if (userHome != null) {
-                    configPath = Path.of(userHome, ".codex", "config.toml");
-                } else {
-                    return Map.of();
-                }
-                if (!Files.isRegularFile(configPath)) {
-                    return Map.of();
-                }
-                return parseMcpEnvironment(Files.readAllLines(configPath, StandardCharsets.UTF_8));
-            } catch (IOException | InvalidPathException | SecurityException ignored) {
-                return Map.of();
-            }
-        }
-
-        private static String resolve(
-                final Map<String, String> environment,
-                final Map<String, String> mcpEnvironment,
-                final String key
-        ) {
-            final String explicitValue = trimToNull(environment.get(key));
-            return explicitValue != null ? explicitValue : trimToNull(mcpEnvironment.get(key));
-        }
-    }
-
     private record MetricPoint(long timestamp, double value) {
     }
 }
 
 record MetricSeries(String scope, Map<String, String> tags, long timestamp, Double value) {
-}
-
-record MetricQueryResult(String query, List<MetricSeries> series) {
-    MetricQueryResult {
-        series = List.copyOf(series);
-    }
-
-    static MetricQueryResult empty(final String query) {
-        return new MetricQueryResult(query, List.of());
-    }
 }
 
 record DatadogRuntimeSnapshot(
@@ -772,12 +604,5 @@ record DatadogRuntimeSnapshot(
 ) {
     DatadogRuntimeSnapshot {
         warnings = warnings == null ? List.of() : List.copyOf(warnings);
-    }
-
-    static DatadogRuntimeSnapshot empty() {
-        return new DatadogRuntimeSnapshot(
-                null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, List.of()
-        );
     }
 }

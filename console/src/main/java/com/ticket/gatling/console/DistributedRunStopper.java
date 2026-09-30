@@ -6,7 +6,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -73,7 +72,7 @@ final class DistributedRunStopper {
     }
 
     private String sshExecutable() {
-        if (!System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win")) {
+        if (!LoadTestRequest.WINDOWS) {
             return "ssh";
         }
         final String systemRoot = System.getenv().getOrDefault("SystemRoot", "C:\\Windows");

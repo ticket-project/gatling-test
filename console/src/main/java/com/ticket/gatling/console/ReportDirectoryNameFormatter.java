@@ -25,11 +25,8 @@ final class ReportDirectoryNameFormatter {
         return switch (simulationType) {
             case QUEUE_JOIN_ONLY -> "queue-join";
             case QUEUE_ENTER -> "queue";
-            case LEGACY_QUEUE_STATUS -> "legacy-queue";
             case CDN_PUBLIC_STATE -> "cdn";
-            case BOOKING_CAPACITY -> "booking-capacity";
             case TICKET_OPEN_END_TO_END -> "ticket-open-e2e";
-            case SEAT_CONTENTION -> "seat-contention";
             case CORE_PERFORMANCE_SUMMARY_API -> "core-summary-api";
             case CORE_SEAT_STATUS_API -> "core-seat-status-api";
             case CORE_SEAT_SELECT_API -> "core-seat-select-api";
@@ -49,7 +46,7 @@ final class ReportDirectoryNameFormatter {
     private static long displayExecutionCount(final LoadTestRequest request) {
         final long sessions = request.estimatedVirtualUsers();
         return switch (request.simulationType()) {
-            case LEGACY_QUEUE_STATUS, CDN_PUBLIC_STATE -> sessions * request.statusPolls();
+            case CDN_PUBLIC_STATE -> sessions * request.statusPolls();
             default -> sessions;
         };
     }
