@@ -8,7 +8,7 @@ param(
     [string]$RemoteProjectDir = "~/gatling-test",
     [string]$ConsoleRunId = "",
     [string]$RunDescription = "",
-    [string]$Simulation = "com.ticket.loadtest.simulation.BookingCapacitySimulation",
+    [string]$Simulation = "",
     [string]$CoreBaseUrl = "",
     [string]$QueueBaseUrl = "",
     [int]$PerformanceId = 1,
@@ -25,7 +25,6 @@ param(
     [int]$StatusPollPauseJitterSeconds = 0,
     [switch]$SkipSyncProject,
     [switch]$SkipPreflight,
-    [switch]$CollectReports,
     [switch]$CleanupRemote,
     [string]$LocalProjectDir = (Join-Path $PSScriptRoot "."),
     [string]$ReportRoot = (Join-Path $PSScriptRoot "distributed-results-join"),
@@ -38,6 +37,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Utf8NoBom = [Text.UTF8Encoding]::new($false)
+
+. (Join-Path $PSScriptRoot 'scripts/distributed-common.ps1')
 
 function Write-TextUtf8NoBom {
     param([string]$Path, [string]$Text)
@@ -56,26 +57,6 @@ function Stop-Validation {
     exit 2
 }
 
-function Resolve-CommandPath {
-    param([string]$Name, [string[]]$Candidates = @())
-    $command = Get-Command $Name -ErrorAction SilentlyContinue
-    if ($command) { return $command.Source }
-    foreach ($candidate in $Candidates) {
-        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
-            return $candidate
-        }
-    }
-    throw "Required command not found: $Name"
-}
-
-function Normalize-Hosts {
-    param([string[]]$Values)
-    return @($Values |
-        ForEach-Object { $_ -split "[,`r`n]+" } |
-        ForEach-Object { $_.Trim() } |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-}
-
 function Assert-RemoteUrl {
     param([string]$Name, [string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { Stop-Validation "$Name is required" }
@@ -87,15 +68,8 @@ function Assert-RemoteUrl {
     if ($uri.Host -in @("localhost", "127.0.0.1", "::1")) { Stop-Validation "$Name must not point to localhost for distributed execution: $Value" }
 }
 
-function New-SafeNodeName {
-    param([string]$Value)
-    return $Value.Replace("@", "_").Replace(".", "_").Replace(":", "_")
-}
-
 function Get-BookingScenario {
-    if ($Simulation -like "*BookingCapacitySimulation") { return "BOOKING_CAPACITY" }
     if ($Simulation -like "*TicketOpenEndToEndSimulation") { return "TICKET_OPEN_END_TO_END" }
-    if ($Simulation -like "*SeatContentionSimulation") { return "SEAT_CONTENTION" }
     if ($Simulation -like "*SmokeSimulation") { return "SMOKE" }
     if ($Simulation -like "*HotSeatConcurrencySimulation") { return "HOT_SEAT_CONCURRENCY" }
     if ($Simulation -like "*CoreAdmissionCapacitySimulation") { return "CORE_ADMISSION_CAPACITY" }
@@ -152,7 +126,7 @@ function Test-QueueScenario {
 }
 
 function Test-ContentionScenario {
-    return (Get-BookingScenario) -in @("SEAT_CONTENTION", "HOT_SEAT_CONCURRENCY")
+    return (Get-BookingScenario) -eq "HOT_SEAT_CONCURRENCY"
 }
 
 function Test-DynamicSeatScenario {
@@ -269,76 +243,10 @@ function New-NodeFeeders {
     return $manifestRows
 }
 
-function Resolve-DefaultSshKeyPath {
-    param([string]$Value)
-    if (-not [string]::IsNullOrWhiteSpace($Value)) { return $Value }
-    $userRoot = if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) { [Environment]::GetFolderPath("UserProfile") } else { $env:USERPROFILE }
-    return Join-Path $userRoot "Desktop\ticket\ticket-test-key-01.pem"
-}
-
-function New-OpenSshKeyPath {
-    param([string]$SourcePath)
-    $resolvedPath = (Resolve-Path -LiteralPath $SourcePath).ProviderPath
-    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return $resolvedPath }
-    $keyRoot = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { Join-Path ([IO.Path]::GetTempPath()) "ticket-gatling\ssh-keys" } else { Join-Path $env:LOCALAPPDATA "ticket-gatling\ssh-keys" }
-    New-Item -ItemType Directory -Force -Path $keyRoot | Out-Null
-    $targetPath = Join-Path $keyRoot "booking-load-test-key.pem"
-    Copy-Item -LiteralPath $resolvedPath -Destination $targetPath -Force
-    $icacls = Resolve-CommandPath -Name "icacls.exe" -Candidates @("C:\Windows\System32\icacls.exe", "C:\Windows\Sysnative\icacls.exe")
-    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    & $icacls $targetPath /inheritance:r | Out-Null
-    & $icacls $targetPath /grant:r "${currentUser}:F" | Out-Null
-    return $targetPath
-}
-
-function New-SshOptions {
-    param([string]$KnownHostsFile)
-    return @("-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2", "-o", "StrictHostKeyChecking=accept-new", "-o", "UserKnownHostsFile=$KnownHostsFile", "-i", $KeyPath)
-}
-
-function New-ScpOptions {
-    param([string]$KnownHostsFile)
-    return @("-B", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new", "-o", "UserKnownHostsFile=$KnownHostsFile", "-i", $KeyPath)
-}
-
 function New-RunDirectoryName {
     if (Test-ClosedScenario) { return "$(Get-SimulationRunName)_pid$PerformanceId`_cu$ConcurrentUsersPerNode`_nodes$($Hosts.Count)`_dur${DurationSeconds}s" }
     $name = "$(Get-SimulationRunName)_pid$PerformanceId`_rps$RpsPerNode`_nodes$($Hosts.Count)`_dur${DurationSeconds}s"
     return ($name -replace "[^A-Za-z0-9._-]", "-").Trim("._-")
-}
-
-function New-UniqueRunDirectoryPath {
-    param([string]$Root, [string]$Name)
-    $candidate = Join-Path $Root $Name
-    for ($index = 1; Test-Path -LiteralPath $candidate; $index++) {
-        $candidate = Join-Path $Root "$Name`_$index"
-    }
-    return $candidate
-}
-
-function New-ProjectArchive {
-    param([string]$RunDir)
-    $archivePath = Join-Path $RunDir "gatling-test-project.tgz"
-    & $TarCommand -czf $archivePath --exclude=.git --exclude=.gradle --exclude=.tmp --exclude=distributed-results-join --exclude=console/build --exclude=load-tests/gatling/build -C $LocalProjectDir .
-    if ($LASTEXITCODE -ne 0) { throw "Project archive creation failed with exit code $LASTEXITCODE" }
-    return $archivePath
-}
-
-function Sync-RemoteProject {
-    param([string]$HostName, [string]$ArchivePath, [string]$StartedAt)
-    $remoteArchive = "/tmp/gatling-booking-$StartedAt.tgz"
-    & $ScpCommand @ScpOptions $ArchivePath "${HostName}:$remoteArchive"
-    if ($LASTEXITCODE -ne 0) { throw "Project sync upload failed for ${HostName}" }
-    $command = "timeout 120s bash -lc 'set -e; mkdir -p $RemoteProjectDir; tar -xzf $remoteArchive -C $RemoteProjectDir; rm -f $remoteArchive; chmod +x $RemoteProjectDir/gradlew; test -d $RemoteProjectDir/load-tests/gatling; echo project-sync-ok'"
-    & $SshCommand @SshOptions $HostName $command
-    if ($LASTEXITCODE -ne 0) { throw "Project sync extraction failed for ${HostName}" }
-}
-
-function Test-RemoteProject {
-    param([string]$HostName)
-    $command = "timeout 30s bash -lc 'set -e; test -d $RemoteProjectDir; test -f $RemoteProjectDir/gradlew; test -d $RemoteProjectDir/load-tests/gatling; command -v java >/dev/null; command -v tar >/dev/null; echo remote-preflight-ok'"
-    & $SshCommand @SshOptions $HostName $command
-    if ($LASTEXITCODE -ne 0) { throw "Remote Gatling project preflight failed for ${HostName}: $RemoteProjectDir" }
 }
 
 function New-GatlingArgs {
@@ -401,28 +309,6 @@ $cleanup
 exit `$status
 "@
     return (($command -replace "`r`n", "`n") -replace "`r", "`n")
-}
-
-function ConvertTo-SummaryNumber {
-    param([string]$Value)
-    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
-    $normalized = [Net.WebUtility]::HtmlDecode($Value).Trim().Replace(",", "")
-    $number = 0.0
-    if ([double]::TryParse($normalized, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$number)) { return $number }
-    return $null
-}
-
-function Read-GatlingRootStats {
-    param([string]$ReportPath)
-    if (-not (Test-Path -LiteralPath $ReportPath -PathType Leaf)) { return $null }
-    $html = Get-Content -LiteralPath $ReportPath -Raw -Encoding UTF8
-    $rowMatch = [regex]::Match($html, '<tr[^>]*id="ROOT"[^>]*>.*?</tr>', [Text.RegularExpressions.RegexOptions]::Singleline)
-    if (-not $rowMatch.Success) { return $null }
-    $values = @{}
-    foreach ($match in [regex]::Matches($rowMatch.Value, '<td class="value [^"]* col-(\d+)">([^<]*)</td>')) {
-        $values[[int]$match.Groups[1].Value] = ConvertTo-SummaryNumber -Value $match.Groups[2].Value
-    }
-    return [pscustomobject]@{ TotalRequests = $values[2]; KoRequests = $values[4]; KoPercent = $values[5]; P99Ms = $values[11] }
 }
 
 function Write-BookingSummary {
@@ -634,10 +520,9 @@ try {
     $knownHostsFile = Join-Path $runDir "known_hosts"
     New-Item -ItemType File -Force -Path $knownHostsFile | Out-Null
 
-    $windowsRoot = if ([string]::IsNullOrWhiteSpace($env:SystemRoot)) { "C:\Windows" } else { $env:SystemRoot }
-    $SshCommand = Resolve-CommandPath -Name "ssh" -Candidates @((Join-Path $windowsRoot "System32\OpenSSH\ssh.exe"), (Join-Path $windowsRoot "Sysnative\OpenSSH\ssh.exe"))
-    $ScpCommand = Resolve-CommandPath -Name "scp" -Candidates @((Join-Path $windowsRoot "System32\OpenSSH\scp.exe"), (Join-Path $windowsRoot "Sysnative\OpenSSH\scp.exe"))
-    $TarCommand = Resolve-CommandPath -Name "tar" -Candidates @((Join-Path $windowsRoot "System32\tar.exe"), (Join-Path $windowsRoot "Sysnative\tar.exe"))
+    $SshCommand = Resolve-WindowsCommandPath -Name "ssh" -RelativePath "OpenSSH\ssh.exe"
+    $ScpCommand = Resolve-WindowsCommandPath -Name "scp" -RelativePath "OpenSSH\scp.exe"
+    $TarCommand = Resolve-WindowsCommandPath -Name "tar" -RelativePath "tar.exe"
     $KeyPath = Resolve-DefaultSshKeyPath -Value $KeyPath
     if (-not (Test-Path -LiteralPath $KeyPath -PathType Leaf)) { Stop-Validation "SSH key not found: $KeyPath" }
     $KeyPath = New-OpenSshKeyPath -SourcePath $KeyPath
@@ -677,11 +562,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Feeder upload failed for ${hostName}" }
         $remoteCommand = New-RemoteCommand -NodeIndex $nodeIndex -CollectDir $remoteCollect -RemoteFeederFile $remoteFeeder -RemoteResultFile $remoteResult
 
-        $jobs += Start-Job -Name $safeName -ScriptBlock {
-            param($SshCommand, $SshOptions, $HostName, $Command, $LogPath)
-            & $SshCommand @SshOptions $HostName $Command *> $LogPath
-            return $LASTEXITCODE
-        } -ArgumentList $SshCommand, $SshOptions, $hostName, $remoteCommand, $logPath
+        $jobs += Start-RemoteNodeJob -Name $safeName -HostName $hostName -Command $remoteCommand -LogPath $logPath
     }
 
     Wait-Job $jobs | Out-Null
