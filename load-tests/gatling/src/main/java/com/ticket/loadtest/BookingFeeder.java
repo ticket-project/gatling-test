@@ -22,15 +22,6 @@ public final class BookingFeeder {
             final Path file,
             final String scenario,
             final int expectedRows,
-            final long performanceId
-    ) {
-        return load(file, scenario, expectedRows, 0, performanceId);
-    }
-
-    public static Iterator<Map<String, Object>> load(
-            final Path file,
-            final String scenario,
-            final int expectedRows,
             final int offset,
             final long performanceId
     ) {
@@ -148,9 +139,7 @@ public final class BookingFeeder {
     }
 
     private enum BookingScenario {
-        BOOKING_CAPACITY(true, true),
         TICKET_OPEN_END_TO_END(false, true),
-        SEAT_CONTENTION(true, false),
         SMOKE(true, true),
         HOT_SEAT_CONCURRENCY(true, false),
         CORE_ADMISSION_CAPACITY(false, true),

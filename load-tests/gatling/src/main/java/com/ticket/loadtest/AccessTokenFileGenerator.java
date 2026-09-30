@@ -54,19 +54,6 @@ public final class AccessTokenFileGenerator {
         System.out.println("Member IDs: " + memberIds.getFirst() + " ... " + memberIds.getLast());
     }
 
-    public static void write(
-            final Path output,
-            final String issuer,
-            final String secret,
-            final long startMemberId,
-            final int count,
-            final String role,
-            final long ttlSeconds,
-            final Instant now
-    ) {
-        write(output, issuer, secret, consecutiveMemberIds(startMemberId, count), role, ttlSeconds, now);
-    }
-
     static void write(
             final Path output,
             final String issuer,
@@ -98,29 +85,6 @@ public final class AccessTokenFileGenerator {
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to write access token file: " + output, exception);
         }
-    }
-
-    public static void writeBookingFeeder(
-            final Path output,
-            final String issuer,
-            final String secret,
-            final long startMemberId,
-            final long startSeatId,
-            final int count,
-            final String role,
-            final long ttlSeconds,
-            final Instant now
-    ) {
-        writeBookingFeeder(
-                output,
-                issuer,
-                secret,
-                consecutiveMemberIds(startMemberId, count),
-                startSeatId,
-                role,
-                ttlSeconds,
-                now
-        );
     }
 
     static void writeBookingFeeder(

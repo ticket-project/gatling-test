@@ -51,25 +51,23 @@ class BookingFeederTest {
         assertInvalid(HEADER + System.lineSeparator() + "0," + accessToken(1) + ",101,");
         assertInvalid(HEADER + System.lineSeparator() + "1," + accessToken(1) + ",-1,");
         assertInvalid(HEADER + System.lineSeparator() + "1,,101,");
-        assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "BOOKING_CAPACITY");
+        assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "SMOKE");
         assertEquals(1, BookingFeeder.read(feeder(row(1, 101, "")),
                 "CORE_ADMISSION_CAPACITY", 1, PERFORMANCE_ID).size());
         assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "HOT_SEAT_CONCURRENCY");
-        assertInvalid(HEADER + System.lineSeparator() + row(1, 101, ""), "SEAT_CONTENTION");
     }
 
     @Test
     void enforcesMemberAndScenarioSpecificSeatUniqueness() throws IOException {
         final String duplicateMember = row(1, 101, admissionToken(1, PERFORMANCE_ID)) + System.lineSeparator()
                 + row(1, 102, admissionToken(1, PERFORMANCE_ID));
-        assertInvalid(HEADER + System.lineSeparator() + duplicateMember, "BOOKING_CAPACITY");
+        assertInvalid(HEADER + System.lineSeparator() + duplicateMember, "SMOKE");
 
         final String duplicateSeat = row(1, 101, admissionToken(1, PERFORMANCE_ID)) + System.lineSeparator()
                 + row(2, 101, admissionToken(2, PERFORMANCE_ID));
-        assertInvalid(HEADER + System.lineSeparator() + duplicateSeat, "BOOKING_CAPACITY");
+        assertInvalid(HEADER + System.lineSeparator() + duplicateSeat, "SMOKE");
         assertEquals(2, BookingFeeder.read(feeder(duplicateSeat), "HOT_SEAT_CONCURRENCY", 2, PERFORMANCE_ID).size());
         assertInvalid(HEADER + System.lineSeparator() + duplicateSeat, "CORE_SPIKE");
-        assertEquals(2, BookingFeeder.read(feeder(duplicateSeat), "SEAT_CONTENTION", 2, PERFORMANCE_ID).size());
     }
 
     @Test
@@ -77,9 +75,9 @@ class BookingFeederTest {
         assertInvalid(HEADER + System.lineSeparator() + "1," + accessToken(2) + ",101,");
         assertInvalid(HEADER + System.lineSeparator() + "1,malformed,101,");
         assertInvalid(HEADER + System.lineSeparator() + row(1, 101, admissionToken(2, PERFORMANCE_ID)),
-                "BOOKING_CAPACITY");
+                "SMOKE");
         assertInvalid(HEADER + System.lineSeparator() + row(1, 101, admissionToken(1, 99)),
-                "BOOKING_CAPACITY");
+                "SMOKE");
         final Path file = feeder(row(1, 101, ""));
         assertThrows(IllegalArgumentException.class,
                 () -> BookingFeeder.read(file, "TICKET_OPEN_END_TO_END", 2, PERFORMANCE_ID));
@@ -89,7 +87,7 @@ class BookingFeederTest {
     void loadPreservesFileOrderAndStopsAtEof() throws IOException {
         final Path file = feeder(row(1, 101, "") + System.lineSeparator() + row(2, 102, ""));
         final Iterator<Map<String, Object>> feeder = BookingFeeder.load(
-                file, "TICKET_OPEN_END_TO_END", 2, PERFORMANCE_ID);
+                file, "TICKET_OPEN_END_TO_END", 2, 0, PERFORMANCE_ID);
 
         assertEquals(1L, feeder.next().get("memberId"));
         assertEquals(2L, feeder.next().get("memberId"));
@@ -139,7 +137,7 @@ class BookingFeederTest {
         assertEquals(0L, BookingFeeder.read(file, "CORE_SPIKE", 1, PERFORMANCE_ID)
                 .getFirst().seatId());
         assertThrows(IllegalArgumentException.class,
-                () -> BookingFeeder.read(file, "BOOKING_CAPACITY", 1, PERFORMANCE_ID));
+                () -> BookingFeeder.read(file, "SMOKE", 1, PERFORMANCE_ID));
     }
 
     @Test

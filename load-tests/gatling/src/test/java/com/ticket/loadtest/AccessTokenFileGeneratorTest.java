@@ -27,8 +27,7 @@ class AccessTokenFileGeneratorTest {
                 output,
                 "ticket",
                 SECRET,
-                100L,
-                3,
+                List.of(100L, 101L, 102L),
                 "MEMBER",
                 3600,
                 NOW
@@ -50,9 +49,8 @@ class AccessTokenFileGeneratorTest {
                 output,
                 "ticket",
                 SECRET,
-                1L,
+                List.of(1L, 2L),
                 910000001L,
-                2,
                 "MEMBER",
                 3600,
                 NOW
