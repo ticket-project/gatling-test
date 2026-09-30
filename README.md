@@ -1,6 +1,6 @@
 # Ticket Gatling Load Tests
 
-Ticket/Queue 부하 테스트와 Queue CDN public state 전환, legacy queue status 비교를 위한 Gatling 부하테스트 저장소이다.
+Ticket/Queue 부하 테스트와 Queue CDN public state 확인을 위한 Gatling 부하테스트 저장소이다.
 
 ## 구성
 
@@ -9,16 +9,9 @@ Ticket/Queue 부하 테스트와 Queue CDN public state 전환, legacy queue sta
 
 `ticket` 저장소 안에 있던 `load-tests/gatling`은 이 저장소로 통합되어 있다.
 
-Queue·legacy·CDN 시뮬레이션과 분산 실행 스크립트에는 실제 서버 URL 기본값이 없다. `-DbaseUrl` 또는 `-BaseUrl`을 실행마다 명시해야 하며, 콘솔에서 localhost가 아닌 대상을 실행할 때는 대상 URL·회차·허용 부하를 확인했다는 체크가 필요하다.
+Queue·CDN 시뮬레이션과 분산 실행 스크립트에는 실제 서버 URL 기본값이 없다. `-DbaseUrl` 또는 `-BaseUrl`을 실행마다 명시해야 하며, 콘솔에서 localhost가 아닌 대상을 실행할 때는 대상 URL·회차·허용 부하를 확인했다는 체크가 필요하다.
 
 ## 비교 대상 API
-
-Legacy queue status:
-
-```text
-GET /api/v1/queue/performances/{performanceId}/status
-Header: X-Queue-Session
-```
 
 CDN public state 확인용 경로:
 
@@ -75,9 +68,7 @@ Header/cookie/auth 없음
 
 | key | Simulation | 측정 대상 |
 | --- | --- | --- |
-| `booking-capacity` | `BookingCapacitySimulation` | Ticket/Core의 좌석 조회, 선택, 주문 생성, 주문 PENDING 전환 |
 | `ticket-open-end-to-end` | `TicketOpenEndToEndSimulation` | Queue join/state/enter부터 Ticket/Core 예매까지 전체 흐름 |
-| `seat-contention` | `SeatContentionSimulation` | 같은 좌석에 대한 경합 정합성, 비즈니스 거절과 기술 오류 분리 |
 
 ### Booking feeder CSV
 
@@ -92,8 +83,7 @@ memberId,accessToken,seatId,admissionToken
 규칙:
 
 - `memberId`는 중복되면 안 된다.
-- `booking-capacity`, `ticket-open-end-to-end`는 기본적으로 좌석이 중복되면 안 된다.
-- `seat-contention`은 의도적으로 같은 `seatId`를 여러 행에 넣을 수 있다.
+- `ticket-open-end-to-end`는 좌석이 중복되면 안 된다.
 - `ticket-open-end-to-end`는 admission token을 Queue `enter` 응답에서 받으므로 feeder의 `admissionToken`은 비워도 된다.
 - feeder가 부족하면 실행 전 검증 또는 Gatling feeder exhaustion으로 실패한다.
 
@@ -122,8 +112,7 @@ Booking 전용 실행기는 `run-distributed-booking.ps1`이다. 원격 Gradle �
   -RpsPerNode 100 `
   -DurationSeconds 300 `
   -InjectionMode constant-users-per-sec `
-  -PollingTimeoutSeconds 300 `
-  -CollectReports
+  -PollingTimeoutSeconds 300
 ```
 
 스크립트는 주입 방식별 예상 사용자 수만큼 feeder 행을 VM별로 연속 분할하고 `manifest.csv`에 기준·목표 RPS, 주입 방식, 행 범위를 기록한다. URL/feeder/manifest 오류는 exit 2, 원격 노드 실패나 중복 성공 검출은 exit 1이다.
@@ -193,7 +182,7 @@ API 하나의 순수 처리량을 확인할 때는 아래 시나리오를 사용
 
 같은 테스트가 되려면 부하 값만 같아서는 부족하다. 실행마다 좌석 수와 상태가 같은 독립 전용 회차를 사용하고 모든 대상 좌석이 `AVAILABLE`인 상태에서 시작해야 한다. 앞 실행의 주문·선점 상태를 자동 복원하지 않고 다음 독립 performance로 이동한다. 약 2,000석 데이터의 최초 경계 탐색은 모든 단계를 30초로 고정하고, 장시간 검증은 후보 입장률을 찾은 뒤 필요한 좌석 수와 데이터 구조를 별도로 승인한다.
 
-feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 수만큼 고유한 기존 ACTIVE 회원과 고유한 AVAILABLE 좌석을 사용한다. 이 테스트에서는 `admissionToken` 열을 비워도 된다. 전용 performance는 기존 Queue 정책을 `FORCE_OFF`로 설정해 Admission Token 없이 직접 Core를 호출할 수 있어야 한다. Oracle 회차·좌석 생성, 기존 회원 ID 추출, Console의 JWT·feeder 자동 생성, 30개 회차 배정과 원복 버튼 사용법은 [Core Admission Capacity 운영 파일](scripts/core-capacity/README.md)을 따른다.
+feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 수만큼 고유한 기존 ACTIVE 회원과 고유한 AVAILABLE 좌석을 사용한다. 이 테스트에서는 `admissionToken` 열을 비워도 된다. 전용 performance는 기존 Queue 정책을 `FORCE_OFF`로 설정해 Admission Token 없이 직접 Core를 호출할 수 있어야 한다. 전용 회차·좌석은 ticket 저장소 `seedProd`의 부하 테스트 픽스처(`LoadTestFixtureSeeder`, ticket 저장소 `seed/README.md`)로 만들고, 회원 ID 파일과 Console의 JWT·feeder 자동 생성은 [운영 Core 안전 입장률 측정 가이드](docs/core-capacity-production.md)를 따른다.
 
 ```powershell
 .\gradlew.bat -p load-tests\gatling gatlingRun `
@@ -237,8 +226,7 @@ Closed Model은 실행 중 사용자를 계속 교체하므로 `bookingFeederRow
   -FeederFile C:\path\booking-feeder.csv `
   -ConcurrentUsersPerNode 100 `
   -FeederRowsPerNode 10000 `
-  -DurationSeconds 300 `
-  -CollectReports
+  -DurationSeconds 300
 ```
 
 위 예시는 3개 노드라면 Core 동시 사용자 300명을 유지한다. `FeederRowsPerNode`는 각 노드에 배정할 고유 사용자·좌석 행 수이고, `ConcurrentUsersPerNode`는 각 노드가 동시에 유지할 사용자 수다.
@@ -256,8 +244,7 @@ Closed Model은 실행 중 사용자를 계속 교체하므로 `bookingFeederRow
   -RpsPerNode 34 `
   -TargetRpsPerNode 667 `
   -DurationSeconds 60 `
-  -InjectionMode spike `
-  -CollectReports
+  -InjectionMode spike
 ```
 
 위 예시는 3개 노드에서 합계 약 100 users/sec → 2,000 users/sec를 만든다. 같은 고정 외부 유입률을 비교할 때는 Queue 미적용 기준으로 `CoreAdmissionCapacitySimulation`, Queue 적용 기준으로 `QueueProtectsCoreSimulation`을 실행한다. Spike 비교는 Queue 보호 시나리오에도 `-InjectionMode spike`와 같은 기준·최고 RPS를 적용한다.

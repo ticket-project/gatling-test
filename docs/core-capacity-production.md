@@ -46,9 +46,9 @@ Queue Server가 제어할 값도 HTTP 요청 수가 아니라 Core로 입장시�
 
 좌석 상태 API는 좌석 수에 따라 응답 크기, JSON 직렬화 비용, 네트워크 전송량과 클라이언트 파싱량이 달라진다. 100석짜리 회차는 실제 부하를 과소평가할 수 있고, 100,000석짜리 회차는 과대평가할 수 있다. 좌석 수뿐 아니라 AVAILABLE·HELD·SOLD 비율과 Core 배포 환경도 실행마다 가능한 한 같게 유지한다.
 
-운영 데이터 생성 SQL, 30개 독립 회차 배정, 자동 feeder 생성과 원복 절차는 [Core Admission Capacity 운영 파일](../scripts/core-capacity/README.md)을 따른다. 최초 SQL은 기존 `MEMBERS`를 변경하지 않고 물리 좌석과 30개 performance만 만든다. 각 performance는 독립적인 `PERFORMANCE_SEATS`를 사용한다. 한 실행이 사용한 performance는 다음 실행에서 재사용하지 않고, 같은 회차를 여러 날 재사용할 때만 Core 비동기 작업 완료 후 Console의 원복 버튼을 사용한다.
+전용 회차와 좌석은 ticket 저장소 `seedProd`의 부하 테스트 픽스처(`LoadTestFixtureSeeder`)로 만든다. 고정 ID 대역 `910000001~`의 전용 공연·회차와 회차당 전용 좌석 2,000석을 만들고, 회차의 Queue 정책은 `FORCE_OFF`다. 운영 기본값은 픽스처를 만들지 않으므로 사용할 회차 수만큼 `-Dseed.load-test-fixture.performance-count`를 명시한다. 명령과 반복 실행 규칙은 ticket 저장소 `seed/README.md`를 따른다. 한 실행이 사용한 performance는 다음 실행에서 재사용하지 않는다. 이 저장소에는 운영 데이터 생성·원복 스크립트가 없다.
 
-회원은 운영에 이미 존재하는 ACTIVE MEMBER를 사용한다. 생성 SQL의 마지막 조회 결과에서 실제 ID를 `scripts/core-capacity/member-ids.txt`로 한 번 내보낸다. ID는 연속일 필요가 없고 Console은 파일의 실제 순서대로 JWT `sub`를 만든다. 운영 회원의 PK를 재정렬하거나 빈 ID를 채우지 않는다.
+회원은 Core DB에 실제로 존재하는 ACTIVE MEMBER를 사용한다. 테스트 회원이 필요하면 `seedProd`에 `-Dseed.load-test-members.count`를 주어 만든다. `MEMBERS`에서 조회한 실제 ID를 한 줄에 하나씩 `scripts/core-capacity/member-ids.txt`(git 미추적)에 저장한다. ID는 연속일 필요가 없고 Console은 파일의 실제 순서대로 JWT `sub`를 만든다. 운영 회원의 PK를 재정렬하거나 빈 ID를 채우지 않는다.
 
 피더는 UTF-8 BOM 없는 CSV이고 헤더는 정확히 다음과 같다.
 
@@ -144,7 +144,6 @@ memberId,orderKey
 → 선택이 풀린 5분 뒤 같은 feeder로 주문 생성 API 테스트(테스트가 선택 후 주문)
 → 생성된 order lookup feeder로 주문 조회 API 테스트
 → 결과 보존
-→ 주문 만료·Outbox·hold 해제 완료 후 전체 원복
 ```
 
 7개 부하 단계의 좌석 선택·주문 생성 쌍에는 `performanceId=910000022..910000028`을 순서대로 사용한다. 03 최초 경계 탐색용 `910000001..910000007`과 섞지 않는다. 두 API는 같은 단계에서 같은 performance를 공유하므로 단계당 회차 하나만 필요하다. 주문 생성 테스트는 선택 테스트의 선택 표시가 풀린 5분 뒤에 실행한다.
@@ -226,7 +225,7 @@ JWT Secret:       운영 Core와 동일한 값
 Operational Confirmation: ON
 ```
 
-CSV 경로·토큰 수·member 시작 ID·offset·result 경로는 입력하지 않는다. 최초 SQL 결과에서 내보낸 Member ID 파일만 확인하면 Console이 예상 사용자 수로 내부 JWT와 feeder를 만든다. Technical failure와 API별 p95/p99 기준을 바꿔야 할 때만 `판정 기준 변경`을 연다.
+CSV 경로·토큰 수·member 시작 ID·offset·result 경로는 입력하지 않는다. Member ID 파일만 확인하면 Console이 예상 사용자 수로 내부 JWT와 feeder를 만든다. Technical failure와 API별 p95/p99 기준을 바꿔야 할 때만 `판정 기준 변경`을 연다.
 
 실행 버튼을 누르면 전송 직전 확인 대화상자에 다음 내용을 보여 준다.
 
@@ -260,8 +259,6 @@ Users/sec:      10
 ```
 
 Core URL, duration, JWT 설정과 SLO는 같은 비교 조건으로 유지한다. performance만 새 독립 회차로 바꾸면 Console이 300행 feeder를 다시 만든다.
-
-여러 전용 회차를 사용한 테스트 묶음이 끝나면 모든 결과를 보존하고 Core 비동기 처리가 끝난 뒤 모든 Core 인스턴스를 중지한다. 그 다음 Simulation 선택과 관계없이 Console 상단에 표시되는 `테스트 데이터 전체 원복` 버튼을 누른다. 별도 PowerShell 창은 `910000001..910000030` 전체를 먼저 점검하고, 30개가 모두 안전 조건을 만족한 경우에만 전체 원복 확인 문구를 요구한다. 버튼 자체가 즉시 삭제를 수행하지는 않는다.
 
 ## 결과 판독
 
