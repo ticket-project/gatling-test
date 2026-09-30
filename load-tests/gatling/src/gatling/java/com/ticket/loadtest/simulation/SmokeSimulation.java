@@ -7,7 +7,6 @@ import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
-import static io.gatling.javaapi.http.HttpDsl.http;
 
 public class SmokeSimulation extends BookingProofSimulation {
 
@@ -15,11 +14,7 @@ public class SmokeSimulation extends BookingProofSimulation {
 
     public SmokeSimulation() {
         super(SCENARIO);
-        final HttpProtocolBuilder httpProtocol = http
-                .baseUrl(LoadTestConfig.coreBaseUrl())
-                .shareConnections()
-                .acceptHeader("application/json")
-                .contentTypeHeader("application/json");
+        final HttpProtocolBuilder httpProtocol = Protocols.json(LoadTestConfig.coreBaseUrl());
 
         final ScenarioBuilder scenario = scenario("01 기본 예매 동작 확인")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.expectedUsers()))

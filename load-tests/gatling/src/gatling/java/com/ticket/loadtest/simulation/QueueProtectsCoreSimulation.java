@@ -9,13 +9,15 @@ import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.concurrent.ThreadLocalRandom;
 
+import static com.ticket.loadtest.simulation.CoreBookingFlow.canContinue;
+import static com.ticket.loadtest.simulation.CoreBookingFlow.optionalInt;
+import static com.ticket.loadtest.simulation.CoreBookingFlow.optionalString;
+import static com.ticket.loadtest.simulation.CoreBookingFlow.terminalFailure;
 import static io.gatling.javaapi.core.CoreDsl.details;
 import static io.gatling.javaapi.core.CoreDsl.doIf;
 import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.exec;
-import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.core.CoreDsl.pause;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
@@ -30,11 +32,7 @@ public class QueueProtectsCoreSimulation extends BookingProofSimulation {
         super(SCENARIO);
         final int expectedUsers = LoadTestConfig.expectedUsers();
         final Duration queuePollTimeout = Duration.ofSeconds(LoadTestConfig.pollingTimeoutSeconds());
-        final HttpProtocolBuilder httpProtocol = http
-                .baseUrl(LoadTestConfig.coreBaseUrl())
-                .shareConnections()
-                .acceptHeader("application/json")
-                .contentTypeHeader("application/json");
+        final HttpProtocolBuilder httpProtocol = Protocols.json(LoadTestConfig.coreBaseUrl());
 
         final ScenarioBuilder scenario = scenario("06 Queue의 Core 보호")
                 .feed(LoadTestConfig.bookingFeeder(expectedUsers))
@@ -42,39 +40,32 @@ public class QueueProtectsCoreSimulation extends BookingProofSimulation {
                 .exec(dummy("external arrival", 0))
                 .exec(joinQueue())
                 .exec(captureQueueStatus("QUEUE_JOIN", "queueJoinHttpStatus", 200))
-                .exec(doIf(QueueProtectsCoreSimulation::canContinue).then(
-                        exec(session -> session
-                                .set("admissionReady", false)
-                                .set("queueDeadlineNanos", deadlineAfter(queuePollTimeout)))
-                                .asLongAs(session -> canContinue(session)
-                                        && !session.getBoolean("admissionReady")
-                                        && remainingNanos(session, "queueDeadlineNanos") > 0).on(
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        exec(session -> session.set("admissionReady", false))
+                                .asLongAsDuring(session -> canContinue(session)
+                                        && !session.getBoolean("admissionReady"), queuePollTimeout, false).on(
                                         exec(pollQueueState())
                                                 .exec(captureQueueStatus("QUEUE_STATE", "queueStateHttpStatus", 200))
-                                                .exec(doIf(QueueProtectsCoreSimulation::canContinue).then(
+                                                .exec(doIf(CoreBookingFlow::canContinue).then(
                                                         updateQueueState()
                                                 ))
                                                 .doIf(session -> canContinue(session)
-                                                        && !session.getBoolean("admissionReady")
-                                                        && remainingNanos(session, "queueDeadlineNanos") > 0).then(
-                                                        pause(session -> clampedPause(
-                                                                Duration.ofMillis(session.getLong("queuePollDelayMs")),
-                                                                remainingNanos(session, "queueDeadlineNanos")
-                                                        ))
+                                                        && !session.getBoolean("admissionReady")).then(
+                                                        pause(session -> Duration.ofMillis(session.getLong("queuePollDelayMs")))
                                                 )
                                 )
                 ))
                 .exec(doIf(session -> canContinue(session) && !session.getBoolean("admissionReady")).then(
                         markQueueTimeout()
                 ))
-                .exec(doIf(QueueProtectsCoreSimulation::canContinue).then(
+                .exec(doIf(CoreBookingFlow::canContinue).then(
                         exec(enterQueue())
                                 .exec(captureQueueStatus("QUEUE_ENTER", "queueEnterHttpStatus", 200))
-                                .exec(doIf(QueueProtectsCoreSimulation::canContinue).then(
+                                .exec(doIf(CoreBookingFlow::canContinue).then(
                                         validateAdmissionToken()
                                 ))
                 ))
-                .exec(doIf(QueueProtectsCoreSimulation::canContinue).then(
+                .exec(doIf(CoreBookingFlow::canContinue).then(
                         CoreBookingFlow.successfulFlow(SCENARIO, false)
                 ))
                 .exec(doIf(session -> !canContinue(session)).then(
@@ -84,8 +75,7 @@ public class QueueProtectsCoreSimulation extends BookingProofSimulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent()),
+                        Protocols.technicalFailuresBelowThreshold(),
                         details("external arrival").successfulRequests().count().is((long) expectedUsers)
                 );
     }
@@ -133,7 +123,7 @@ public class QueueProtectsCoreSimulation extends BookingProofSimulation {
                     updated = updated.set("admissionReady", true);
                 }
             }
-            return updated.set("queuePollDelayMs", queuePollDelayMs(session));
+            return updated.set("queuePollDelayMs", CoreBookingFlow.queuePollDelayMs(session));
         });
     }
 
@@ -200,55 +190,4 @@ public class QueueProtectsCoreSimulation extends BookingProofSimulation {
             return session;
         });
     }
-
-    private static boolean canContinue(final Session session) {
-        return !session.contains("terminalResult");
-    }
-
-    private static Session terminalFailure(
-            final Session session,
-            final String result,
-            final String lastStep,
-            final int httpStatus
-    ) {
-        return session
-                .set("terminalResult", result)
-                .set("terminalHttpStatus", httpStatus)
-                .set("lastStep", lastStep)
-                .markAsFailed();
-    }
-
-    private static int optionalInt(final Session session, final String key) {
-        return session.contains(key) ? session.getInt(key) : 0;
-    }
-
-    private static String optionalString(final Session session, final String key) {
-        return session.contains(key) ? session.getString(key) : "";
-    }
-
-    private static long queuePollDelayMs(final Session session) {
-        final long configuredDelayMs = Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()).toMillis();
-        final long minimumDelayMs = LoadTestConfig.statusPollPauseMin().toMillis();
-        final long maximumDelayMs = LoadTestConfig.statusPollPauseMax().toMillis();
-        final long refreshAfterMs = session.contains("refreshAfterMs")
-                ? Math.max(0L, session.getLong("refreshAfterMs"))
-                : configuredDelayMs;
-        final long jitterMs = Math.max(configuredDelayMs - minimumDelayMs, maximumDelayMs - configuredDelayMs);
-        final long jitteredDelayMs = jitterMs == 0
-                ? refreshAfterMs
-                : refreshAfterMs + ThreadLocalRandom.current().nextLong(-jitterMs, jitterMs + 1);
-        return Math.max(minimumDelayMs, Math.min(maximumDelayMs, jitteredDelayMs));
-    }
-
-    private static long deadlineAfter(final Duration timeout) {
-        return System.nanoTime() + timeout.toNanos();
-    }
-
-    private static long remainingNanos(final Session session, final String deadlineKey) {
-        return Math.max(0L, session.getLong(deadlineKey) - System.nanoTime());
-    }
-
-    private static Duration clampedPause(final Duration requestedPause, final long remainingNanos) {
-        return Duration.ofNanos(Math.min(requestedPause.toNanos(), remainingNanos));
-    }
-}
+}

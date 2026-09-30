@@ -4,9 +4,7 @@ import com.ticket.loadtest.LoadTestConfig;
 import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
-import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
-import static io.gatling.javaapi.http.HttpDsl.http;
 
 /**
  * 03-3 실제 사용자 흐름 혼합. 03-2와 같은 좌석 경합 모델에 좌석 알림 WebSocket, 배치도 조회, 이탈 시 전체 해제, 결제 전 주문 취소를 더한다.
@@ -19,12 +17,8 @@ public class CoreRealisticUserMixSimulation extends BookingProofSimulation {
 
     public CoreRealisticUserMixSimulation() {
         super(SCENARIO);
-        final HttpProtocolBuilder httpProtocol = http
-                .baseUrl(LoadTestConfig.coreBaseUrl())
-                .wsBaseUrl(LoadTestConfig.coreWsBaseUrl())
-                .shareConnections()
-                .acceptHeader("application/json")
-                .contentTypeHeader("application/json");
+        final HttpProtocolBuilder httpProtocol = Protocols.json(LoadTestConfig.coreBaseUrl())
+                .wsBaseUrl(LoadTestConfig.coreWsBaseUrl());
 
         final ScenarioBuilder scenario = scenario("03-3 실제 사용자 흐름 혼합")
                 .exec(LoadTestConfig.initializeSession())
@@ -35,8 +29,7 @@ public class CoreRealisticUserMixSimulation extends BookingProofSimulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent())
+                        Protocols.technicalFailuresBelowThreshold()
                 );
     }
 }

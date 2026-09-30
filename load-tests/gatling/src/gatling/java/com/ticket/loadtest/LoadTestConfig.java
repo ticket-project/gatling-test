@@ -22,8 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
 import static io.gatling.javaapi.core.CoreDsl.constantConcurrentUsers;
@@ -48,8 +46,6 @@ public final class LoadTestConfig {
     private static final int CORE_ACTIVE_USERS_RAMP_SECONDS = 30;
     private static final ConcurrentMap<ConfigKey, CsvValues> CSV_VALUES = new ConcurrentHashMap<>();
     private static final AtomicInteger TOKEN_COUNTER = new AtomicInteger();
-    private static final AtomicInteger ADMISSION_TOKEN_COUNTER = new AtomicInteger();
-    private static final AtomicInteger SEAT_ID_COUNTER = new AtomicInteger();
     private static final AtomicInteger FAILURE_BODY_DUMP_COUNTER = new AtomicInteger();
     private static final AtomicLong SYNTHETIC_MEMBER_COUNTER =
             new AtomicLong(longProperty(ConfigKey.SYNTHETIC_MEMBER_START_ID));
@@ -350,18 +346,7 @@ public final class LoadTestConfig {
     }
 
     public static ChainBuilder initializeSession() {
-        return exec(session -> session
-                .set("performanceId", performanceId())
-                .set("seatIdsJson", seatIdsJsonArray()));
-    }
-
-    public static ChainBuilder initializeSessionWithNextSeatId() {
-        return exec(session -> {
-            final Long seatId = nextSeatId();
-            return session.set("performanceId", performanceId())
-                    .set("seatIdsJson", "[" + seatId + "]")
-                    .set("seatId", seatId);
-        });
+        return exec(session -> session.set("performanceId", performanceId()));
     }
 
     public static ChainBuilder authenticate() {
@@ -376,29 +361,12 @@ public final class LoadTestConfig {
         // Core는 이메일·비밀번호 로그인이 없다(소셜 전용). 로그인 API 대신 JWT_SECRET으로 서명한 합성 access token을 쓴다.
         if ("synthetic-jwt".equals(mode)) {
             return exec(session -> {
-                final Long memberId = nextSyntheticMember().value();
+                final long memberId = SYNTHETIC_MEMBER_COUNTER.getAndIncrement();
                 return session.set("memberId", memberId)
                         .set("accessToken", createSyntheticJwt(memberId));
             });
         }
         throw new IllegalArgumentException("Unsupported accessTokenMode: " + mode + " (synthetic-jwt 또는 tokens)");
-    }
-
-    public static ChainBuilder withAdmissionToken() {
-        final String mode = property(ConfigKey.ADMISSION_TOKEN_MODE).toLowerCase(Locale.ROOT);
-        if ("tokens".equals(mode)) {
-            return exec(session -> session.set(
-                    "admissionToken",
-                    nextFromCsv(ConfigKey.ADMISSION_TOKENS, ADMISSION_TOKEN_COUNTER)
-            ));
-        }
-        if ("synthetic".equals(mode)) {
-            return exec(session -> session.set("admissionToken", createSyntheticAdmissionToken(
-                    session.getLong("memberId"),
-                    Long.parseLong(session.getString("performanceId"))
-            )));
-        }
-        throw new IllegalArgumentException("Unsupported admissionTokenMode: " + mode);
     }
 
     public static Map<CharSequence, String> authHeaders() {
@@ -470,10 +438,6 @@ public final class LoadTestConfig {
 
     public static Map<CharSequence, String> queueTokenHeaders() {
         return Map.of("X-Queue-Token", "#{queueToken}");
-    }
-
-    public static Map<CharSequence, String> queueSessionHeaders() {
-        return Map.of("X-Queue-Session", "#{queueSessionId}");
     }
 
     public static Map<CharSequence, String> authAndAdmissionHeaders() {
@@ -583,11 +547,6 @@ public final class LoadTestConfig {
         return value;
     }
 
-    private static String nextFromCsv(final ConfigKey key, final AtomicInteger counter) {
-        final CsvValues csvValues = CSV_VALUES.computeIfAbsent(key, LoadTestConfig::parseCsv);
-        return csvValues.values().get(Math.floorMod(counter.getAndIncrement(), csvValues.values().size()));
-    }
-
     private static String nextAccessToken() {
         final CsvValues csvValues = CSV_VALUES.computeIfAbsent(ConfigKey.ACCESS_TOKENS, ignored -> parseAccessTokens());
         final int index = TOKEN_COUNTER.getAndIncrement();
@@ -595,17 +554,6 @@ public final class LoadTestConfig {
             throw new IllegalStateException("Access token values exhausted");
         }
         return csvValues.values().get(index);
-    }
-
-    private static CsvValues parseCsv(final ConfigKey key) {
-        final List<String> values = Stream.of(property(key).split(","))
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .toList();
-        if (values.isEmpty()) {
-            throw new IllegalStateException("System property must contain at least one value: -D" + key.propertyName());
-        }
-        return new CsvValues(values);
     }
 
     private static CsvValues parseAccessTokens() {
@@ -701,28 +649,6 @@ public final class LoadTestConfig {
                 + TICKET_OPEN_TAIL_SECONDS);
     }
 
-    private static String seatIdsJsonArray() {
-        return Stream.of(property(ConfigKey.SEAT_IDS).split(","))
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .collect(Collectors.joining(",", "[", "]"));
-    }
-
-    private static Long nextSeatId() {
-        final List<String> seatIds = Stream.of(property(ConfigKey.SEAT_IDS).split(","))
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .toList();
-        if (seatIds.isEmpty()) {
-            throw new IllegalStateException("System property must contain at least one value: -DseatIds");
-        }
-        return Long.parseLong(seatIds.get(Math.floorMod(SEAT_ID_COUNTER.getAndIncrement(), seatIds.size())));
-    }
-
-    private static SyntheticMemberId nextSyntheticMember() {
-        return new SyntheticMemberId(SYNTHETIC_MEMBER_COUNTER.getAndIncrement());
-    }
-
     public static String syntheticAccessTokenForMember(final long memberId) {
         if (memberId <= 0) {
             throw new IllegalArgumentException("memberId must be positive");
@@ -738,18 +664,6 @@ public final class LoadTestConfig {
                 property(ConfigKey.SYNTHETIC_JWT_ROLE),
                 Instant.now(),
                 intProperty(ConfigKey.SYNTHETIC_TOKEN_TTL_SECONDS)
-        );
-    }
-
-    private static String createSyntheticAdmissionToken(final Long memberId, final Long performanceId) {
-        return LoadTestTokens.createAdmissionToken(
-                property(ConfigKey.ADMISSION_TOKEN_ISSUER),
-                property(ConfigKey.ADMISSION_TOKEN_AUDIENCE),
-                property(ConfigKey.ADMISSION_TOKEN_SECRET),
-                memberId,
-                performanceId,
-                Instant.now(),
-                intProperty(ConfigKey.ADMISSION_TOKEN_TTL_SECONDS)
         );
     }
 
@@ -801,178 +715,70 @@ public final class LoadTestConfig {
     private record CsvValues(List<String> values) {
     }
 
-    private record SyntheticMemberId(Long value) {
-    }
-
     private enum ConfigKey {
-        BASE_URL,
-        CORE_BASE_URL,
-        QUEUE_BASE_URL,
-        PERFORMANCE_ID,
-        STATUS_POLLS,
-        STATUS_POLL_PAUSE_SECONDS,
-        STATUS_POLL_PAUSE_JITTER_SECONDS,
-        HTTP2_ENABLED,
-        USERS,
-        DURATION_SECONDS,
-        INJECTION_MODE,
-        USERS_PER_SECOND,
-        TARGET_USERS_PER_SECOND,
-        ACCESS_TOKEN_MODE,
-        ACCESS_TOKENS,
-        ACCESS_TOKENS_FILE,
-        ADMISSION_TOKEN_MODE,
-        ADMISSION_TOKENS,
-        ADMISSION_TOKEN_ISSUER,
-        ADMISSION_TOKEN_AUDIENCE,
-        ADMISSION_TOKEN_SECRET,
-        ADMISSION_TOKEN_TTL_SECONDS,
-        SEAT_IDS,
-        SYNTHETIC_MEMBER_START_ID,
-        SYNTHETIC_TOKEN_TTL_SECONDS,
-        JWT_ISSUER,
-        SYNTHETIC_JWT_ROLE,
-        JWT_SECRET,
-        DUMP_FAILURE_BODY,
-        DUMP_FAILURE_BODY_LIMIT,
-        FAILURE_BODY_DIR,
-        BOOKING_FEEDER_FILE,
-        BOOKING_FEEDER_OFFSET,
-        BOOKING_FEEDER_ROWS,
-        BOOKING_SCENARIO,
-        NODE_INDEX,
-        RESULT_FILE,
-        POLLING_TIMEOUT_SECONDS,
-        BOOKING_SEAT_THINK_MIN_MILLIS,
-        BOOKING_SEAT_THINK_MAX_MILLIS,
-        BOOKING_ORDER_THINK_MIN_MILLIS,
-        BOOKING_ORDER_THINK_MAX_MILLIS,
-        BOOKING_RETRY_THINK_MIN_MILLIS,
-        BOOKING_RETRY_THINK_MAX_MILLIS,
-        BOOKING_SEAT_REFRESH_PERCENT,
-        BOOKING_DROPOUT_PERCENT,
-        BOOKING_ORDER_CANCEL_PERCENT,
-        SHOW_ID,
-        WS_ORIGIN,
-        TECHNICAL_FAILURE_THRESHOLD_PERCENT,
-        QUEUE_TIMEOUT_THRESHOLD_PERCENT,
-        MAX_CORE_ADMISSIONS_PER_SECOND,
-        ADMISSION_RATE_TOLERANCE_PERCENT,
-        DB_AUDIT_ENABLED,
-        START_AT_EPOCH_MILLIS;
+        BASE_URL("baseUrl", null),
+        CORE_BASE_URL("coreBaseUrl", null),
+        QUEUE_BASE_URL("queueBaseUrl", null),
+        PERFORMANCE_ID("performanceId", "1"),
+        STATUS_POLLS("statusPolls", "3"),
+        STATUS_POLL_PAUSE_SECONDS("statusPollPauseSeconds", "1"),
+        STATUS_POLL_PAUSE_JITTER_SECONDS("statusPollPauseJitterSeconds", "0"),
+        HTTP2_ENABLED("http2Enabled", "false"),
+        USERS("users", "10"),
+        DURATION_SECONDS("durationSeconds", "10"),
+        INJECTION_MODE("injectionMode", "ramp-users"),
+        USERS_PER_SECOND("usersPerSecond", "1.0"),
+        TARGET_USERS_PER_SECOND("targetUsersPerSecond", "10.0"),
+        ACCESS_TOKEN_MODE("accessTokenMode", "synthetic-jwt"),
+        ACCESS_TOKENS("accessTokens", null),
+        ACCESS_TOKENS_FILE("accessTokensFile", null),
+        SYNTHETIC_MEMBER_START_ID("syntheticMemberStartId", "1"),
+        SYNTHETIC_TOKEN_TTL_SECONDS("syntheticTokenTtlSeconds", "3600"),
+        JWT_ISSUER("jwtIssuer", "ticket"),
+        SYNTHETIC_JWT_ROLE("syntheticJwtRole", "MEMBER"),
+        JWT_SECRET("jwtSecret", null),
+        DUMP_FAILURE_BODY("dumpFailureBody", "false"),
+        DUMP_FAILURE_BODY_LIMIT("dumpFailureBodyLimit", "1"),
+        FAILURE_BODY_DIR("failureBodyDir", "../../distributed-results-join/_latest/failure-bodies"),
+        BOOKING_FEEDER_FILE("bookingFeederFile", "build/booking-feeder.csv"),
+        BOOKING_FEEDER_OFFSET("bookingFeederOffset", "0"),
+        BOOKING_FEEDER_ROWS("bookingFeederRows", null),
+        BOOKING_SCENARIO("bookingScenario", "TICKET_OPEN_END_TO_END"),
+        NODE_INDEX("nodeIndex", "0"),
+        RESULT_FILE("resultFile", "../../distributed-results-join/_latest/booking-results.csv"),
+        POLLING_TIMEOUT_SECONDS("pollingTimeoutSeconds", "300"),
+        BOOKING_SEAT_THINK_MIN_MILLIS("bookingSeatThinkMinMillis", "1000"),
+        BOOKING_SEAT_THINK_MAX_MILLIS("bookingSeatThinkMaxMillis", "3000"),
+        BOOKING_ORDER_THINK_MIN_MILLIS("bookingOrderThinkMinMillis", "2000"),
+        BOOKING_ORDER_THINK_MAX_MILLIS("bookingOrderThinkMaxMillis", "6000"),
+        BOOKING_RETRY_THINK_MIN_MILLIS("bookingRetryThinkMinMillis", "500"),
+        BOOKING_RETRY_THINK_MAX_MILLIS("bookingRetryThinkMaxMillis", "2000"),
+        BOOKING_SEAT_REFRESH_PERCENT("bookingSeatRefreshPercent", "25.0"),
+        BOOKING_DROPOUT_PERCENT("bookingDropoutPercent", "10.0"),
+        BOOKING_ORDER_CANCEL_PERCENT("bookingOrderCancelPercent", "10.0"),
+        SHOW_ID("showId", "910000001"),
+        WS_ORIGIN("wsOrigin", ""),
+        TECHNICAL_FAILURE_THRESHOLD_PERCENT("technicalFailureThresholdPercent", "1.0"),
+        QUEUE_TIMEOUT_THRESHOLD_PERCENT("queueTimeoutThresholdPercent", "0.0"),
+        MAX_CORE_ADMISSIONS_PER_SECOND("maxCoreAdmissionsPerSecond", "0"),
+        ADMISSION_RATE_TOLERANCE_PERCENT("admissionRateTolerancePercent", "10.0"),
+        DB_AUDIT_ENABLED("dbAuditEnabled", "false"),
+        START_AT_EPOCH_MILLIS("startAtEpochMillis", "0");
+
+        private final String propertyName;
+        private final String defaultValue;
+
+        ConfigKey(final String propertyName, final String defaultValue) {
+            this.propertyName = propertyName;
+            this.defaultValue = defaultValue;
+        }
 
         private String propertyName() {
-            return switch (this) {
-                case BASE_URL -> "baseUrl";
-                case CORE_BASE_URL -> "coreBaseUrl";
-                case QUEUE_BASE_URL -> "queueBaseUrl";
-                case PERFORMANCE_ID -> "performanceId";
-                case STATUS_POLLS -> "statusPolls";
-                case STATUS_POLL_PAUSE_SECONDS -> "statusPollPauseSeconds";
-                case STATUS_POLL_PAUSE_JITTER_SECONDS -> "statusPollPauseJitterSeconds";
-                case HTTP2_ENABLED -> "http2Enabled";
-                case USERS -> "users";
-                case DURATION_SECONDS -> "durationSeconds";
-                case INJECTION_MODE -> "injectionMode";
-                case USERS_PER_SECOND -> "usersPerSecond";
-                case TARGET_USERS_PER_SECOND -> "targetUsersPerSecond";
-                case ACCESS_TOKEN_MODE -> "accessTokenMode";
-                case ACCESS_TOKENS -> "accessTokens";
-                case ACCESS_TOKENS_FILE -> "accessTokensFile";
-                case ADMISSION_TOKEN_MODE -> "admissionTokenMode";
-                case ADMISSION_TOKENS -> "admissionTokens";
-                case ADMISSION_TOKEN_ISSUER -> "admissionTokenIssuer";
-                case ADMISSION_TOKEN_AUDIENCE -> "admissionTokenAudience";
-                case ADMISSION_TOKEN_SECRET -> "admissionTokenSecret";
-                case ADMISSION_TOKEN_TTL_SECONDS -> "admissionTokenTtlSeconds";
-                case SEAT_IDS -> "seatIds";
-                case SYNTHETIC_MEMBER_START_ID -> "syntheticMemberStartId";
-                case SYNTHETIC_TOKEN_TTL_SECONDS -> "syntheticTokenTtlSeconds";
-                case JWT_ISSUER -> "jwtIssuer";
-                case SYNTHETIC_JWT_ROLE -> "syntheticJwtRole";
-                case JWT_SECRET -> "jwtSecret";
-                case DUMP_FAILURE_BODY -> "dumpFailureBody";
-                case DUMP_FAILURE_BODY_LIMIT -> "dumpFailureBodyLimit";
-                case FAILURE_BODY_DIR -> "failureBodyDir";
-                case BOOKING_FEEDER_FILE -> "bookingFeederFile";
-                case BOOKING_FEEDER_OFFSET -> "bookingFeederOffset";
-                case BOOKING_FEEDER_ROWS -> "bookingFeederRows";
-                case BOOKING_SCENARIO -> "bookingScenario";
-                case NODE_INDEX -> "nodeIndex";
-                case RESULT_FILE -> "resultFile";
-                case POLLING_TIMEOUT_SECONDS -> "pollingTimeoutSeconds";
-                case BOOKING_SEAT_THINK_MIN_MILLIS -> "bookingSeatThinkMinMillis";
-                case BOOKING_SEAT_THINK_MAX_MILLIS -> "bookingSeatThinkMaxMillis";
-                case BOOKING_ORDER_THINK_MIN_MILLIS -> "bookingOrderThinkMinMillis";
-                case BOOKING_ORDER_THINK_MAX_MILLIS -> "bookingOrderThinkMaxMillis";
-                case BOOKING_RETRY_THINK_MIN_MILLIS -> "bookingRetryThinkMinMillis";
-                case BOOKING_RETRY_THINK_MAX_MILLIS -> "bookingRetryThinkMaxMillis";
-                case BOOKING_SEAT_REFRESH_PERCENT -> "bookingSeatRefreshPercent";
-                case BOOKING_DROPOUT_PERCENT -> "bookingDropoutPercent";
-                case BOOKING_ORDER_CANCEL_PERCENT -> "bookingOrderCancelPercent";
-                case SHOW_ID -> "showId";
-                case WS_ORIGIN -> "wsOrigin";
-                case TECHNICAL_FAILURE_THRESHOLD_PERCENT -> "technicalFailureThresholdPercent";
-                case QUEUE_TIMEOUT_THRESHOLD_PERCENT -> "queueTimeoutThresholdPercent";
-                case MAX_CORE_ADMISSIONS_PER_SECOND -> "maxCoreAdmissionsPerSecond";
-                case ADMISSION_RATE_TOLERANCE_PERCENT -> "admissionRateTolerancePercent";
-                case DB_AUDIT_ENABLED -> "dbAuditEnabled";
-                case START_AT_EPOCH_MILLIS -> "startAtEpochMillis";
-            };
+            return propertyName;
         }
 
         private String defaultValue() {
-            return switch (this) {
-                case BASE_URL, CORE_BASE_URL, QUEUE_BASE_URL -> null;
-                case PERFORMANCE_ID -> "1";
-                case STATUS_POLLS -> "3";
-                case STATUS_POLL_PAUSE_SECONDS -> "1";
-                case STATUS_POLL_PAUSE_JITTER_SECONDS -> "0";
-                case HTTP2_ENABLED -> "false";
-                case USERS -> "10";
-                case DURATION_SECONDS -> "10";
-                case INJECTION_MODE -> "ramp-users";
-                case USERS_PER_SECOND -> "1.0";
-                case TARGET_USERS_PER_SECOND -> "10.0";
-                case ACCESS_TOKEN_MODE -> "synthetic-jwt";
-                case ADMISSION_TOKEN_MODE -> "synthetic";
-                case ADMISSION_TOKEN_ISSUER -> "ticket-queue";
-                case ADMISSION_TOKEN_AUDIENCE -> "ticket-api";
-                case ADMISSION_TOKEN_SECRET -> "0123456789abcdef0123456789abcdef";
-                case ADMISSION_TOKEN_TTL_SECONDS -> "300";
-                case SEAT_IDS -> "1";
-                case SYNTHETIC_MEMBER_START_ID -> "1";
-                case SYNTHETIC_TOKEN_TTL_SECONDS -> "3600";
-                case JWT_ISSUER -> "ticket";
-                case SYNTHETIC_JWT_ROLE -> "MEMBER";
-                case DUMP_FAILURE_BODY -> "false";
-                case DUMP_FAILURE_BODY_LIMIT -> "1";
-                case FAILURE_BODY_DIR -> "../../distributed-results-join/_latest/failure-bodies";
-                case BOOKING_FEEDER_FILE -> "build/booking-feeder.csv";
-                case BOOKING_FEEDER_OFFSET -> "0";
-                case BOOKING_SCENARIO -> "TICKET_OPEN_END_TO_END";
-                case NODE_INDEX -> "0";
-                case RESULT_FILE -> "../../distributed-results-join/_latest/booking-results.csv";
-                case POLLING_TIMEOUT_SECONDS -> "300";
-                case BOOKING_SEAT_THINK_MIN_MILLIS -> "1000";
-                case BOOKING_SEAT_THINK_MAX_MILLIS -> "3000";
-                case BOOKING_ORDER_THINK_MIN_MILLIS -> "2000";
-                case BOOKING_ORDER_THINK_MAX_MILLIS -> "6000";
-                case BOOKING_RETRY_THINK_MIN_MILLIS -> "500";
-                case BOOKING_RETRY_THINK_MAX_MILLIS -> "2000";
-                case BOOKING_SEAT_REFRESH_PERCENT -> "25.0";
-                case BOOKING_DROPOUT_PERCENT -> "10.0";
-                case BOOKING_ORDER_CANCEL_PERCENT -> "10.0";
-                case SHOW_ID -> "910000001";
-                case WS_ORIGIN -> "";
-                case TECHNICAL_FAILURE_THRESHOLD_PERCENT -> "1.0";
-                case QUEUE_TIMEOUT_THRESHOLD_PERCENT -> "0.0";
-                case MAX_CORE_ADMISSIONS_PER_SECOND -> "0";
-                case ADMISSION_RATE_TOLERANCE_PERCENT -> "10.0";
-                case DB_AUDIT_ENABLED -> "false";
-                case START_AT_EPOCH_MILLIS -> "0";
-                case ACCESS_TOKENS, ACCESS_TOKENS_FILE, ADMISSION_TOKENS, JWT_SECRET, BOOKING_FEEDER_ROWS -> null;
-            };
+            return defaultValue;
         }
     }
 }

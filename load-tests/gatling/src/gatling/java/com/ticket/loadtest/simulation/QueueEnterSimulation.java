@@ -13,11 +13,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 
 public class QueueEnterSimulation extends Simulation {
 
-    private final HttpProtocolBuilder httpProtocol = http
-            .baseUrl(LoadTestConfig.baseUrl())
-            .shareConnections()
-            .acceptHeader("application/json")
-            .contentTypeHeader("application/json");
+    private final HttpProtocolBuilder httpProtocol = Protocols.json(LoadTestConfig.baseUrl());
 
     public QueueEnterSimulation() {
         final ScenarioBuilder scenario = scenario("대기열 입장 처리")

@@ -5,32 +5,22 @@ import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
-import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
-import static io.gatling.javaapi.http.HttpDsl.http;
-import static io.gatling.javaapi.http.HttpDsl.status;
 
 public class CoreSeatSelectApiSimulation extends Simulation {
 
     public CoreSeatSelectApiSimulation() {
-        final HttpProtocolBuilder httpProtocol = http
-                .baseUrl(LoadTestConfig.coreBaseUrl())
-                .shareConnections()
-                .acceptHeader("application/json");
+        final HttpProtocolBuilder httpProtocol = Protocols.acceptJson(LoadTestConfig.coreBaseUrl());
 
         final ScenarioBuilder scenario = scenario("POST /api/v1/performances/{performanceId}/seats/{seatId}/select")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.expectedUsers()))
                 .exec(session -> session.set("performanceId", LoadTestConfig.performanceId()))
-                .exec(http("select seat")
-                        .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
-                        .headers(LoadTestConfig.authAndCorrelationHeaders())
-                        .check(status().is(200)));
+                .exec(CoreBookingFlow.selectSeat(false, false));
 
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent())
+                        Protocols.technicalFailuresBelowThreshold()
                 );
     }
 }

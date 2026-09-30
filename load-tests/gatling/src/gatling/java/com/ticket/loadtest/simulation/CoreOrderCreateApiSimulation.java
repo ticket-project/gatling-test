@@ -9,7 +9,6 @@ import io.gatling.javaapi.http.HttpProtocolBuilder;
 import java.nio.file.Path;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
-import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.header;
@@ -20,11 +19,7 @@ public class CoreOrderCreateApiSimulation extends Simulation {
     public CoreOrderCreateApiSimulation() {
         final Path orderLookupFeeder = Path.of(LoadTestConfig.resultFile());
         OrderLookupFeeder.initialize(orderLookupFeeder);
-        final HttpProtocolBuilder httpProtocol = http
-                .baseUrl(LoadTestConfig.coreBaseUrl())
-                .shareConnections()
-                .acceptHeader("application/json")
-                .contentTypeHeader("application/json");
+        final HttpProtocolBuilder httpProtocol = Protocols.json(LoadTestConfig.coreBaseUrl());
 
         final ScenarioBuilder scenario = scenario("POST /api/v1/orders")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.expectedUsers()))
@@ -33,10 +28,7 @@ public class CoreOrderCreateApiSimulation extends Simulation {
                         .set("seatIdsJson", "[" + session.getLong("seatId") + "]"))
                 // Core는 본인이 선택 중인 좌석으로만 주문을 받는다(ticket-core ADR 0021). 선택 요청도 함께 측정된다 —
                 // 주문 API만 보려면 "create order" 요청 통계를 본다.
-                .exec(http("select seat")
-                        .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
-                        .headers(LoadTestConfig.authAndCorrelationHeaders())
-                        .check(status().is(200)))
+                .exec(CoreBookingFlow.selectSeat(false, false))
                 .exitHereIfFailed()
                 .exec(http("create order")
                         .post("/api/v1/orders")
@@ -63,8 +55,7 @@ public class CoreOrderCreateApiSimulation extends Simulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent())
+                        Protocols.technicalFailuresBelowThreshold()
                 );
     }
 }

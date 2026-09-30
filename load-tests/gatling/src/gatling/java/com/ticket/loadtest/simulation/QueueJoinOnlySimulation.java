@@ -80,11 +80,7 @@ public class QueueJoinOnlySimulation extends Simulation {
     }
 
     private static HttpProtocolBuilder buildHttpProtocol() {
-        HttpProtocolBuilder protocol = http
-                .baseUrl(LoadTestConfig.baseUrl())
-                .shareConnections()
-                .acceptHeader("application/json")
-                .contentTypeHeader("application/json");
+        HttpProtocolBuilder protocol = Protocols.json(LoadTestConfig.baseUrl());
         return LoadTestConfig.http2Enabled() ? protocol.enableHttp2() : protocol;
     }
 }

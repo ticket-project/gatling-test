@@ -1,5 +1,7 @@
 package com.ticket.loadtest.simulation;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ticket.loadtest.LoadTestConfig;
 import com.ticket.loadtest.RealisticSeatSelection;
 
@@ -29,6 +31,8 @@ final class BookingRunConfigurationWriter {
     );
     private static final Set<String> NO_FEEDER_SCENARIOS = Set.of("CORE_REALISTIC_CONTENTION", "CORE_REALISTIC_USER_MIX");
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     private BookingRunConfigurationWriter() {
     }
 
@@ -40,62 +44,57 @@ final class BookingRunConfigurationWriter {
         final int feederRows = feederRows(scenario);
         final int feederOffset = feederRows == 0 ? 0 : LoadTestConfig.bookingFeederOffset();
         final long feederEndInclusive = feederRows == 0 ? -1L : (long) feederOffset + feederRows - 1L;
-        final String json = "{\n"
-                + "  \"schemaVersion\":1,\n"
-                + "  \"runId\":\"" + json(LoadTestConfig.consoleRunId()) + "\",\n"
-                + "  \"scenario\":\"" + json(scenario) + "\",\n"
-                + "  \"nodeIndex\":" + LoadTestConfig.nodeIndex() + ",\n"
-                + "  \"coreBaseUrl\":\"" + json(LoadTestConfig.coreBaseUrl()) + "\",\n"
-                + "  \"queueBaseUrl\":\"" + json(queueBaseUrl) + "\",\n"
-                + "  \"performanceId\":\"" + json(LoadTestConfig.performanceId()) + "\",\n"
-                + "  \"injection\":{"
-                + "\"mode\":\"" + json(LoadTestConfig.injectionMode()) + "\","
-                + "\"users\":" + LoadTestConfig.users() + ","
-                + "\"durationSeconds\":" + LoadTestConfig.durationSeconds() + ","
-                + "\"usersPerSecond\":" + LoadTestConfig.usersPerSecond() + ","
-                + "\"targetUsersPerSecond\":" + LoadTestConfig.targetUsersPerSecond() + ","
-                + "\"expectedUsers\":" + LoadTestConfig.expectedUsers() + "},\n"
-                + "  \"feeder\":{"
-                + "\"file\":\"" + json(feederRows == 0 ? "" : LoadTestConfig.bookingFeederFile()) + "\","
-                + "\"offset\":" + feederOffset + ","
-                + "\"requiredRows\":" + feederRows + ","
-                + "\"rowStartInclusive\":" + feederOffset + ","
-                + "\"rowEndInclusive\":" + feederEndInclusive + "},\n"
-                + "  \"authentication\":{"
-                + "\"accessTokenMode\":\"" + json(LoadTestConfig.accessTokenMode()) + "\","
-                + "\"admissionTokenIncluded\":" + admissionTokenIncluded + "},\n"
-                + "  \"realisticUserModelApplied\":" + REALISTIC_SCENARIOS.contains(scenario) + ",\n"
-                + "  \"behavior\":{"
-                + "\"seatThinkMinMillis\":" + LoadTestConfig.bookingSeatThinkMin().toMillis() + ","
-                + "\"seatThinkMaxMillis\":" + LoadTestConfig.bookingSeatThinkMax().toMillis() + ","
-                + "\"orderThinkMinMillis\":" + LoadTestConfig.bookingOrderThinkMin().toMillis() + ","
-                + "\"orderThinkMaxMillis\":" + LoadTestConfig.bookingOrderThinkMax().toMillis() + ","
-                + "\"retryThinkMinMillis\":" + LoadTestConfig.bookingRetryThinkMin().toMillis() + ","
-                + "\"retryThinkMaxMillis\":" + LoadTestConfig.bookingRetryThinkMax().toMillis() + ","
-                + "\"seatRefreshPercent\":" + LoadTestConfig.bookingSeatRefreshPercent() + ","
-                + "\"dropoutPercent\":" + LoadTestConfig.bookingDropoutPercent() + ","
-                + "\"orderCancelPercent\":" + LoadTestConfig.bookingOrderCancelPercent() + ","
-                + "\"popularSeatPoolPercent\":" + RealisticSeatSelection.popularSeatPoolPercent() + ","
-                + "\"popularSeatSelectionPercent\":" + RealisticSeatSelection.popularSeatSelectionPercent() + ","
-                + "\"maxSeatSelectionAttempts\":" + RealisticSeatSelection.maxDynamicAttempts() + "},\n"
-                + "  \"thresholds\":{"
-                + "\"technicalFailurePercent\":" + LoadTestConfig.technicalFailureThresholdPercent() + ","
-                + "\"queueTimeoutPercent\":" + LoadTestConfig.queueTimeoutThresholdPercent() + ","
-                + "\"maxCoreAdmissionsPerSecond\":" + LoadTestConfig.maxCoreAdmissionsPerSecond() + ","
-                + "\"admissionRateTolerancePercent\":" + LoadTestConfig.admissionRateTolerancePercent() + "},\n"
-                + "  \"dbAuditEnabled\":" + LoadTestConfig.dbAuditEnabled() + "\n"
-                + "}\n";
+        final ObjectNode root = MAPPER.createObjectNode()
+                .put("schemaVersion", 1)
+                .put("runId", LoadTestConfig.consoleRunId())
+                .put("scenario", scenario)
+                .put("nodeIndex", LoadTestConfig.nodeIndex())
+                .put("coreBaseUrl", LoadTestConfig.coreBaseUrl())
+                .put("queueBaseUrl", queueBaseUrl)
+                .put("performanceId", LoadTestConfig.performanceId());
+        root.putObject("injection")
+                .put("mode", LoadTestConfig.injectionMode())
+                .put("users", LoadTestConfig.users())
+                .put("durationSeconds", LoadTestConfig.durationSeconds())
+                .put("usersPerSecond", LoadTestConfig.usersPerSecond())
+                .put("targetUsersPerSecond", LoadTestConfig.targetUsersPerSecond())
+                .put("expectedUsers", LoadTestConfig.expectedUsers());
+        root.putObject("feeder")
+                .put("file", feederRows == 0 ? "" : LoadTestConfig.bookingFeederFile())
+                .put("offset", feederOffset)
+                .put("requiredRows", feederRows)
+                .put("rowStartInclusive", feederOffset)
+                .put("rowEndInclusive", feederEndInclusive);
+        root.putObject("authentication")
+                .put("accessTokenMode", LoadTestConfig.accessTokenMode())
+                .put("admissionTokenIncluded", admissionTokenIncluded);
+        root.put("realisticUserModelApplied", REALISTIC_SCENARIOS.contains(scenario));
+        root.putObject("behavior")
+                .put("seatThinkMinMillis", LoadTestConfig.bookingSeatThinkMin().toMillis())
+                .put("seatThinkMaxMillis", LoadTestConfig.bookingSeatThinkMax().toMillis())
+                .put("orderThinkMinMillis", LoadTestConfig.bookingOrderThinkMin().toMillis())
+                .put("orderThinkMaxMillis", LoadTestConfig.bookingOrderThinkMax().toMillis())
+                .put("retryThinkMinMillis", LoadTestConfig.bookingRetryThinkMin().toMillis())
+                .put("retryThinkMaxMillis", LoadTestConfig.bookingRetryThinkMax().toMillis())
+                .put("seatRefreshPercent", LoadTestConfig.bookingSeatRefreshPercent())
+                .put("dropoutPercent", LoadTestConfig.bookingDropoutPercent())
+                .put("orderCancelPercent", LoadTestConfig.bookingOrderCancelPercent())
+                .put("popularSeatPoolPercent", RealisticSeatSelection.popularSeatPoolPercent())
+                .put("popularSeatSelectionPercent", RealisticSeatSelection.popularSeatSelectionPercent())
+                .put("maxSeatSelectionAttempts", RealisticSeatSelection.maxDynamicAttempts());
+        root.putObject("thresholds")
+                .put("technicalFailurePercent", LoadTestConfig.technicalFailureThresholdPercent())
+                .put("queueTimeoutPercent", LoadTestConfig.queueTimeoutThresholdPercent())
+                .put("maxCoreAdmissionsPerSecond", LoadTestConfig.maxCoreAdmissionsPerSecond())
+                .put("admissionRateTolerancePercent", LoadTestConfig.admissionRateTolerancePercent());
+        root.put("dbAuditEnabled", LoadTestConfig.dbAuditEnabled());
         try {
             Files.createDirectories(parent);
-            Files.writeString(output, json, StandardCharsets.UTF_8, StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(output, MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(root) + "\n",
+                    StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to write booking run configuration beside " + resultFile, exception);
         }
-    }
-
-    private static String json(final String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private static int feederRows(final String scenario) {

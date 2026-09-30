@@ -22,10 +22,7 @@ public class CdnPublicStateSimulation extends Simulation {
 
     private static final CdnCacheCounters CDN_CACHE_COUNTERS = new CdnCacheCounters();
 
-    private final HttpProtocolBuilder httpProtocol = http
-            .baseUrl(LoadTestConfig.baseUrl())
-            .shareConnections()
-            .acceptHeader("application/json");
+    private final HttpProtocolBuilder httpProtocol = Protocols.acceptJson(LoadTestConfig.baseUrl());
 
     public CdnPublicStateSimulation() {
         HttpRequestActionBuilder publicState = http("cdn public state")

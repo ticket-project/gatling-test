@@ -10,9 +10,7 @@ import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.concurrent.ThreadLocalRandom;
 
-import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.doIf;
 import static io.gatling.javaapi.core.CoreDsl.dummy;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -20,7 +18,6 @@ import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.core.CoreDsl.pause;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
-import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 
@@ -30,11 +27,7 @@ public class TicketOpenEndToEndSimulation extends Simulation {
     private static final Duration ORDER_POLL_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration ORDER_POLL_PAUSE = Duration.ofMillis(200);
 
-    private final HttpProtocolBuilder httpProtocol = http
-            .baseUrl(LoadTestConfig.coreBaseUrl())
-            .shareConnections()
-            .acceptHeader("application/json")
-            .contentTypeHeader("application/json");
+    private final HttpProtocolBuilder httpProtocol = Protocols.json(LoadTestConfig.coreBaseUrl());
 
     public TicketOpenEndToEndSimulation() {
         final Duration queuePollTimeout = Duration.ofSeconds(LoadTestConfig.pollingTimeoutSeconds());
@@ -45,20 +38,14 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                         .set("seatIdsJson", "[" + session.getLong("seatId") + "]"))
                 .exec(joinQueue())
                 .exitHereIfFailed()
-                .exec(session -> session
-                        .set("admissionReady", false)
-                        .set("queueDeadlineNanos", deadlineAfter(queuePollTimeout)))
-                .asLongAs(session -> !session.getBoolean("admissionReady")
-                        && remainingNanos(session, "queueDeadlineNanos") > 0).on(
+                .exec(session -> session.set("admissionReady", false))
+                // exitASAP=false: 한 번 돈 조회 결과는 끝까지 반영한다. 마지막 pause만큼 제한 시간을 넘길 수 있다.
+                .asLongAsDuring(session -> !session.getBoolean("admissionReady"), queuePollTimeout, false).on(
                         exec(pollQueueState())
                                 .exitHereIfFailed()
                                 .exec(updateQueueState())
-                                .doIf(session -> !session.getBoolean("admissionReady")
-                                        && remainingNanos(session, "queueDeadlineNanos") > 0).then(
-                                        pause(session -> clampedPause(
-                                                Duration.ofMillis(session.getLong("queuePollDelayMs")),
-                                                remainingNanos(session, "queueDeadlineNanos")
-                                        ))
+                                .doIf(session -> !session.getBoolean("admissionReady")).then(
+                                        pause(session -> Duration.ofMillis(session.getLong("queuePollDelayMs")))
                                 )
                 )
                 .exec(doIf(session -> !session.getBoolean("admissionReady")).then(
@@ -67,37 +54,26 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                 .exitHereIfFailed()
                 .exec(enterQueue())
                 .exitHereIfFailed()
-                .exec(fetchSeatStatus())
+                .exec(CoreBookingFlow.fetchSeatStatus(true))
                 .exitHereIfFailed()
-                .exec(selectSeat())
+                .exec(CoreBookingFlow.selectSeat(true, false))
                 .exitHereIfFailed()
-                .exec(createOrder())
+                .exec(CoreBookingFlow.createOrder(true, false))
                 .exitHereIfFailed()
-                .exec(resolveOrderKey())
-                .exec(doIf(session -> session.getBoolean("orderKeyContractFailure")).then(
-                        dummy("order key contract failure", 0)
-                                .withSuccess(false)
-                                .withSessionUpdate(session -> session.markAsFailed())
+                .exec(CoreBookingFlow.resolveOrderKey())
+                .exec(doIf(Session::isFailed).then(
+                        dummy("order key contract failure", 0).withSuccess(false)
                 ))
                 .exitHereIfFailed()
-                .exec(session -> session
-                        .set("orderPending", false)
-                        .set("orderDeadlineNanos", deadlineAfter(ORDER_POLL_TIMEOUT)))
-                .asLongAs(session -> !session.getBoolean("orderPending")
-                        && remainingNanos(session, "orderDeadlineNanos") > 0).on(
-                        exec(fetchOrder())
+                .exec(session -> session.set("orderPending", false))
+                .asLongAsDuring(session -> !session.getBoolean("orderPending"), ORDER_POLL_TIMEOUT, false).on(
+                        exec(CoreBookingFlow.fetchOrder())
                                 .exitHereIfFailed()
                                 .exec(session -> session.set(
                                         "orderPending",
-                                        "PENDING".equals(session.getString("orderStatus"))
+                                        "PENDING".equals(CoreBookingFlow.optionalString(session, "orderState"))
                                 ))
-                                .doIf(session -> !session.getBoolean("orderPending")
-                                        && remainingNanos(session, "orderDeadlineNanos") > 0).then(
-                                        pause(session -> clampedPause(
-                                                ORDER_POLL_PAUSE,
-                                                remainingNanos(session, "orderDeadlineNanos")
-                                        ))
-                                )
+                                .doIf(session -> !session.getBoolean("orderPending")).then(pause(ORDER_POLL_PAUSE))
                 )
                 .exec(doIf(session -> !session.getBoolean("orderPending")).then(
                         dummy("order state timeout", 0)
@@ -148,7 +124,7 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                     }
                 }
             }
-            return updated.set("queuePollDelayMs", queuePollDelayMs(session));
+            return updated.set("queuePollDelayMs", CoreBookingFlow.queuePollDelayMs(session));
         });
     }
 
@@ -176,60 +152,6 @@ public class TicketOpenEndToEndSimulation extends Simulation {
         });
     }
 
-    private ChainBuilder fetchSeatStatus() {
-        return exec(http("seat status")
-                .get("/api/v1/performances/#{performanceId}/seats/status")
-                .headers(LoadTestConfig.authAndAdmissionHeaders())
-                .check(status().is(200)));
-    }
-
-    private ChainBuilder selectSeat() {
-        return exec(http("select seat")
-                .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
-                .headers(LoadTestConfig.authAndAdmissionHeaders())
-                .check(status().is(200)));
-    }
-
-    private ChainBuilder createOrder() {
-        return exec(http("create order")
-                .post("/api/v1/orders")
-                .headers(LoadTestConfig.authAndAdmissionHeaders())
-                .body(StringBody("""
-                        {
-                          "performanceId": #{performanceId},
-                          "seatIds": #{seatIdsJson}
-                        }
-                        """))
-                .check(status().is(201))
-                .check(header("X-Order-Key").optional().saveAs("orderKeyHeader"))
-                .check(jsonPath("$.data.orderKey").optional().saveAs("orderKeyBody")));
-    }
-
-    private ChainBuilder resolveOrderKey() {
-        return exec(session -> {
-            final String headerOrderKey = optionalString(session, "orderKeyHeader");
-            final String bodyOrderKey = optionalString(session, "orderKeyBody");
-            if (headerOrderKey.isBlank() && bodyOrderKey.isBlank()) {
-                return session.set("orderKeyContractFailure", true);
-            }
-            if (!headerOrderKey.isBlank() && !bodyOrderKey.isBlank() && !headerOrderKey.equals(bodyOrderKey)) {
-                return session.set("orderKeyContractFailure", true);
-            }
-            return session
-                    .set("orderKeyContractFailure", false)
-                    .set("orderKey", headerOrderKey.isBlank() ? bodyOrderKey : headerOrderKey);
-        });
-    }
-
-    private ChainBuilder fetchOrder() {
-        return exec(http("get order")
-                .get("/api/v1/orders/#{orderKey}/status")
-                .headers(LoadTestConfig.authAndAdmissionHeaders())
-                .check(status().saveAs("orderHttpStatus"))
-                .check(status().is(200))
-                .check(jsonPath("$.data.status").saveAs("orderStatus")));
-    }
-
     private ChainBuilder recordSuccess() {
         return exec(session -> {
             BookingResultRecorder.append(
@@ -244,35 +166,5 @@ public class TicketOpenEndToEndSimulation extends Simulation {
             );
             return session;
         });
-    }
-
-    private static long queuePollDelayMs(final Session session) {
-        final long configuredDelayMs = Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()).toMillis();
-        final long minimumDelayMs = LoadTestConfig.statusPollPauseMin().toMillis();
-        final long maximumDelayMs = LoadTestConfig.statusPollPauseMax().toMillis();
-        final long refreshAfterMs = session.contains("refreshAfterMs")
-                ? Math.max(0L, session.getLong("refreshAfterMs"))
-                : configuredDelayMs;
-        final long jitterMs = Math.max(configuredDelayMs - minimumDelayMs, maximumDelayMs - configuredDelayMs);
-        final long jitteredDelayMs = jitterMs == 0
-                ? refreshAfterMs
-                : refreshAfterMs + ThreadLocalRandom.current().nextLong(-jitterMs, jitterMs + 1);
-        return Math.max(minimumDelayMs, Math.min(maximumDelayMs, jitteredDelayMs));
-    }
-
-    private static long deadlineAfter(final Duration timeout) {
-        return System.nanoTime() + timeout.toNanos();
-    }
-
-    private static long remainingNanos(final Session session, final String deadlineKey) {
-        return Math.max(0L, session.getLong(deadlineKey) - System.nanoTime());
-    }
-
-    private static Duration clampedPause(final Duration requestedPause, final long remainingNanos) {
-        return Duration.ofNanos(Math.min(requestedPause.toNanos(), remainingNanos));
-    }
-
-    private static String optionalString(final Session session, final String key) {
-        return session.contains(key) ? session.getString(key) : "";
     }
 }

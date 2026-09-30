@@ -5,7 +5,6 @@ import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
-import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
@@ -13,10 +12,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 public class CoreSeatStatusApiSimulation extends Simulation {
 
     public CoreSeatStatusApiSimulation() {
-        final HttpProtocolBuilder httpProtocol = http
-                .baseUrl(LoadTestConfig.coreBaseUrl())
-                .shareConnections()
-                .acceptHeader("application/json");
+        final HttpProtocolBuilder httpProtocol = Protocols.acceptJson(LoadTestConfig.coreBaseUrl());
 
         final ScenarioBuilder scenario = scenario("GET /api/v1/performances/{performanceId}/seats/status")
                 .exec(LoadTestConfig.initializeSession())
@@ -29,8 +25,7 @@ public class CoreSeatStatusApiSimulation extends Simulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent())
+                        Protocols.technicalFailuresBelowThreshold()
                 );
     }
 }

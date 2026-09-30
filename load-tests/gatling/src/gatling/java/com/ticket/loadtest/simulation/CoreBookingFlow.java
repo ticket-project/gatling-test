@@ -7,6 +7,7 @@ import com.ticket.loadtest.LoadTestConfig;
 import com.ticket.loadtest.RealisticSeatSelection;
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.Session;
+import io.gatling.javaapi.http.HttpRequestActionBuilder;
 import io.gatling.javaapi.http.WsConnectActionBuilder;
 
 import java.nio.file.Path;
@@ -90,24 +91,19 @@ final class CoreBookingFlow {
         ChainBuilder flow = recordCoreAdmission()
                 .exec(fetchPerformanceSummary())
                 .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))
-                .exec(fetchSeatStatus(includeAdmissionToken))
-                .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
+                .exec(refreshSeatStatus(includeAdmissionToken))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(selectSeat(includeAdmissionToken))
+                        exec(selectSeat(includeAdmissionToken, false))
                                 .exec(captureExpectedStatus("SELECT_SEAT", "selectHttpStatus", 200, "selectErrorCode"))
                 ))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(createOrder(includeAdmissionToken))
+                        exec(createOrder(includeAdmissionToken, false))
                                 .exec(captureExpectedStatus("CREATE_ORDER", "createOrderHttpStatus", 201, "orderErrorCode"))
                                 .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()))
                 ));
 
         if (verifyCreatedOrder) {
-            flow = flow.exec(doIf(CoreBookingFlow::canContinue).then(
-                    exec(fetchOrder())
-                            .exec(captureExpectedStatus("GET_ORDER", "orderHttpStatus", 200))
-                            .exec(doIf(CoreBookingFlow::canContinue).then(validateOrderState()))
-            ));
+            flow = flow.exec(doIf(CoreBookingFlow::canContinue).then(verifyOrder()));
         }
         return flow.exec(recordTerminal(scenario, verifyCreatedOrder));
     }
@@ -124,8 +120,7 @@ final class CoreBookingFlow {
         return recordCoreAdmission()
                 .exec(fetchPerformanceSummary())
                 .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))
-                .exec(fetchSeatStatus(includeAdmissionToken))
-                .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
+                .exec(refreshSeatStatus(includeAdmissionToken))
                 .exec(selectSeatWithRetry(includeAdmissionToken))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         pause(LoadTestConfig.bookingOrderThinkMin(), LoadTestConfig.bookingOrderThinkMax())
@@ -133,19 +128,11 @@ final class CoreBookingFlow {
                 .exec(doIf(session -> canContinue(session) && shouldDropBeforeOrder()).then(
                         markUserDropout()
                 ))
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(createOrderAllowingConflict(includeAdmissionToken))
-                                .exec(classifyOrderAttempt())
-                                .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()))
-                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(orderAttempt(includeAdmissionToken)))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
                 ))
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(fetchOrder())
-                                .exec(captureExpectedStatus("GET_ORDER", "orderHttpStatus", 200))
-                                .exec(doIf(CoreBookingFlow::canContinue).then(validateOrderState()))
-                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(verifyOrder()))
                 .exec(recordTerminal(scenario, true));
     }
 
@@ -168,10 +155,7 @@ final class CoreBookingFlow {
                                 .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))
                 ))
                 .exec(doIf(CoreBookingFlow::canContinue).then(fetchSeatLayout()))
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(fetchSeatStatus(false))
-                                .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
-                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(refreshSeatStatus(false)))
                 .exec(selectSeatWithRetry(false))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         pause(LoadTestConfig.bookingOrderThinkMin(), LoadTestConfig.bookingOrderThinkMax())
@@ -180,20 +164,12 @@ final class CoreBookingFlow {
                         exec(releaseAllSelections())
                                 .exec(doIf(CoreBookingFlow::canContinue).then(markUserDropout()))
                 ))
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(createOrderAllowingConflict(false))
-                                .exec(classifyOrderAttempt())
-                                .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()))
-                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(orderAttempt(false)))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
                 ))
                 .exec(doIf(session -> canContinue(session) && shouldCancelOrder()).then(cancelOrder()))
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(fetchOrder())
-                                .exec(captureExpectedStatus("GET_ORDER", "orderHttpStatus", 200))
-                                .exec(doIf(CoreBookingFlow::canContinue).then(validateOrderState()))
-                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(verifyOrder()))
                 .exec(closeSeatSocket())
                 .exec(recordTerminal(scenario, true));
     }
@@ -203,37 +179,48 @@ final class CoreBookingFlow {
                         pause(LoadTestConfig.bookingSeatThinkMin(), LoadTestConfig.bookingSeatThinkMax())
                 ))
                 .exec(doIf(session -> canContinue(session) && shouldRefreshSeatStatus()).then(
-                        exec(fetchSeatStatus(includeAdmissionToken))
-                                .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
+                        refreshSeatStatus(includeAdmissionToken)
                 ))
-                .exec(doIf(session -> canContinue(session) && isDynamicSeatSelection(session)).then(
-                        chooseAvailableSeat()
-                ))
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(selectSeatAllowingConflict(includeAdmissionToken))
-                                .exec(classifySelectAttempt())
-                ))
-                .exec(doIf(CoreBookingFlow::hasSelectConflict).then(
-                        recordSeatSelectionConflict()
-                ))
+                .exec(selectAttempt(includeAdmissionToken))
                 .asLongAs(CoreBookingFlow::shouldRetrySeatSelection).on(
                         pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
-                                .exec(fetchSeatStatus(includeAdmissionToken))
-                                .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200))
-                                .exec(doIf(session -> canContinue(session) && isDynamicSeatSelection(session)).then(
-                                        chooseAvailableSeat()
-                                ))
-                                .exec(doIf(CoreBookingFlow::canContinue).then(
-                                        exec(selectSeatAllowingConflict(includeAdmissionToken))
-                                                .exec(classifySelectAttempt())
-                                ))
-                                .exec(doIf(CoreBookingFlow::hasSelectConflict).then(
-                                        recordSeatSelectionConflict()
-                                ))
+                                .exec(refreshSeatStatus(includeAdmissionToken))
+                                .exec(selectAttempt(includeAdmissionToken))
                 )
                 .exec(doIf(CoreBookingFlow::hasSelectConflict).then(
                         markSelectBusinessRejection()
                 ));
+    }
+
+    /** 좌석 한 번 고르기. 첫 시도와 재시도가 같은 몸체를 쓴다. */
+    private static ChainBuilder selectAttempt(final boolean includeAdmissionToken) {
+        return exec(doIf(session -> canContinue(session) && isDynamicSeatSelection(session)).then(
+                        chooseAvailableSeat()
+                ))
+                .exec(doIf(CoreBookingFlow::canContinue).then(
+                        exec(selectSeat(includeAdmissionToken, true))
+                                .exec(classifySelectAttempt())
+                ))
+                .exec(doIf(CoreBookingFlow::hasSelectConflict).then(
+                        recordSeatSelectionConflict()
+                ));
+    }
+
+    private static ChainBuilder orderAttempt(final boolean includeAdmissionToken) {
+        return exec(createOrder(includeAdmissionToken, true))
+                .exec(classifyOrderAttempt())
+                .exec(doIf(CoreBookingFlow::canContinue).then(resolveOrderKey()));
+    }
+
+    private static ChainBuilder refreshSeatStatus(final boolean includeAdmissionToken) {
+        return exec(fetchSeatStatus(includeAdmissionToken))
+                .exec(captureExpectedStatus("SEAT_STATUS", "seatStatusHttpStatus", 200));
+    }
+
+    private static ChainBuilder verifyOrder() {
+        return exec(fetchOrder())
+                .exec(captureExpectedStatus("GET_ORDER", "orderHttpStatus", 200))
+                .exec(doIf(CoreBookingFlow::canContinue).then(validateOrderState()));
     }
 
     /**
@@ -318,7 +305,7 @@ final class CoreBookingFlow {
                 ));
     }
 
-    private static ChainBuilder recordCoreAdmission() {
+    static ChainBuilder recordCoreAdmission() {
         return exec(session -> {
             final Instant admittedAt = BookingEvidenceRecorder.recordCoreAdmission(
                     Path.of(LoadTestConfig.resultFile()),
@@ -352,11 +339,7 @@ final class CoreBookingFlow {
                         .check(status().is(200)));
     }
 
-    private static ChainBuilder fetchSeatStatus() {
-        return fetchSeatStatus(true);
-    }
-
-    private static ChainBuilder fetchSeatStatus(final boolean includeAdmissionToken) {
+    static ChainBuilder fetchSeatStatus(final boolean includeAdmissionToken) {
         return exec(session -> session.removeAll("seatStatusHttpStatus", "availableSeatIds")
                         .set("lastStep", "SEAT_STATUS"))
                 .exec(http("seat status")
@@ -396,30 +379,25 @@ final class CoreBookingFlow {
         });
     }
 
-    private static ChainBuilder selectSeat(final boolean includeAdmissionToken) {
-        return exec(session -> session.removeAll("selectHttpStatus", "selectErrorCode").set("lastStep", "SELECT_SEAT"))
-                .exec(http("select seat")
-                        .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
-                        .headers(bookingHeaders(includeAdmissionToken))
-                        .check(status().saveAs("selectHttpStatus"))
-                        .check(jsonPath("$.error.code").optional().saveAs("selectErrorCode"))
-                        .check(status().is(200)));
-    }
-
-    private static ChainBuilder selectSeatAllowingConflict(final boolean includeAdmissionToken) {
-        return exec(session -> session
-                .removeAll("selectHttpStatus", "selectErrorCode")
-                .set("lastStep", "SELECT_SEAT")
-                .set("selectAttemptCount", optionalInt(session, "selectAttemptCount") + 1))
-                .exec(http("select seat")
-                        .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
-                        .headers(bookingHeaders(includeAdmissionToken))
-                        .check(status().saveAs("selectHttpStatus"))
-                        .check(jsonPath("$.error.code").optional().saveAs("selectErrorCode"))
-                        .check(status().in(200, 409))
-                        .checkIf((response, session) -> response.status().code() == 409).then(
-                                jsonPath("$.error.code").in(CoreRejections.classifiedSelectCodes())
-                        ));
+    /** allowConflict면 분류된 409를 요청 성공으로 받고 시도 횟수를 센다. 아니면 200만 받는다. */
+    static ChainBuilder selectSeat(final boolean includeAdmissionToken, final boolean allowConflict) {
+        HttpRequestActionBuilder request = http("select seat")
+                .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
+                .headers(bookingHeaders(includeAdmissionToken))
+                .check(status().saveAs("selectHttpStatus"))
+                .check(jsonPath("$.error.code").optional().saveAs("selectErrorCode"))
+                .check(allowConflict ? status().in(200, 409) : status().is(200));
+        if (allowConflict) {
+            request = request.checkIf((response, session) -> response.status().code() == 409).then(
+                    jsonPath("$.error.code").in(CoreRejections.classifiedSelectCodes())
+            );
+        }
+        return exec(session -> {
+            final Session cleared = session.removeAll("selectHttpStatus", "selectErrorCode").set("lastStep", "SELECT_SEAT");
+            return allowConflict
+                    ? cleared.set("selectAttemptCount", optionalInt(session, "selectAttemptCount") + 1)
+                    : cleared;
+        }).exec(request);
     }
 
     private static ChainBuilder classifySelectAttempt() {
@@ -449,47 +427,31 @@ final class CoreBookingFlow {
                 .set("lastStep", "SELECT_SEAT"));
     }
 
-    private static ChainBuilder createOrder(final boolean includeAdmissionToken) {
+    /** allowConflict면 분류된 409를 요청 성공으로 받는다. 아니면 201만 받는다. */
+    static ChainBuilder createOrder(final boolean includeAdmissionToken, final boolean allowConflict) {
+        HttpRequestActionBuilder request = http("create order")
+                .post("/api/v1/orders")
+                .headers(bookingHeaders(includeAdmissionToken))
+                .body(StringBody("""
+                        {
+                          "performanceId": #{performanceId},
+                          "seatIds": #{seatIdsJson}
+                        }
+                        """))
+                .check(status().saveAs("createOrderHttpStatus"))
+                .check(allowConflict ? status().in(201, 409) : status().is(201))
+                .check(header("X-Order-Key").optional().saveAs("orderKeyHeader"))
+                .check(jsonPath("$.data.orderKey").optional().saveAs("orderKeyBody"))
+                .check(jsonPath("$.error.code").optional().saveAs("orderErrorCode"));
+        if (allowConflict) {
+            request = request.checkIf((response, session) -> response.status().code() == 409).then(
+                    jsonPath("$.error.code").in(CoreRejections.classifiedOrderCodes())
+            );
+        }
         return exec(session -> session
                 .removeAll("createOrderHttpStatus", "orderKeyHeader", "orderKeyBody", "orderErrorCode")
                 .set("lastStep", "CREATE_ORDER"))
-                .exec(http("create order")
-                        .post("/api/v1/orders")
-                        .headers(bookingHeaders(includeAdmissionToken))
-                        .body(StringBody("""
-                                {
-                                  "performanceId": #{performanceId},
-                                  "seatIds": #{seatIdsJson}
-                                }
-                                """))
-                        .check(status().saveAs("createOrderHttpStatus"))
-                        .check(status().is(201))
-                        .check(header("X-Order-Key").optional().saveAs("orderKeyHeader"))
-                        .check(jsonPath("$.data.orderKey").optional().saveAs("orderKeyBody"))
-                        .check(jsonPath("$.error.code").optional().saveAs("orderErrorCode")));
-    }
-
-    private static ChainBuilder createOrderAllowingConflict(final boolean includeAdmissionToken) {
-        return exec(session -> session
-                .removeAll("createOrderHttpStatus", "orderKeyHeader", "orderKeyBody", "orderErrorCode")
-                .set("lastStep", "CREATE_ORDER"))
-                .exec(http("create order")
-                        .post("/api/v1/orders")
-                        .headers(bookingHeaders(includeAdmissionToken))
-                        .body(StringBody("""
-                                {
-                                  "performanceId": #{performanceId},
-                                  "seatIds": #{seatIdsJson}
-                                }
-                                """))
-                        .check(status().saveAs("createOrderHttpStatus"))
-                        .check(status().in(201, 409))
-                        .check(header("X-Order-Key").optional().saveAs("orderKeyHeader"))
-                        .check(jsonPath("$.data.orderKey").optional().saveAs("orderKeyBody"))
-                        .check(jsonPath("$.error.code").optional().saveAs("orderErrorCode"))
-                        .checkIf((response, session) -> response.status().code() == 409).then(
-                                jsonPath("$.error.code").in(CoreRejections.classifiedOrderCodes())
-                        ));
+                .exec(request);
     }
 
     private static ChainBuilder classifyOrderAttempt() {
@@ -521,7 +483,8 @@ final class CoreBookingFlow {
                 .set("lastStep", "BEFORE_CREATE_ORDER"));
     }
 
-    private static ChainBuilder resolveOrderKey() {
+    /** 헤더와 본문의 주문 키가 모두 비었거나 서로 다르면 기술 실패로 끝낸다. */
+    static ChainBuilder resolveOrderKey() {
         return exec(session -> {
             final String headerOrderKey = optionalString(session, "orderKeyHeader");
             final String bodyOrderKey = optionalString(session, "orderKeyBody");
@@ -537,7 +500,7 @@ final class CoreBookingFlow {
         });
     }
 
-    private static ChainBuilder fetchOrder() {
+    static ChainBuilder fetchOrder() {
         return exec(session -> session
                 .removeAll("orderHttpStatus", "orderState")
                 .set("lastStep", "GET_ORDER"))
@@ -650,6 +613,21 @@ final class CoreBookingFlow {
         return orderErrorCode.isBlank() ? optionalString(session, "selectErrorCode") : orderErrorCode;
     }
 
+    /** Queue state의 refreshAfterMs를 따르되 statusPollPause 범위와 jitter 안에 둔다. */
+    static long queuePollDelayMs(final Session session) {
+        final long configuredDelayMs = Duration.ofSeconds(LoadTestConfig.statusPollPauseSeconds()).toMillis();
+        final long minimumDelayMs = LoadTestConfig.statusPollPauseMin().toMillis();
+        final long maximumDelayMs = LoadTestConfig.statusPollPauseMax().toMillis();
+        final long refreshAfterMs = session.contains("refreshAfterMs")
+                ? Math.max(0L, session.getLong("refreshAfterMs"))
+                : configuredDelayMs;
+        final long jitterMs = Math.max(configuredDelayMs - minimumDelayMs, maximumDelayMs - configuredDelayMs);
+        final long jitteredDelayMs = jitterMs == 0
+                ? refreshAfterMs
+                : refreshAfterMs + ThreadLocalRandom.current().nextLong(-jitterMs, jitterMs + 1);
+        return Math.max(minimumDelayMs, Math.min(maximumDelayMs, jitteredDelayMs));
+    }
+
     private static boolean shouldRefreshSeatStatus() {
         return chance(LoadTestConfig.bookingSeatRefreshPercent());
     }
@@ -666,12 +644,12 @@ final class CoreBookingFlow {
         return percent > 0.0 && ThreadLocalRandom.current().nextDouble(100.0) < percent;
     }
 
-    private static boolean canContinue(final Session session) {
+    static boolean canContinue(final Session session) {
         return !session.contains("terminalResult");
     }
 
     /** 과부하는 기술 실패가 아니라 별도 결과로 남긴다. BookingEvidenceRecorder가 따로 센다. */
-    private static Session overloaded(
+    static Session overloaded(
             final Session session,
             final String lastStep,
             final int httpStatus,
@@ -683,7 +661,7 @@ final class CoreBookingFlow {
                 .set("lastStep", lastStep);
     }
 
-    private static Session terminalFailure(
+    static Session terminalFailure(
             final Session session,
             final String result,
             final String lastStep,
@@ -696,7 +674,7 @@ final class CoreBookingFlow {
                 .markAsFailed();
     }
 
-    private static int optionalInt(final Session session, final String key) {
+    static int optionalInt(final Session session, final String key) {
         return session.contains(key) ? session.getInt(key) : 0;
     }
 
@@ -704,7 +682,7 @@ final class CoreBookingFlow {
         return session.contains(key) ? session.getLong(key) : 0L;
     }
 
-    private static String optionalString(final Session session, final String key) {
+    static String optionalString(final Session session, final String key) {
         return session.contains(key) ? session.getString(key) : "";
     }
 }

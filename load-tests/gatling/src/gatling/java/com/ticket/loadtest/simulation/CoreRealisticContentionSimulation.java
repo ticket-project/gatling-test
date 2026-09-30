@@ -5,9 +5,7 @@ import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
-import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
-import static io.gatling.javaapi.http.HttpDsl.http;
 
 public class CoreRealisticContentionSimulation extends BookingProofSimulation {
 
@@ -15,11 +13,7 @@ public class CoreRealisticContentionSimulation extends BookingProofSimulation {
 
     public CoreRealisticContentionSimulation() {
         super(SCENARIO);
-        final HttpProtocolBuilder httpProtocol = http
-                .baseUrl(LoadTestConfig.coreBaseUrl())
-                .shareConnections()
-                .acceptHeader("application/json")
-                .contentTypeHeader("application/json");
+        final HttpProtocolBuilder httpProtocol = Protocols.json(LoadTestConfig.coreBaseUrl());
 
         final ScenarioBuilder scenario = scenario("03-2 현실형 인기 좌석 경합")
                 .exec(LoadTestConfig.initializeSession())
@@ -30,8 +24,7 @@ public class CoreRealisticContentionSimulation extends BookingProofSimulation {
         setUp(scenario.injectOpen(LoadTestConfig.injection()))
                 .protocols(httpProtocol)
                 .assertions(
-                        global().failedRequests().percent()
-                                .lt(LoadTestConfig.technicalFailureThresholdPercent())
+                        Protocols.technicalFailuresBelowThreshold()
                 );
     }
 }
