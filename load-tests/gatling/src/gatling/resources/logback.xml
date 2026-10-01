@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Gatling 실행 JVM의 로그 설정. 이 파일이 없으면 logback 기본값(DEBUG, 콘솔)이 쓰여
+  요청마다 DEBUG 줄이 동기로 출력된다(50 u/s × 30초에 약 11MB). 부하 발생기가 그 출력을
+  기다리느라 요청을 제때 보내지 못하면 Core가 한가해도 응답 시간이 부풀려진다(capacity-log P-002).
+  실패 요청을 자세히 보고 싶을 때만 io.gatling.http.engine.response를 DEBUG로 잠깐 올린다.
+-->
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%-5level] %logger{15} - %msg%n%rEx</pattern>
+        </encoder>
+        <immediateFlush>false</immediateFlush>
+    </appender>
+
+    <root level="WARN">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
