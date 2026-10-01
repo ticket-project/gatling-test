@@ -67,6 +67,19 @@ http://localhost:9090
 | 테스트 JWT | issuer, member 시작 ID, role, TTL, secret |
 | polling | 대기열 상태 조회 횟수와 간격 |
 
+## Core 수용량 측정 패널
+
+화면 맨 위 패널은 Queue 입장률을 정하는 측정 순서(ticket-core `docs/core-capacity.md`)를 10단계 카드로 보여 준다.
+
+- **설정 채우기**는 아래 실행 폼만 채운다. 부하는 보내지 않으며 실행은 폼의 `실행` 버튼으로 직접 한다.
+- 결과는 `distributed-results-join` 아래 폴더를 읽어 판정하므로 콘솔을 다시 시작해도 남는다(`GET /api/capacity-runs`). 실행 폴더의 `booking-run-config.json`, `booking-evidence.json`, `run-metadata.json`, `console-run.json`을 쓴다.
+- 03 고정 조건은 5 → 50 users/sec 사다리를 따라가고, 첫 FAIL이 나오면 마지막 PASS와의 사이를 반씩 좁혀 다음 부하를 제안한다.
+- 다음 빈 회차는 같은 대상에서 좌석·주문 상태를 바꾼 실행이 쓰지 않은 가장 작은 `910000001~` ID다. 폼에 이미 쓴 회차를 넣으면 경고한다.
+- 표의 `리포트`는 `/results/<폴더>/index.html`로 지난 실행의 Gatling 리포트를 연다.
+- 측정 기준 시각(`새 측정 시작`), 단계 체크, 후보값, 안전계수, p99 체류 상한은 브라우저 `localStorage`에 대상 서버별로 둔다. 결과 파일은 지우지 않는다.
+
+콘솔은 실행이 끝나면 `console-run.json`에 종료 코드와 중지 여부를 남긴다. 예매 증거 파일은 이번 실행이 쓴 것만 결과 폴더로 복사한다. 예전 콘솔은 지난 실행의 파일도 복사해서, 그런 폴더는 `booking-run-config.json`의 `runId`가 폴더의 실행과 다르다. 패널은 이런 사본을 무시한다.
+
 ## 대상 환경
 
 Core 시나리오의 대상 URL은 `console/environments.properties`에서 관리한다.

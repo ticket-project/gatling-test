@@ -58,7 +58,7 @@ public record LoadTestRequest(
 ) {
     static final boolean WINDOWS = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
 
-    private static final String DEFAULT_LOAD_TESTS_PATH =
+    static final String DEFAULT_LOAD_TESTS_PATH =
             "C:\\Users\\mn040\\IdeaProjects\\ticket-workspace\\gatling-test";
     private static final String SSH_KEY_FILE_NAME = "ticket-test-key-01.pem";
     private static final String SYNTHETIC_JWT_SECRET = "0123456789abcdef0123456789abcdef";

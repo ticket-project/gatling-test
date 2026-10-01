@@ -25,6 +25,7 @@ public class LoadTestService {
     private static final long CORE_CAPACITY_SEAT_START_ID = 910000001L;
     private static final int CORE_CAPACITY_DATA_ROWS = 2_000;
     private static final String RUN_DIR_MARKER = "Run dir:";
+    static final String CONSOLE_RUN_FILE = "console-run.json";
     private static final List<String> SECRET_ARGUMENT_PREFIXES = List.of("-DjwtSecret=", "-DaccessTokens=");
 
     private final GatlingCommandBuilder commandBuilder = new GatlingCommandBuilder();
@@ -411,6 +412,7 @@ public class LoadTestService {
                 createdFailureReport = reportDirectory != null;
             }
             if (reportDirectory != null) {
+                writeConsoleRun(reportDirectory, run, exitCode);
                 if (request.distributedExecution()) {
                     writeRunMetadata(reportDirectory, run);
                     writeDistributedIndex(reportDirectory, run);
@@ -502,11 +504,30 @@ public class LoadTestService {
                 return;
             }
             try {
+                // 증거 파일은 실행마다 같은 폴더에 덮어쓴다. 이번 실행이 쓰지 않은 파일은 지난 실행의 것이다.
+                if (Files.getLastModifiedTime(source).toInstant().isBefore(run.startedAt())) {
+                    run.appendLog("Booking artifact skipped (written by an earlier run): " + source);
+                    return;
+                }
                 Files.copy(source, reportDirectory.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException exception) {
                 run.appendLog("Booking artifact copy skipped for " + source + ": " + exception.getMessage());
             }
         });
+    }
+
+    /** 수용량 패널이 폴더만 보고 판정할 수 있도록 종료 코드와 중지 여부를 남긴다. */
+    private void writeConsoleRun(final Path reportDirectory, final LoadTestRun run, final int exitCode) {
+        try {
+            Files.writeString(
+                    reportDirectory.resolve(CONSOLE_RUN_FILE),
+                    "{\"runId\":\"" + run.id() + "\",\"simulation\":\"" + run.request().simulationType().key()
+                            + "\",\"exitCode\":" + exitCode + ",\"stopped\":" + run.stopRequested() + "}",
+                    StandardCharsets.UTF_8
+            );
+        } catch (IOException exception) {
+            run.appendLog("Console run result write skipped: " + exception.getMessage());
+        }
     }
 
     private void writeRunMetadata(final Path reportDirectory, final LoadTestRun run) {

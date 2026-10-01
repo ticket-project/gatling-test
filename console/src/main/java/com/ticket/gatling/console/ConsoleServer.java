@@ -31,6 +31,9 @@ public class ConsoleServer {
             "svg", "image/svg+xml"
     );
 
+    private static final Path LOAD_TESTS_ROOT = Path.of(LoadTestRequest.DEFAULT_LOAD_TESTS_PATH);
+    private static final Path RESULTS_ROOT = LOAD_TESTS_ROOT.resolve("distributed-results-join");
+
     private final HttpServer server;
     private final LoadTestService loadTestService;
 
@@ -66,6 +69,19 @@ public class ConsoleServer {
             }
             if (path.startsWith("/reports/")) {
                 handleReport(exchange, path);
+                return;
+            }
+            if (path.equals("/api/capacity-runs")) {
+                requireMethod(exchange, "GET");
+                writeJson(exchange, 200, CapacityRunHistory.json(RESULTS_ROOT));
+                return;
+            }
+            if (path.equals("/api/member-ids")) {
+                handleMemberIds(exchange);
+                return;
+            }
+            if (path.startsWith("/results/")) {
+                handleResultFile(exchange, path.substring("/results/".length()));
                 return;
             }
             handleStatic(exchange, path);
@@ -182,6 +198,25 @@ public class ConsoleServer {
         final Path reportDirectory = loadTestService.find(runId).map(LoadTestRun::reportDirectory).orElse(null);
         final Path resolved = reportDirectory == null ? null : reportDirectory.resolve(relativePath).normalize();
         if (resolved == null || !resolved.startsWith(reportDirectory) || !Files.isRegularFile(resolved)) {
+            writeText(exchange, 404, "Not found", "text/plain; charset=UTF-8");
+            return;
+        }
+        writeBytes(exchange, 200, Files.readAllBytes(resolved), contentType(resolved));
+    }
+
+    private void handleMemberIds(final HttpExchange exchange) throws IOException {
+        requireMethod(exchange, "GET");
+        final String file = FormParser.parse(exchange.getRequestURI().getRawQuery())
+                .getOrDefault("file", List.of("")).getFirst();
+        final long count = file.isBlank() ? -1 : CapacityRunHistory.countMemberIds(LOAD_TESTS_ROOT.resolve(file));
+        writeJson(exchange, 200, "{\"count\":" + count + "}");
+    }
+
+    /** 콘솔을 다시 시작한 뒤에도 수용량 패널에서 지난 실행의 리포트를 열 수 있게 결과 폴더의 파일을 내준다. */
+    private void handleResultFile(final HttpExchange exchange, final String relativePath) throws IOException {
+        requireMethod(exchange, "GET");
+        final Path resolved = RESULTS_ROOT.resolve(relativePath).normalize();
+        if (!resolved.startsWith(RESULTS_ROOT) || !Files.isRegularFile(resolved)) {
             writeText(exchange, 404, "Not found", "text/plain; charset=UTF-8");
             return;
         }

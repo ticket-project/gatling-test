@@ -47,6 +47,10 @@ public class LoadTestRun {
         return request;
     }
 
+    Instant startedAt() {
+        return startedAt;
+    }
+
     public Status status() {
         return status;
     }
