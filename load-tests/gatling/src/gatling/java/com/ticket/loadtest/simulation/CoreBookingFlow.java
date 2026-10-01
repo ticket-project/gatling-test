@@ -347,7 +347,10 @@ final class CoreBookingFlow {
                         .headers(bookingHeaders(includeAdmissionToken))
                         .check(status().saveAs("seatStatusHttpStatus"))
                         .check(status().is(200))
-                        .check(jsonPath("$.data.seats[?(@.status == 'AVAILABLE')].seatId")
+                        // 좌석을 응답에서 고르는 시나리오만 목록을 뽑는다. 2,000석 필터를 Gatling 스레드에서 매번 돌리면
+                        // 부하 발생기가 멈춰 Core가 한가해도 응답 시간이 수백 ms로 잡힌다.
+                        .checkIf(session -> Boolean.TRUE.equals(session.get("dynamicSeatSelection")))
+                        .then(jsonPath("$.data.seats[?(@.status == 'AVAILABLE')].seatId")
                                 .ofLong().findAll().optional().saveAs("availableSeatIds")));
     }
 
