@@ -13,6 +13,8 @@ tasks.withType(Test).configureEach {
 }
 
 tasks.withType(io.gatling.gradle.GatlingRunTask).configureEach {
+    // 부하 발생기 JVM이 멈췄는지 보려고 GC·safepoint 로그를 남긴다. 실행마다 덮어쓴다.
+    jvmArgs = gatling.jvmArgs + ["-Xlog:gc*,safepoint:file=${layout.buildDirectory.get().asFile}/gatling-jvm.log:time,uptime,level,tags"]
     def configuredReportDir = System.getProperty('gatlingReportDir')
     if (configuredReportDir != null && !configuredReportDir.isBlank()) {
         gatlingReportDir = file(configuredReportDir)
