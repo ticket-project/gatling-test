@@ -1,5 +1,10 @@
 # 운영 Core 안전 입장률 측정 가이드
 
+수용량을 어떤 순서로 재고, 무엇으로 PASS/FAIL을 가르고, Queue 설정으로 어떻게 옮기는지는 ticket-core
+[Core 수용량](https://github.com/ticket-project/ticket-core/blob/master/docs/core-capacity.md)이 원본이다. 이 문서는 gatling 쪽
+실행 방법을 다룬다. 콘솔 맨 위 **Core 수용량 측정** 패널이 그 순서를 따른다. 패널은 단계마다 실행 폼을 채우고, 결과
+폴더를 읽어 판정과 다음 부하·다음 빈 회차를 보여 준다.
+
 ## 목적
 
 이 테스트가 찾는 값은 최대 HTTP RPS가 아니라 **Core가 안정적으로 받아들일 수 있는 새로운 예매 사용자 수/초(users/sec)** 다.
@@ -31,7 +36,7 @@ Queue Server가 제어할 값도 HTTP 요청 수가 아니라 Core로 입장시�
 - 좌석 충돌 재시도 없음
 - 사용자별 고유 ACTIVE 회원과 access token
 - 사용자별 고유 AVAILABLE 좌석
-- 부하 단계가 바뀌어도 같은 다섯 요청 구조와 같은 SLO 사용
+- 부하 단계가 바뀌어도 같은 다섯 요청 구조와 같은 판정 기준 사용
 
 여러 부하 단계를 한 번에 연속 실행하는 기능은 없다. 각 단계가 끝날 때 운영 DB·Redis 상태를 사람이 확인하고 필요한 데이터 정리를 마친 뒤 다음 단계를 별도로 실행한다. Gatling은 운영 데이터를 자동으로 DELETE/UPDATE하지 않는다.
 
@@ -150,19 +155,11 @@ memberId,orderKey
 
 API별 테스트와 03·03-2는 목적이 다르다. API별 최대 RPS의 최솟값을 Queue 입장률로 바로 사용하지 않고, 최종 Queue 기준은 반드시 다섯 요청을 모두 수행하는 `CoreAdmissionCapacitySimulation`의 PASS users/sec로 정한다.
 
-## 기본 SLO
+## 판정 기준
 
-Console에서 아래 값을 변경할 수 있다. 비교 세션 중에는 기준을 바꾸지 않는 것이 원칙이며, 기본값은 기존 `LoadTestConfig` 값을 그대로 사용한다.
+Gatling assertion은 기술 실패율만 본다. 2026-08-18부터 느린 응답을 KO로 세지 않는다. Console의 `판정 기준 변경`에서 바꿀 수 있는 값은 Technical failure 허용률(기본 `1.0%`)뿐이다. 어떤 기준으로 실행했는지는 `booking-run-config.json`에 기록된다.
 
-| 기준 | p95 | p99 |
-| --- | ---: | ---: |
-| 공연 요약 | 300 ms | 700 ms |
-| 좌석 상태 | 300 ms | 700 ms |
-| 좌석 선택 | 500 ms | 1,000 ms |
-| 주문 생성 | 800 ms | 1,500 ms |
-| 주문 조회 | 500 ms | 1,000 ms |
-
-Technical failure 허용률 기본값은 `1.0%`다. Gatling assertion은 실제 값이 임계값보다 **작아야** PASS로 판정한다. 어떤 기준으로 실행했는지는 기존 `booking-run-config.json`에 기록된다.
+Core 수용량 측정 패널은 결과 폴더의 증거 파일로 한 번 더 판정한다. 기술 실패가 허용률 이상이거나, 과부하(E6003) 사용자가 있거나, 03에서 Core 체류 시간 p99가 상한(패널에서 설정, 기본 5,000ms)을 넘으면 FAIL이다. 03에서 비즈니스 거절이 있으면 "데이터 확인"으로 보고 용량 판정에 쓰지 않는다. 비교 세션 중에는 기준을 바꾸지 않는다.
 
 ## 권장 실행 순서
 
@@ -191,7 +188,9 @@ API별 분리 측정
 
 2,000석 회차에서 최고 단계인 `50 users/sec × 30초`는 1,500개의 고유 좌석을 사용해 500석의 여유를 남긴다. 60초로 늘리면 3,000석이 필요하므로 같은 데이터에서는 실행하지 않는다. 좌석 고갈이 Core 용량 실패로 섞이지 않도록 최초 경계 탐색은 모든 단계를 30초로 고정한다.
 
-예를 들어 `30 PASS`, `40 FAIL`이면 `32`, `35`, `38 users/sec` 정도로 경계를 좁힌다. 최종 5~10분 유지 테스트는 후보 입장률을 찾은 뒤 필요한 좌석 수를 다시 계산한다. 현재 Simulation은 한 실행에서 performance 하나를 사용하므로 `30 users/sec × 10분 = 18,000석`이 필요하다. 실제보다 큰 좌석 상태 응답으로 측정 의미를 바꾸거나 좌석을 자동 초기화하지 말고, 장시간 검증 데이터 구조를 별도로 승인한 후 실행한다.
+예를 들어 `30 PASS`, `40 FAIL`이면 `35`, 이어서 `38 users/sec`처럼 사이를 반씩 좁힌다. Core 수용량 측정 패널이 다음 부하를 계산한다.
+
+장시간 확인은 03이 아니라 `03-3 실제 사용자 흐름 혼합`을 후보값 × 15분으로 한 번 돌린다. 03은 사용자마다 고유 좌석이 필요해 `30 users/sec × 10분`이면 18,000석이 든다. 03-3은 남은 좌석에서 고르고 매진 뒤 거절을 비즈니스 거절로 세므로 2,000석 회차 하나로 된다. 회원은 사용자마다 고유해야 하므로 후보값 × 900명이 필요하다.
 
 필요하면 그 뒤에 아래 순서로 현실성·동시 사용자·회복·Queue 보호를 추가 검증한다.
 
@@ -225,7 +224,7 @@ JWT Secret:       운영 Core와 동일한 값
 Operational Confirmation: ON
 ```
 
-CSV 경로·토큰 수·member 시작 ID·offset·result 경로는 입력하지 않는다. Member ID 파일만 확인하면 Console이 예상 사용자 수로 내부 JWT와 feeder를 만든다. Technical failure와 API별 p95/p99 기준을 바꿔야 할 때만 `판정 기준 변경`을 연다.
+CSV 경로·토큰 수·member 시작 ID·offset·result 경로는 입력하지 않는다. Member ID 파일만 확인하면 Console이 예상 사용자 수로 내부 JWT와 feeder를 만든다. Technical failure 허용률을 바꿔야 할 때만 `판정 기준 변경`을 연다.
 
 실행 버튼을 누르면 전송 직전 확인 대화상자에 다음 내용을 보여 준다.
 
@@ -258,7 +257,7 @@ Performance ID: 910000002
 Users/sec:      10
 ```
 
-Core URL, duration, JWT 설정과 SLO는 같은 비교 조건으로 유지한다. performance만 새 독립 회차로 바꾸면 Console이 300행 feeder를 다시 만든다.
+Core URL, duration, JWT 설정과 판정 기준은 같은 비교 조건으로 유지한다. performance만 새 독립 회차로 바꾸면 Console이 300행 feeder를 다시 만든다.
 
 ## 결과 판독
 
@@ -267,14 +266,15 @@ Core URL, duration, JWT 설정과 SLO는 같은 비교 조건으로 유지한다
 - `booking-evidence.json`: 사용자 시작·종료·성공·비즈니스 거절·과부하·기술 실패, 초당 Core 입장/완료, 활성 사용자와 체류 시간
 - `booking-results.csv`: 사용자별 최종 결과
 - `booking-admissions.csv`, `booking-completions.csv`, `booking-active-users.csv`: 시간대별 증거
-- `booking-run-config.json`: 실행 인자, 피더 범위, SLO, runId
+- `booking-run-config.json`: 실행 인자, 피더 범위, 기술 실패 허용률, runId
+- `console-run.json`: 콘솔이 남기는 종료 코드와 중지 여부. 수용량 패널 판정에 쓴다
 - Gatling `index.html`: 요청별 p95/p99와 assertion 결과
 
 별도 결과 체계를 추가하지 않는다. 기존 파일에서 다음 값을 확인한다.
 
 ```text
 booking-run-config.json:
-  usersPerSecond, durationSeconds, expectedUsers, feeder offset/range, SLO, runId
+  usersPerSecond, durationSeconds, expectedUsers, feeder offset/range, 기술 실패 허용률, runId
 
 booking-evidence.json:
   startedUsers, terminalUsers, successfulUsers
