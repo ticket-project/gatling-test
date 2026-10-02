@@ -200,6 +200,55 @@ Core 실행 방식은 구간마다 달랐고, 그 차이가 결과를 흔들었�
   - local 프로파일은 p6spy로 모든 SQL을 가로채 로그로 남긴다.
 - **측정 규칙:** 측정용 Core는 `bootRun`으로 띄운다. `local-env/ticket-core.env`를 읽고 `DECORATOR_DATASOURCE_ENABLED=false`로 SQL 로그를 끈다.
 
+## 이어서: 측정 도구를 정리하며 찾은 것 (16:40~)
+
+수용량 패널을 걷어내고(`9eb42e2`) `scripts/capacity/run-step.ps1`·`reset-local.ps1`을 만들었다. 시험하는 동안
+P-002의 원인과 측정 조건 문제를 하나 더 찾았다.
+
+### P-002 원인: Gatling 로그가 DEBUG였다
+
+- **발견:** 새 스크립트로 Gatling 출력을 파일로 받아 보니, 30초 실행 출력이 10.9MB였다. 성공 요청까지
+  `DEBUG io.gatling.http.engine.tx.HttpTxExecutor -- Sending request=...`가 줄마다 찍혀 있었다.
+- **원인:** `load-tests/gatling`에는 logback 설정이 git 이력상 한 번도 없었다. 그래서 logback 기본값(DEBUG, 콘솔)이 쓰였다.
+  콘솔 출력은 동기다. 출력이 Gradle을 거쳐 밖으로 나가는 동안 Gatling 스레드가 기다리면, 요청을 제때 보내지 못한다.
+- **확인:** 같은 03 50 u/s, 같은 Core에서 비교했다.
+
+  | Gatling 로그 | 초당 입장 | 체류 p95 / p99 | Gatling 출력 | Core 상태 |
+  | --- | --- | --- | ---: | --- |
+  | DEBUG(기존) | 10~101 | 5,566 / 6,941ms | 10.9MB | 연결 최대 6/10, 대기 0 |
+  | WARN 1회차 | 50~50 | 47 / 119ms | 14KB | 연결 최대 4/10, 대기 0 |
+  | WARN 2회차 | 49~51 | 58 / 214ms | 14KB | |
+
+  WARN일 때 체류는 Core 쪽 요청별 p95의 합과 맞는다.
+- **해결:** `load-tests/gatling/src/gatling/resources/logback.xml`을 두고 root를 WARN으로 했다(`c56f5f2`).
+- **틀렸던 가설:**
+  - "PC의 다른 프로세스가 CPU를 써서"는 유력하다고 적었지만 틀렸다. 같은 PC, 같은 배경 작업에서 로그만 바꾸자 멈춤이 사라졌다.
+  - 출력이 콘솔로 가느냐 파일로 가느냐도 원인이 아니었다. 파일로 받았을 때도 멈췄다.
+- **남은 확인:** A/A 검증(같은 실행 3번 이상)에서 계속 안정적인지 본다.
+
+### P-006 추가: `bootRun`도 C2 컴파일러를 끈다
+
+- 새 스크립트가 띄워진 Core의 명령줄을 보니, `bootRun`으로 띄운 Core에도 `-XX:TieredStopAtLevel=1`이 있었다.
+  Spring Boot `bootRun`의 기본값(`optimizedLaunch`)이다. 오늘 구간 B~D의 측정은 모두 C2가 꺼진 Core였다.
+- 운영은 jar를 `java -jar`로 띄우므로 이 옵션이 없다. 측정용 로컬 Core는 `reset-local.ps1`이 `bootJar` + `java -jar`로 띄운다.
+  Core 빌드 설정(`bootRun { optimizedLaunch = false }`)을 바꿀지는 Core 쪽 결정이라 바꾸지 않았다.
+- 같은 이유로 PATH의 `java`(JDK 23)로는 Core jar(Java 25 class 69)가 뜨지 않았다. 스크립트는 `~/.jdks`의 JDK 25를 쓴다.
+
+### 도구를 만들며 고친 것
+
+- PowerShell 5.1에서 actuator 응답(`application/vnd.spring-boot.actuator...`)은 `.Content`가 바이트 배열로 온다.
+- 외부 프로그램에 빈 문자열 인자(`-password ""`)를 넘기면 5.1이 지운다. H2 Shell이 `-sql`을 비밀번호로 읽었다.
+- URI 라벨의 `{performanceId}` 중괄호 때문에 히스토그램 정규식이 해당 줄을 놓쳤다.
+- (10-02 아침) `Start-Process -Wait`는 자식 프로세스까지 기다린다. 재부팅 뒤 `gradlew`가 Gradle 데몬을 새로 띄우자
+  `bootJar`가 끝났는데도 리셋 스크립트가 끝나지 않았다. 띄운 프로세스만 `WaitForExit()`로 기다린다.
+- 표준 회차(2,000석)를 가정하지 않고 회차 ID로 좌석 시작 번호를 정한다. 실행 전 응답으로 확인하므로 대형 회차(15,000석)도 쓸 수 있다.
+
+### 작업 중 실수
+
+멈춘 H2 Shell을 정리하려고 "명령줄에 h2가 들어간 java"를 종료했다. 그 조건에 측정용 Core(클래스패스에 H2 jar)와
+다른 Java 프로세스 하나가 걸렸다. Core는 다시 띄웠다. 다른 하나는 무엇이었는지 확인하지 못했다. 이후로는 PID를 정확히 확인한
+프로세스만 끈다.
+
 ## 다음에 할 일
 
 1. **측정 도구 정리(gatling-test):**
