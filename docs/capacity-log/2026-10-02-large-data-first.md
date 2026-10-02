@@ -51,6 +51,16 @@ DB 연결 10개가 이 쿼리에 모두 묶이고, 연결이 필요한 다른 �
     연결 대기 쪽 대표 스택은 `PerformanceController.getPerformanceSummary(PerformanceController.java:30)`다. 나머지는 쉬는 스레드(`TaskQueue.poll`)다.
   - 한가한 Core에서 H2 `EXPLAIN ANALYZE`(진행 중 주문이 없는 회원): `ORDERS.tableScan`, `scanCount` 5,000,057, **10,526ms**.
     진행 중 주문이 있는 회원은 그 행을 만나면 멈춘다(member 1은 44행, 18ms). 처음 예매하는 사용자는 늘 끝까지 읽는다.
+- **실행 계획을 다시 보는 법**(`gatling-test`에서 PowerShell, Core가 떠 있어도 `AUTO_SERVER=TRUE`로 붙는다):
+
+  ```powershell
+  $h2 = "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.h2database\h2\2.4.240\686180ad33981ad943fdc0ab381e619b2c2fdfe5\h2-2.4.240.jar"
+  java -cp $h2 org.h2.tools.Shell -url "jdbc:h2:file:~/ticket-local;MODE=Oracle;AUTO_SERVER=TRUE" -user sa -password '""' -sql "EXPLAIN ANALYZE SELECT 1 FROM ORDERS WHERE MEMBER_ID=987654321 AND PERFORMANCE_ID=920000004 AND STATUS='PENDING' FETCH FIRST 1 ROWS ONLY"
+  ```
+
+  - 없는 회원 번호를 쓴다. 진행 중 주문이 있는 회원은 그 행에서 멈춰 느린 경우가 가려진다.
+  - P-007은 `-sql`을 `EXPLAIN ANALYZE SELECT ID FROM ORDERS WHERE STATUS='PENDING' AND EXPIRES_AT<=CURRENT_TIMESTAMP AND ID>-1 ORDER BY ID FETCH FIRST 100 ROWS ONLY`로 바꾼다.
+  - 고친 뒤에는 `tableScan`·`PRIMARY_KEY` 자리에 새 인덱스 이름이 나오고 `scanCount`가 작아야 한다.
 - **계산:** 연결 10개 ÷ 10.5초 ≈ 초당 주문 1건이 천장이다. 03 사용자는 한 명이 주문을 한 번 하므로 5 u/s도 버틸 수 없다.
 - **10월 1일 판단과 다른 점:** 1.35만 행일 때는 한 번 9~34ms였다. 비용이 행 수에 비례해 370배 커졌다.
   "언젠가 드러난다"고 적은 것이 운영 가정 규모에서 바로 드러났다.
