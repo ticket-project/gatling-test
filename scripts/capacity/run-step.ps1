@@ -8,6 +8,7 @@ param(
     [string]$JwtSecret = $env:LOADTEST_JWT_SECRET,
     [double]$AdmissionTolerancePercent = 15,
     [int]$ResidenceP99LimitMillis = 5000,
+    [int]$ThreadDumps = 0,
     [switch]$OperationalConfirmation
 )
 
@@ -22,10 +23,19 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $gradlew = Join-Path $repo "gradlew.bat"
 $gatlingProject = Join-Path $repo "load-tests\gatling"
 $localSecret = "0123456789abcdef0123456789abcdef"
-$seatStartId = 910000001
-$seatsPerPerformance = 2000
+# 부하 픽스처는 공연·회차·좌석이 모두 idBase + n이다(ticket seed LoadTestFixtureSeeder).
+# 표준 910000001~(2,000석), 대형 920000001~(15,000석). 좌석은 idBase + 1부터 연속이다.
+$seatStartId = [long]([Math]::Floor($PerformanceId / 10000000) * 10000000 + 1)
 
 function Fail([string]$message) { Write-Host "ABORT: $message" -ForegroundColor Red; exit 2 }
+# Start-Process -Wait는 자식 프로세스까지 기다린다. gradlew가 새로 띄운 Gradle 데몬은 계속 살아 있으므로 끝나지 않는다.
+# 띄운 프로세스만 기다린다. Handle을 먼저 읽어야 Windows PowerShell 5.1에서 ExitCode가 남는다.
+function Invoke-Process([string]$file, [string[]]$arguments, [string]$out, [string]$err) {
+    $p = Start-Process -FilePath $file -ArgumentList $arguments -WorkingDirectory $repo -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    $null = $p.Handle
+    $p.WaitForExit()
+    $p.ExitCode
+}
 # actuator 응답은 content type이 text가 아니라서 .Content가 바이트 배열로 온다. 항상 UTF-8로 읽는다.
 function Get-Text([string]$url, [hashtable]$headers = @{}) {
     $response = Invoke-WebRequest -UseBasicParsing -Uri $url -Headers $headers -TimeoutSec 10
@@ -41,7 +51,6 @@ if (-not $JwtSecret) {
 }
 if (-not $isLocal -and -not $MemberIdsFile) { Fail "non-local target requires -MemberIdsFile (real ACTIVE member ids)" }
 $users = [int][Math]::Ceiling($UsersPerSecond * $DurationSeconds)
-if ($users -gt $seatsPerPerformance) { Fail "users=$users exceeds $seatsPerPerformance seats of one performance" }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $runDir = Join-Path $repo ("distributed-results-join\capacity\{0}-{1}-{2}ups-{3}s" -f $stamp, $Label, $UsersPerSecond, $DurationSeconds)
@@ -54,13 +63,21 @@ if ($health -notmatch '"status":"UP"') { Fail "Core health is not UP: $health" }
 try { Get-Text "$CoreUrl/api/v1/performances/$PerformanceId/summary" | Out-Null } catch { Fail "performance $PerformanceId not found: $($_.Exception.Message)" }
 
 # 로컬 Core가 측정에 맞지 않게 떠 있으면 알린다(capacity-log P-006).
+# reset-local.ps1로 띄운 Core라면 core-local.json에 commit·풀·seed 조건이 있다.
 $coreWarnings = @()
+$coreInfo = $null
 if ($isLocal) {
     $listener = Get-NetTCPConnection -LocalPort $coreUri.Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($listener) {
         $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)").CommandLine
         if ($cmd -match "jdwp") { $coreWarnings += "Core runs with a debugger agent (jdwp)" }
         if ($cmd -match "TieredStopAtLevel=1") { $coreWarnings += "Core runs with TieredStopAtLevel=1 (C2 compiler off)" }
+        $infoFile = Join-Path $repo "distributed-results-join\capacity\core-local.json"
+        if (Test-Path $infoFile) { $coreInfo = Get-Content $infoFile -Raw | ConvertFrom-Json }
+        if (-not $coreInfo -or $coreInfo.pid -ne $listener.OwningProcess) {
+            $coreWarnings += "Core was not started by reset-local.ps1, so commit and conditions are unknown"
+            $coreInfo = $null
+        }
     }
 }
 
@@ -72,16 +89,20 @@ $genArgs = @("-p", $gatlingProject, "generateAccessTokens", "-q",
     "-DsyntheticMemberStartId=1", "-DsyntheticJwtRole=MEMBER", "-DsyntheticTokenTtlSeconds=3600",
     "-DbookingFeederOutput=$feederFile", "-DbookingSeatStartId=$seatStartId")
 if ($MemberIdsFile) { $genArgs += "-DmemberIdsFile=$((Resolve-Path $MemberIdsFile).Path)" }
-$gen = Start-Process -FilePath $gradlew -ArgumentList $genArgs -WorkingDirectory $repo -NoNewWindow -Wait -PassThru `
-    -RedirectStandardOutput (Join-Path $runDir "token-generation.log") -RedirectStandardError (Join-Path $runDir "token-generation.err")
-if ($gen.ExitCode -ne 0) { Fail "token generation failed (see token-generation.err)" }
+$genExit = Invoke-Process $gradlew $genArgs (Join-Path $runDir "token-generation.log") (Join-Path $runDir "token-generation.err")
+if ($genExit -ne 0) { Fail "token generation failed (see token-generation.err)" }
 
 # 한 번 쓴 회차는 좌석이 선택·선점돼 있어 결과가 섞인다. 실행 전에 전부 AVAILABLE인지 본다.
 $firstToken = (Get-Content $tokensFile -TotalCount 1).Trim()
 $seats = (ConvertFrom-Json (Get-Text "$CoreUrl/api/v1/performances/$PerformanceId/seats/status" @{ Authorization = "Bearer $firstToken" })).data.seats
 $available = @($seats | Where-Object { $_.status -eq "AVAILABLE" }).Count
 if ($available -ne $seats.Count -or $available -lt $users) {
-    Fail "performance $PerformanceId is not clean: available=$available of $($seats.Count), need $users. Use a fresh performance."
+    Fail "performance $PerformanceId is not clean or too small: available=$available of $($seats.Count), need $users. Use a fresh or larger performance."
+}
+# 피더는 seatStartId부터 연속 좌석을 쓴다. 그 가정이 이 회차에서 맞는지 응답으로 확인한다.
+$seatIds = $seats | ForEach-Object { [long]$_.seatId } | Sort-Object
+if ($seatIds[0] -ne $seatStartId -or $seatIds[-1] - $seatIds[0] + 1 -ne $seatIds.Count) {
+    Fail "seat ids of performance $PerformanceId are $($seatIds[0])..$($seatIds[-1]) ($($seatIds.Count) seats), not consecutive from $seatStartId"
 }
 
 # --- 실행 전 상태 ------------------------------------------------------------------------------
@@ -91,6 +112,8 @@ function Get-Gauge([string]$text, [string]$name) {
     if ($m.Success) { [double]$m.Groups[1].Value } else { $null }
 }
 $before = Get-Metrics
+# 원문을 남겨 두면 연결 점유 시간, 저장소 메서드별 호출, Core GC 같은 다른 지표도 실행 뒤에 전후 차이로 볼 수 있다.
+$before | Set-Content (Join-Path $runDir "prometheus-before.txt") -Encoding UTF8
 $hikariMax = Get-Gauge $before "hikaricp_connections_max"
 $tomcatMax = Get-Gauge $before "tomcat_threads_config_max_threads"
 
@@ -116,10 +139,20 @@ if ($isLocal) {
 # --- 1초 단위 Core 지표 수집과 Gatling 실행 ----------------------------------------------------------
 $metricsFile = Join-Path $runDir "core-metrics.tsv"
 $stopFile = Join-Path $runDir ".stop-sampler"
-$sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile -ScriptBlock {
-    param($url, $file, $stop)
+# 진단 실행(-ThreadDumps N): Core가 막히기 시작한 순간부터 3초 간격으로 스레드 덤프 N장을 thread-dump-<n>.txt로 남긴다.
+# 덤프하는 동안 Core가 잠깐 멈추므로 진단 실행의 숫자는 판정과 사다리에 쓰지 않는다.
+$jcmd = ""; $corePid = 0
+if ($ThreadDumps -gt 0) {
+    if (-not $coreInfo) { Fail "-ThreadDumps needs a local Core started by reset-local.ps1" }
+    $jcmd = Join-Path (Split-Path $coreInfo.java) "jcmd.exe"
+    if (-not (Test-Path $jcmd)) { Fail "jcmd not found next to Core java: $jcmd" }
+    $corePid = $coreInfo.pid
+}
+$sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir -ScriptBlock {
+    param($url, $file, $stop, $dumps, $jcmd, $corePid, $dir)
     Set-Content $file "time`thikari_active`thikari_pending`ttomcat_busy`tprocess_cpu`tsystem_cpu"
     $names = "hikaricp_connections_active", "hikaricp_connections_pending", "tomcat_threads_busy_threads", "process_cpu_usage", "system_cpu_usage"
+    $taken = 0; $lastDump = [datetime]::MinValue
     while (-not (Test-Path $stop)) {
         $t = Get-Date -Format "HH:mm:ss"
         try {
@@ -127,6 +160,11 @@ $sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile -ScriptBloc
             $text = [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
             $values = foreach ($n in $names) { $m = [regex]::Match($text, "(?m)^$n\{[^}]*\} ([0-9.eE+-]+)"); if ($m.Success) { $m.Groups[1].Value } else { "" } }
             Add-Content $file ($t + "`t" + ($values -join "`t"))
+            # ponytail: 고정 문턱(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상). 문턱 아래에서 FAIL하면 덤프가 안 남으니 그때 매개변수로 뺀다.
+            if ($taken -lt $dumps -and ([double]$values[1] -gt 0 -or [double]$values[2] -ge 20) -and ((Get-Date) - $lastDump).TotalSeconds -ge 3) {
+                $taken++; $lastDump = Get-Date
+                & $jcmd $corePid Thread.print -l | Set-Content (Join-Path $dir "thread-dump-$taken.txt") -Encoding UTF8
+            }
         } catch { Add-Content $file "$t`tTIMEOUT" }
         Start-Sleep -Milliseconds 1000
     }
@@ -142,12 +180,12 @@ $runArgs = @("-p", $gatlingProject, "gatlingRun", "-DgatlingReportDir=$runDir",
     "-DinjectionMode=constant-users-per-sec", "-DusersPerSecond=$UsersPerSecond", "-DtargetUsersPerSecond=$UsersPerSecond",
     "-DaccessTokenMode=tokens", "-DaccessTokensFile=$tokensFile", "-DconsoleRunId=$runId")
 $startedAt = Get-Date
-$gatling = Start-Process -FilePath $gradlew -ArgumentList $runArgs -WorkingDirectory $repo -NoNewWindow -Wait -PassThru `
-    -RedirectStandardOutput (Join-Path $runDir "gatling.log") -RedirectStandardError (Join-Path $runDir "gatling.err")
+$gatlingExit = Invoke-Process $gradlew $runArgs (Join-Path $runDir "gatling.log") (Join-Path $runDir "gatling.err")
 New-Item -ItemType File $stopFile | Out-Null
 Wait-Job $sampler -Timeout 10 | Out-Null; Remove-Job $sampler -Force
 Remove-Item $stopFile -ErrorAction SilentlyContinue
 $after = Get-Metrics
+$after | Set-Content (Join-Path $runDir "prometheus-after.txt") -Encoding UTF8
 $gcLog = Join-Path $gatlingProject "build\gatling-jvm.log"
 if (Test-Path $gcLog) { Copy-Item $gcLog (Join-Path $runDir "gatling-jvm.log") }
 
@@ -206,7 +244,7 @@ if ($evidence.startedUsers -ne $users) { $invalid += "started $($evidence.starte
 if ($coreWarnings.Count -gt 0) { $invalid += $coreWarnings }
 
 $reasons = @()
-if ($gatling.ExitCode -ne 0) { $reasons += "gatling exit $($gatling.ExitCode)" }
+if ($gatlingExit -ne 0) { $reasons += "gatling exit $($gatlingExit)" }
 if ($evidence.technicalFailurePercent -ge 1.0) { $reasons += "technical failure $($evidence.technicalFailurePercent)%" }
 if ($evidence.overloadedUsers -gt 0) { $reasons += "E6003 overloaded $($evidence.overloadedUsers) users" }
 if ($evidence.p99CoreResidenceMillis -gt $ResidenceP99LimitMillis) { $reasons += "residence p99 $($evidence.p99CoreResidenceMillis)ms > $ResidenceP99LimitMillis" }
@@ -216,7 +254,8 @@ $verdict = if ($invalid.Count -gt 0) { "INVALID" } elseif ($reasons.Count -gt 0)
 $summary = [ordered]@{
     runId = $runId; label = $Label; startedAt = $startedAt.ToString("s"); coreUrl = $CoreUrl; performanceId = $PerformanceId
     usersPerSecond = $UsersPerSecond; durationSeconds = $DurationSeconds; users = $users
-    conditions = [ordered]@{ hikariMax = $hikariMax; tomcatMaxThreads = $tomcatMax; ordersBefore = $ordersBefore; coreWarnings = $coreWarnings }
+    conditions = [ordered]@{ hikariMax = $hikariMax; tomcatMaxThreads = $tomcatMax; ordersBefore = $ordersBefore; seats = $seats.Count
+        core = $coreInfo; coreWarnings = $coreWarnings }
     verdict = $verdict; invalidReasons = $invalid; failReasons = $reasons
     client = [ordered]@{ successful = $evidence.successfulUsers; started = $evidence.startedUsers; technicalFailurePercent = $evidence.technicalFailurePercent
         overloaded = $evidence.overloadedUsers; residenceP95Ms = $evidence.p95CoreResidenceMillis; residenceP99Ms = $evidence.p99CoreResidenceMillis
@@ -226,9 +265,16 @@ $summary = [ordered]@{
 }
 $summary | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $runDir "summary.json") -Encoding UTF8
 
-$coreLine = ($core.Keys | ForEach-Object { "$_ p95<=$($core[$_].p95Ms)ms" }) -join "; "
+# 표에 들어갈 짧은 이름. 03이 부르는 다섯 요청이다.
+$shortNames = [ordered]@{
+    "GET /api/v1/performances/{performanceId}/summary" = "summary"; "GET /api/v1/performances/{performanceId}/seats/status" = "seats"
+    "POST /api/v1/performances/{performanceId}/seats/{seatId}/select" = "select"; "POST /api/v1/orders" = "order"
+    "GET /api/v1/orders/{orderKey}/status" = "orderStatus"
+}
+$coreLine = ($shortNames.Keys | Where-Object { $core.Contains($_) } | ForEach-Object { "$($shortNames[$_]) $($core[$_].p95Ms)" }) -join ", "
+$commitLabel = if ($coreInfo) { "@$($coreInfo.commit)" } else { "@unknown" }
 $row = "| {0} | {1} | {2} x {3}s | {4} | {5}/{6} | {7} / {8} | {9} | {10}/{11} pend {12}, busy {13}/{14} | {15} | {16} |" -f `
-    $startedAt.ToString("HH:mm"), $Label, $UsersPerSecond, $DurationSeconds, $PerformanceId, $evidence.successfulUsers, $evidence.startedUsers,
+    $startedAt.ToString("MM-dd HH:mm"), "$Label $commitLabel", $UsersPerSecond, $DurationSeconds, $PerformanceId, $evidence.successfulUsers, $evidence.startedUsers,
     $evidence.p95CoreResidenceMillis, $evidence.p99CoreResidenceMillis, $coreLine, $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax,
     $(if ($invalid.Count -gt 0) { "invalid" } else { "valid" }), $verdict
 $row | Set-Content (Join-Path $runDir "summary.md") -Encoding UTF8
