@@ -90,10 +90,14 @@ if (-not $KeepData) {
 }
 
 $pool = if ($PoolSize -gt 0) { $PoolSize } else { "default" }
+# -KeepData는 적재하지 않으므로 DB에 든 데이터는 지난 기록 그대로다. 매개변수 기본값으로 덮어쓰지 않는다.
+$infoFile = Join-Path $capacityDir "core-local.json"
+$seed = [ordered]@{ performances = $PerformanceCount; largePerformances = $LargePerformanceCount; members = $Members; backgroundOrders = $BackgroundOrders }
+if ($KeepData -and (Test-Path $infoFile)) { $seed = (Get-Content $infoFile -Raw | ConvertFrom-Json).seed }
 [ordered]@{
     startedAt = (Get-Date).ToString("s"); pid = $core.Id; jar = $jar.Name; java = $java; commit = $commit; sourceDirty = $dirty
     mode = "java -jar"; p6spy = "off"; hikariPool = $pool; dataReset = (-not $KeepData)
-    seed = [ordered]@{ performances = $PerformanceCount; largePerformances = $LargePerformanceCount; members = $Members; backgroundOrders = $BackgroundOrders }
-} | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $capacityDir "core-local.json") -Encoding UTF8
+    seed = $seed
+} | ConvertTo-Json -Depth 3 | Set-Content $infoFile -Encoding UTF8
 Write-Host "ready: commit $commit$(if ($dirty) { ' (dirty)' }), Hikari pool $pool, PID $($core.Id). Warm up with one run before measuring (P-005)."
 Write-Host "stop: Stop-Process -Id $($core.Id)"
