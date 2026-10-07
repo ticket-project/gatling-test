@@ -1122,7 +1122,7 @@ const simulationHelp = {
   'core-performance-summary-api': '무엇을 보나요? GET 공연 요약 API 하나의 처리량과 응답 시간을 측정합니다.\n실제 흐름: 공연 요약 조회 1회입니다. 인증·좌석·주문 API는 호출하지 않습니다.\n준비: 인증이 필요 없는 읽기 전용 API이므로 같은 회차로 반복할 수 있습니다.',
   'core-seat-status-api': '무엇을 보나요? GET 좌석 상태 API 하나가 큰 좌석 응답과 동시 조회를 얼마나 감당하는지 측정합니다.\n실제 흐름: 사용자별 Access Token 준비 → 좌석 상태 조회 1회입니다. 좌석 선점과 주문은 만들지 않습니다.\n준비: 같은 회차와 같은 좌석 수로 실행해야 응답 크기가 같아집니다. 캐시 상태와 AVAILABLE·HELD·SOLD 비율도 실행마다 맞추세요.',
   'core-seat-select-api': '무엇을 보나요? POST 좌석 선점 API 하나의 Redis·락 처리 한계를 측정합니다.\n실제 흐름: 기존 회원 ID 파일과 고유 좌석으로 자동 생성한 피더를 사용해 좌석 선점 1회만 호출합니다.\n준비: 좌석은 모두 AVAILABLE이어야 하고 users/sec × duration은 2,000 이하여야 합니다. 전용 회차의 Queue 정책 FORCE_OFF를 사용하며 전역 Admission 설정은 바꾸지 않습니다. 주문 생성 테스트를 이어서 할 때는 같은 회차와 피더를 유지하세요.',
-  'core-order-create-api': '무엇을 보나요? POST 주문 생성 API 하나의 DB 트랜잭션 처리 한계를 측정합니다.\n실제 흐름: 피더의 회원과 고유 좌석으로 주문 생성 1회만 호출합니다. 테스트 안에서는 좌석 선점을 호출하지 않습니다.\n준비: 바로 앞 좌석 선점 테스트가 같은 memberId와 seatId에 hold를 만들어 둔 상태여야 합니다. 10분 안에 같은 회차·피더로 실행하면 성공 주문을 결과 CSV에 주문 조회용 feeder로 저장합니다.',
+  'core-order-create-api': '무엇을 보나요? POST 주문 생성 API 하나의 DB 트랜잭션 처리 한계를 측정합니다.\n실제 흐름: 피더의 회원과 고유 좌석으로 좌석 선택 직후 주문 생성 1회를 호출합니다. Core가 본인이 선택 중인 좌석으로만 주문을 받으므로(ticket-core ADR 0021) 주문 직전에 선택을 함께 호출하고, 주문 비용은 create order 요청 통계로 따로 봅니다.\n준비: memberId,accessToken,seatId,admissionToken CSV와 모든 좌석 AVAILABLE 상태가 필요합니다. 성공 주문은 결과 CSV에 주문 조회용 feeder로 저장합니다.',
   'core-order-get-api': '무엇을 보나요? GET 주문 조회 API 하나의 DB 조회 처리량과 응답 시간을 측정합니다.\n실제 흐름: 피더의 주문 키로 주문 조회 1회만 호출합니다.\n준비: 주문 생성 테스트가 만든 memberId,orderKey 결과 CSV를 사용합니다. JWT는 해당 memberId로 메모리에서 생성해 결과 파일에 저장하지 않습니다. 성공 주문 행이 부족하면 HTTP 부하 전에 실패합니다.',
   'queue-join-only': '무엇을 보나요? 예매 오픈 순간 Queue의 대기 등록(/join)이 초당 몇 명까지 안정적으로 받아지는지 확인합니다.\n실제 흐름: 사용자별 Access Token으로 /join을 한 번 호출하고, queueToken·대기 순번 관련 값이 정상인지 검사합니다.\n언제 쓰나요? Queue 입구의 최대 처리량, HTTP/1.1과 HTTP/2 차이, 오픈 직후 트래픽 패턴을 비교할 때 씁니다.\n주의: 초당 사용자 수가 거의 초당 /join 요청 수입니다. 분산 3대라면 노드별 설정값을 합산해야 하며, 토큰 수도 노드별 예상 사용자 수에 맞춰 준비합니다.',
   'queue-enter': '무엇을 보나요? 대기열을 통과한 사용자가 입장 토큰을 받는 /enter API의 응답과 방어 동작을 확인합니다.\n실제 흐름: 준비된 Queue 정보로 /enter를 호출하고 성공·만료·아직 입장 불가·과부하 응답을 구분합니다.\n언제 쓰나요? 입장 전환 API만 빠르게 점검하거나 잘못된 입장 요청이 차단되는지 볼 때 씁니다.\n주의: join부터 기다리는 전체 흐름은 아닙니다. 전체 검증은 예매 오픈 전체 흐름를 사용합니다.',
@@ -1234,11 +1234,6 @@ async function startRun(event) {
   if (simulationSelect.value === 'core-admission-capacity'
           && !window.confirm(`운영 Core에 다음 부하를 실행합니다.\n\n${capacityRunText(body)}\n\n계속하시겠습니까?`)) {
     restoreIdleState('Core Admission Capacity 실행을 취소했습니다.');
-    return;
-  }
-  if (simulationSelect.value === 'core-order-create-api'
-          && !window.confirm('주문 생성 API는 좌석 선점을 준비하지 않습니다.\n\n바로 앞 좌석 선점 테스트와 같은 performance·회원·좌석 피더이며, hold 생성 후 10분 안인지 확인하세요.\n\n계속하시겠습니까?')) {
-    restoreIdleState('주문 생성 API 실행을 취소했습니다.');
     return;
   }
   try {
