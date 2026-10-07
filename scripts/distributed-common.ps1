@@ -1,7 +1,7 @@
 # Shared helpers dot-sourced by run-distributed-booking.ps1 and run-distributed-gatling-cdn.ps1.
 # Kept ASCII-only except the OneDrive key path: Windows PowerShell 5.1 reads BOM-less files as ANSI.
 # Functions read the caller's script variables: $KeyPath, $LocalProjectDir, $RemoteProjectDir,
-# $SshCommand, $SshOptions, $ScpCommand, $ScpOptions, $TarCommand.
+# $SshCommand, $SshOptions, $ScpCommand, $ScpOptions, $TarCommand (Initialize-SshSession sets them).
 
 function Resolve-CommandPath {
     param(
@@ -88,23 +88,6 @@ function New-UniqueRunDirectoryPath {
     throw "Could not create unique run directory under ${Root}: $Name"
 }
 
-function New-SshOptions {
-    param([string]$KnownHostsFile)
-
-    $options = @(
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=15",
-        "-o", "ServerAliveInterval=5",
-        "-o", "ServerAliveCountMax=2",
-        "-o", "StrictHostKeyChecking=accept-new"
-    )
-    if (-not [string]::IsNullOrWhiteSpace($KnownHostsFile)) {
-        $options += @("-o", "UserKnownHostsFile=$KnownHostsFile")
-    }
-    $options += @("-i", $KeyPath)
-    return $options
-}
-
 function Resolve-DefaultSshKeyPath {
     param([string]$Value)
 
@@ -169,19 +152,52 @@ function New-OpenSshKeyPath {
     return $targetPath
 }
 
-function New-ScpOptions {
-    param([string]$KnownHostsFile)
+# Resolves ssh/scp/tar and a permission-restricted copy of the SSH key, then sets $SshCommand,
+# $ScpCommand, $TarCommand, $KeyPath, $SshOptions and $ScpOptions in the caller's script scope.
+# known_hosts is kept per run in RunDir.
+function Initialize-SshSession {
+    param([string]$RunDir)
 
-    $options = @(
-        "-B",
-        "-o", "ConnectTimeout=15",
-        "-o", "StrictHostKeyChecking=accept-new"
-    )
-    if (-not [string]::IsNullOrWhiteSpace($KnownHostsFile)) {
-        $options += @("-o", "UserKnownHostsFile=$KnownHostsFile")
+    $knownHostsFile = Join-Path $RunDir "known_hosts"
+    New-Item -ItemType File -Force -Path $knownHostsFile | Out-Null
+    $script:SshCommand = Resolve-WindowsCommandPath -Name "ssh" -RelativePath "OpenSSH\ssh.exe"
+    $script:ScpCommand = Resolve-WindowsCommandPath -Name "scp" -RelativePath "OpenSSH\scp.exe"
+    $script:TarCommand = Resolve-WindowsCommandPath -Name "tar" -RelativePath "tar.exe"
+    $sourceKeyPath = Resolve-DefaultSshKeyPath -Value $KeyPath
+    if (-not (Test-Path -LiteralPath $sourceKeyPath -PathType Leaf)) {
+        throw "SSH key not found: $sourceKeyPath"
     }
-    $options += @("-i", $KeyPath)
-    return $options
+    $script:KeyPath = New-OpenSshKeyPath -SourcePath $sourceKeyPath
+
+    $commonOptions = @(
+        "-o", "ConnectTimeout=15",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "UserKnownHostsFile=$knownHostsFile",
+        "-i", $script:KeyPath
+    )
+    $script:SshOptions = @(
+        "-o", "BatchMode=yes",
+        "-o", "ServerAliveInterval=5",
+        "-o", "ServerAliveCountMax=2"
+    ) + $commonOptions
+    $script:ScpOptions = @("-B") + $commonOptions
+}
+
+# Waits for the node jobs and returns one row per job: Node (job name) and ExitCode.
+function Wait-NodeJobs {
+    param([object[]]$Jobs)
+
+    Wait-Job $Jobs | Out-Null
+    $rows = @(foreach ($job in $Jobs) { [pscustomobject]@{ Node = $job.Name; ExitCode = Receive-Job $job } })
+    Remove-Job $Jobs
+    return $rows
+}
+
+# Remote bash rejects CR, so here-strings written on Windows are normalized to LF.
+function ConvertTo-RemoteBashCommand {
+    param([string]$Value)
+
+    return (($Value -replace "`r`n", "`n") -replace "`r", "`n")
 }
 
 function New-ProjectArchive {
