@@ -18,8 +18,6 @@ public final class BookingDatabaseAuditor {
     static final String DB_URL_ENV = "BOOKING_AUDIT_DB_URL";
     static final String DB_USERNAME_ENV = "BOOKING_AUDIT_DB_USERNAME";
     static final String DB_PASSWORD_ENV = "BOOKING_AUDIT_DB_PASSWORD";
-    static final String DB_DRIVER_ENV = "BOOKING_AUDIT_DB_DRIVER";
-    private static final String DEFAULT_DRIVER = "oracle.jdbc.OracleDriver";
 
     private BookingDatabaseAuditor() {
     }
@@ -30,12 +28,6 @@ public final class BookingDatabaseAuditor {
             final Path outputFile
     ) {
         final DatabaseCredentials credentials = DatabaseCredentials.fromEnvironment(System.getenv());
-        try {
-            Class.forName(credentials.driverClassName());
-        } catch (ClassNotFoundException exception) {
-            throw new IllegalStateException("Booking DB audit JDBC driver is not available: "
-                    + credentials.driverClassName(), exception);
-        }
 
         final long clientSuccessOrders = countClientSuccesses(resultFile);
         try (Connection connection = DriverManager.getConnection(
@@ -106,7 +98,7 @@ public final class BookingDatabaseAuditor {
             );
             writeResult(outputFile, result);
             if (!result.passed()) {
-                throw new IllegalStateException("Booking DB consistency audit failed: " + result.failureSummary());
+                throw new IllegalStateException("Booking DB consistency audit failed: " + result);
             }
             return result;
         } catch (SQLException exception) {
@@ -203,7 +195,7 @@ public final class BookingDatabaseAuditor {
         }
     }
 
-    private record DatabaseCredentials(String url, String username, String password, String driverClassName) {
+    private record DatabaseCredentials(String url, String username, String password) {
         private static DatabaseCredentials fromEnvironment(final Map<String, String> environment) {
             final Map<String, String> missing = new LinkedHashMap<>();
             final String url = required(environment, DB_URL_ENV, missing);
@@ -213,11 +205,7 @@ public final class BookingDatabaseAuditor {
                 throw new IllegalStateException("DB audit requires environment variables: "
                         + String.join(", ", missing.keySet()));
             }
-            final String configuredDriver = environment.get(DB_DRIVER_ENV);
-            final String driver = configuredDriver == null || configuredDriver.isBlank()
-                    ? DEFAULT_DRIVER
-                    : configuredDriver.trim();
-            return new DatabaseCredentials(url, username, password, driver);
+            return new DatabaseCredentials(url, username, password);
         }
 
         private static String required(
@@ -251,16 +239,6 @@ public final class BookingDatabaseAuditor {
                     && ordersWithoutSeats == 0
                     && ordersWithoutCreatedHoldHistory == 0
                     && duplicatePerformanceSeats == 0;
-        }
-
-        public String failureSummary() {
-            return "clientSuccessOrders=" + clientSuccessOrders
-                    + ", databaseOrders=" + databaseOrders
-                    + ", duplicateOrderSeats=" + duplicateOrderSeats
-                    + ", activeDuplicateHolds=" + activeDuplicateHolds
-                    + ", ordersWithoutSeats=" + ordersWithoutSeats
-                    + ", ordersWithoutCreatedHoldHistory=" + ordersWithoutCreatedHoldHistory
-                    + ", duplicatePerformanceSeats=" + duplicatePerformanceSeats;
         }
     }
 }
