@@ -206,9 +206,9 @@ class RunEnvironmentMetadataTest {
         final String description = metadata.runDescription(runId);
 
         assertEquals("captured", metadata.captureStatus());
-        assertEquals("queue", target.role());
+        assertEquals("queue", target.target().role());
         assertEquals("captured", target.captureStatus());
-        assertEquals("ticket-queue", target.datadogService());
+        assertEquals("ticket-queue", target.target().datadogService());
         assertEquals(observedAt, instance.observedAt());
         assertEquals(4, instance.vcpu());
         assertNull(instance.hikariMaximumPoolSize());
