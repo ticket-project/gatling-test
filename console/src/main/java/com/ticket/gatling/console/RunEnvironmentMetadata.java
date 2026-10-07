@@ -16,12 +16,10 @@ import java.util.stream.Collectors;
 public record RunEnvironmentMetadata(
         Instant capturedAt,
         String captureStatus,
-        String captureSource,
         String captureError,
         List<String> captureWarnings,
         List<RuntimeTargetGroupMetadata> targets
 ) {
-    private static final String CAPTURE_SOURCE = "datadog";
     private static final String CAPTURE_PHASE = "preRun";
     private static final String NOT_REPORTED = "not_reported";
 
@@ -73,7 +71,7 @@ public record RunEnvironmentMetadata(
         final RunEnvironmentInput input = request.environment();
         if (!input.captureEnabled()) {
             return new RunEnvironmentMetadata(
-                    Instant.now(), "disabled", CAPTURE_SOURCE, null, List.of(), List.of()
+                    Instant.now(), "disabled", null, List.of(), List.of()
             );
         }
 
@@ -126,7 +124,6 @@ public record RunEnvironmentMetadata(
         return new RunEnvironmentMetadata(
                 Instant.now(),
                 status,
-                CAPTURE_SOURCE,
                 errors.isEmpty() ? null : String.join("; ", errors),
                 List.copyOf(warnings),
                 targetGroups
@@ -137,7 +134,7 @@ public record RunEnvironmentMetadata(
         final List<String> parts = new ArrayList<>();
         parts.add("runId=" + runId.toString().substring(0, 8));
         for (RuntimeTargetGroupMetadata target : targets) {
-            final String role = target.role();
+            final String role = target.target().role();
             final List<DatadogRuntimeSnapshot> instances = target.instances();
             if (instances.isEmpty()) {
                 parts.add(role + "Env=failed");
@@ -193,7 +190,7 @@ public record RunEnvironmentMetadata(
                 + "  \"capturedAt\": \"" + capturedAt + "\",\n"
                 + "  \"capturePhase\": \"" + CAPTURE_PHASE + "\",\n"
                 + "  \"capture\": {\"status\": " + Json.nullable(captureStatus)
-                + ", \"source\": " + Json.nullable(captureSource)
+                + ", \"source\": \"datadog\""
                 + ", \"error\": " + Json.nullable(nullIfBlank(captureError))
                 + ", \"warnings\": " + stringArray(captureWarnings) + "},\n"
                 + "  \"targets\": [\n"
@@ -205,16 +202,17 @@ public record RunEnvironmentMetadata(
     }
 
     private static String targetJson(final RuntimeTargetGroupMetadata target) {
+        final DatadogTargetInput input = target.target();
         return "    {\n"
-                + "      \"role\": " + Json.nullable(target.role()) + ",\n"
-                + "      \"baseUrl\": " + Json.nullable(nullIfBlank(target.baseUrl())) + ",\n"
+                + "      \"role\": " + Json.nullable(input.role()) + ",\n"
+                + "      \"baseUrl\": " + Json.nullable(nullIfBlank(sanitizeBaseUrl(input.baseUrl()))) + ",\n"
                 + "      \"capture\": {\"status\": " + Json.nullable(target.captureStatus())
                 + ", \"error\": " + Json.nullable(nullIfBlank(target.captureError()))
                 + ", \"warnings\": " + stringArray(target.captureWarnings()) + "},\n"
-                + "      \"datadog\": {\"env\": " + Json.nullable(target.datadogEnv())
-                + ", \"service\": " + Json.nullable(target.datadogService())
-                + ", \"metricPrefix\": " + Json.nullable(target.datadogMetricPrefix())
-                + ", \"containerName\": " + Json.nullable(target.datadogContainerName())
+                + "      \"datadog\": {\"env\": " + Json.nullable(input.datadogEnv())
+                + ", \"service\": " + Json.nullable(input.datadogService())
+                + ", \"metricPrefix\": " + Json.nullable(input.datadogMetricPrefix())
+                + ", \"containerName\": " + Json.nullable(input.datadogContainerName())
                 + ", \"granularity\": \"host\"},\n"
                 + "      \"replicaCountObserved\": " + target.instances().size() + ",\n"
                 + "      \"replicaCountSemantics\": \"distinct fresh hosts\",\n"
@@ -377,15 +375,10 @@ public record RunEnvironmentMetadata(
 }
 
 record RuntimeTargetGroupMetadata(
-        String role,
-        String baseUrl,
+        DatadogTargetInput target,
         String captureStatus,
         String captureError,
         List<String> captureWarnings,
-        String datadogEnv,
-        String datadogService,
-        String datadogMetricPrefix,
-        String datadogContainerName,
         List<DatadogRuntimeSnapshot> instances
 ) {
     RuntimeTargetGroupMetadata {
@@ -398,32 +391,10 @@ record RuntimeTargetGroupMetadata(
             final List<DatadogRuntimeSnapshot> instances,
             final List<String> warnings
     ) {
-        return new RuntimeTargetGroupMetadata(
-                target.role(),
-                RunEnvironmentMetadata.sanitizeBaseUrl(target.baseUrl()),
-                "captured",
-                null,
-                warnings,
-                target.datadogEnv(),
-                target.datadogService(),
-                target.datadogMetricPrefix(),
-                target.datadogContainerName(),
-                instances
-        );
+        return new RuntimeTargetGroupMetadata(target, "captured", null, warnings, instances);
     }
 
     static RuntimeTargetGroupMetadata failed(final DatadogTargetInput target, final String error) {
-        return new RuntimeTargetGroupMetadata(
-                target.role(),
-                RunEnvironmentMetadata.sanitizeBaseUrl(target.baseUrl()),
-                "failed",
-                error,
-                List.of(),
-                target.datadogEnv(),
-                target.datadogService(),
-                target.datadogMetricPrefix(),
-                target.datadogContainerName(),
-                List.of()
-        );
+        return new RuntimeTargetGroupMetadata(target, "failed", error, List.of(), List.of());
     }
 }
