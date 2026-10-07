@@ -134,11 +134,6 @@ function Get-ExpectedUsersPerNode {
         [Math]::Ceiling((($firstDecay + $secondDecay) / 2.0) * 60) +
         [Math]::Ceiling((($secondDecay + $tail) / 2.0) * 180) + 60)
 }
-function ConvertTo-RemoteBashCommand {
-    param([string]$Value)
-
-    return (($Value -replace "`r`n", "`n") -replace "`r", "`n")
-}
 
 function New-GatlingArgs {
     param(
@@ -375,19 +370,6 @@ function Write-RunSummary {
     Write-Host "  $mdPath"
 }
 
-$SshCommand = Resolve-WindowsCommandPath -Name "ssh" -RelativePath "OpenSSH\ssh.exe"
-$ScpCommand = ""
-if ($CollectReports -or $SyncProject) {
-    $ScpCommand = Resolve-WindowsCommandPath -Name "scp" -RelativePath "OpenSSH\scp.exe"
-}
-if ($SyncProject) {
-    $TarCommand = Resolve-WindowsCommandPath -Name "tar" -RelativePath "tar.exe"
-}
-$KeyPath = Resolve-DefaultSshKeyPath -Value $KeyPath
-if (-not (Test-Path -LiteralPath $KeyPath -PathType Leaf)) {
-    throw "SSH key not found: $KeyPath"
-}
-$KeyPath = New-OpenSshKeyPath -SourcePath $KeyPath
 $Hosts = Normalize-Hosts -Values $Hosts
 if ($Hosts.Count -eq 0) {
     throw "At least one SSH host is required"
@@ -415,10 +397,7 @@ $startedAt = Get-Date -Format "yyyyMMdd-HHmmss"
 $runDirectoryName = New-RunDirectoryName
 $runDir = New-UniqueRunDirectoryPath -Root $ReportRoot -Name $runDirectoryName
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
-$knownHostsFile = Join-Path $runDir "known_hosts"
-New-Item -ItemType File -Force -Path $knownHostsFile | Out-Null
-$SshOptions = New-SshOptions -KnownHostsFile $knownHostsFile
-$ScpOptions = New-ScpOptions -KnownHostsFile $knownHostsFile
+Initialize-SshSession -RunDir $runDir
 
 Write-Host "Starting distributed Gatling run"
 Write-Host "Remote nodes: $($Hosts.Count)"
@@ -521,20 +500,11 @@ if ($IncludeLocal) {
 Write-Host "Started jobs:"
 $jobs | Select-Object Id, Name, State | Format-Table
 
-Wait-Job $jobs | Out-Null
-
-$failedJobs = @()
-foreach ($job in $jobs) {
-    $exitCode = Receive-Job $job
-    if ($exitCode -ne 0) {
-        $failedJobs += $job
-    }
-}
-Remove-Job $jobs
+$failedJobs = @(Wait-NodeJobs -Jobs $jobs | Where-Object { $_.ExitCode -ne 0 })
 
 if ($failedJobs.Count -gt 0) {
     Write-Warning "Some Gatling jobs failed:"
-    $failedJobs | Select-Object Name | Format-Table
+    $failedJobs | Select-Object Node | Format-Table
     Write-Warning "Check logs under $runDir"
 } else {
     Write-Host "All Gatling jobs completed successfully"

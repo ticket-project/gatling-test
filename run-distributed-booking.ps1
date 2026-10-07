@@ -305,7 +305,7 @@ done
 $cleanup
 exit `$status
 "@
-    return (($command -replace "`r`n", "`n") -replace "`r", "`n")
+    return ConvertTo-RemoteBashCommand -Value $command
 }
 
 function Merge-PerSecondCounts {
@@ -497,17 +497,7 @@ try {
     $runDir = New-UniqueRunDirectoryPath -Root $ReportRoot -Name (New-RunDirectoryName)
     New-Item -ItemType Directory -Force -Path $runDir | Out-Null
     $manifestRows = New-NodeFeeders -Rows $feederRows -TotalNodes $Hosts.Count -RunDir $runDir
-    $knownHostsFile = Join-Path $runDir "known_hosts"
-    New-Item -ItemType File -Force -Path $knownHostsFile | Out-Null
-
-    $SshCommand = Resolve-WindowsCommandPath -Name "ssh" -RelativePath "OpenSSH\ssh.exe"
-    $ScpCommand = Resolve-WindowsCommandPath -Name "scp" -RelativePath "OpenSSH\scp.exe"
-    $TarCommand = Resolve-WindowsCommandPath -Name "tar" -RelativePath "tar.exe"
-    $KeyPath = Resolve-DefaultSshKeyPath -Value $KeyPath
-    if (-not (Test-Path -LiteralPath $KeyPath -PathType Leaf)) { Stop-Validation "SSH key not found: $KeyPath" }
-    $KeyPath = New-OpenSshKeyPath -SourcePath $KeyPath
-    $SshOptions = New-SshOptions -KnownHostsFile $knownHostsFile
-    $ScpOptions = New-ScpOptions -KnownHostsFile $knownHostsFile
+    Initialize-SshSession -RunDir $runDir
 
     Write-Host "Starting distributed booking Gatling run"
     Write-Host "Simulation: $Simulation"
@@ -545,13 +535,7 @@ try {
         $jobs += Start-RemoteNodeJob -Name $safeName -HostName $hostName -Command $remoteCommand -LogPath $logPath
     }
 
-    Wait-Job $jobs | Out-Null
-    $jobRows = @()
-    foreach ($job in $jobs) {
-        $exitCode = Receive-Job $job
-        $jobRows += [pscustomobject]@{ Node = $job.Name; ExitCode = $exitCode }
-    }
-    Remove-Job $jobs
+    $jobRows = @(Wait-NodeJobs -Jobs $jobs)
 
     for ($nodeIndex = 0; $nodeIndex -lt $Hosts.Count; $nodeIndex++) {
         $hostName = $Hosts[$nodeIndex]
