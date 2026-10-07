@@ -21,7 +21,7 @@ public class CoreOrderGetApiSimulation extends Simulation {
                 .feed(csv(Path.of(LoadTestConfig.bookingFeederFile()).toAbsolutePath().toString()).queue())
                 .exec(session -> session.set(
                         "accessToken",
-                        LoadTestConfig.syntheticAccessTokenForMember(Long.parseLong(session.getString("memberId")))
+                        LoadTestConfig.syntheticAccessTokenForMember(Long.parseLong(session.getString("memberId").trim()))
                 ))
                 .exec(http("get order")
                         .get("/api/v1/orders/#{orderKey}")

@@ -134,7 +134,7 @@ memberId,orderKey
 
 주문 조회 JWT는 각 행의 `memberId`로 실행 중 메모리에서 생성한다. 따라서 이 결과 CSV에는 JWT나 JWT secret이 기록되지 않는다.
 
-기본 경로는 `../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv`다. 주문 생성 실패로 성공 행이 예상 사용자 수보다 적으면 주문 조회 테스트가 HTTP 부하 전에 feeder 부족으로 실패한다.
+기본 경로는 `../../distributed-results-join/_latest/core-order-create-api-order-lookup.csv`다. 주문 생성 실패로 성공 행이 예상 사용자 수보다 적으면 콘솔 실행은 HTTP 부하 전에 feeder 부족으로 실패한다. Gradle로 직접 돌리면 feeder가 바닥나는 시점에 실행 중 실패한다.
 
 ### 5. 주문 조회
 
