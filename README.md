@@ -301,7 +301,6 @@ DB 감사는 Gatling 실행이 끝난 뒤 `auditBookingDatabase` Gradle task로 
 BOOKING_AUDIT_DB_URL
 BOOKING_AUDIT_DB_USERNAME
 BOOKING_AUDIT_DB_PASSWORD
-# 선택: BOOKING_AUDIT_DB_DRIVER (기본 oracle.jdbc.OracleDriver)
 ```
 
 DB 감사 대상 공연은 테스트 전에 주문 이력이 없는 전용 `performanceId`여야 한다. 감사 쿼리가 공연 전체 주문을 조회하므로 기존 주문이 섞이면 현재 실행의 성공 수와 비교할 수 없고 의도적으로 실패한다.
