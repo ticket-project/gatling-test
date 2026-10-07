@@ -2,7 +2,6 @@ package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.LoadTestConfig;
 import io.gatling.javaapi.core.ScenarioBuilder;
-import io.gatling.javaapi.core.Simulation;
 import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import static io.gatling.javaapi.core.CoreDsl.global;
