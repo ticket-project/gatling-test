@@ -50,11 +50,21 @@ tasks.register('gatlingReport', JavaExec) {
     }
 }
 
+// 이 Gradle 프로세스에 -D로 준 값 중 이름이 맞는 것만 JavaExec로 넘긴다.
+def forwardSystemProperties = { JavaExec task, List<String> names ->
+    names.each { propertyName ->
+        def propertyValue = System.getProperty(propertyName)
+        if (propertyValue != null) {
+            task.systemProperty propertyName, propertyValue
+        }
+    }
+}
+
 tasks.register('generateAccessTokens', JavaExec) {
     dependsOn classes
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.ticket.loadtest.AccessTokenFileGenerator'
-    [
+    forwardSystemProperties(it, [
             'output',
             'tokenCount',
             'jwtSecret',
@@ -65,12 +75,7 @@ tasks.register('generateAccessTokens', JavaExec) {
             'syntheticTokenTtlSeconds',
             'bookingFeederOutput',
             'bookingSeatStartId'
-    ].each { propertyName ->
-        def propertyValue = System.getProperty(propertyName)
-        if (propertyValue != null) {
-            systemProperty propertyName, propertyValue
-        }
-    }
+    ])
 }
 
 dependencies {
@@ -84,10 +89,5 @@ tasks.register('auditBookingDatabase', JavaExec) {
     dependsOn classes
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.ticket.loadtest.BookingDatabaseAuditMain'
-    ['resultFile', 'performanceId', 'dbAuditOutput'].each { propertyName ->
-        def propertyValue = System.getProperty(propertyName)
-        if (propertyValue != null) {
-            systemProperty propertyName, propertyValue
-        }
-    }
+    forwardSystemProperties(it, ['resultFile', 'performanceId', 'dbAuditOutput'])
 }
