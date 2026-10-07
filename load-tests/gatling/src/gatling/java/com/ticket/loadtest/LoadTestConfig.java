@@ -18,8 +18,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -44,7 +42,6 @@ public final class LoadTestConfig {
     private static final int CORE_SPIKE_RAMP_SECONDS = 5;
     private static final int CORE_SPIKE_RECOVERY_SECONDS = 30;
     private static final int CORE_ACTIVE_USERS_RAMP_SECONDS = 30;
-    private static final ConcurrentMap<ConfigKey, CsvValues> CSV_VALUES = new ConcurrentHashMap<>();
     private static final AtomicInteger TOKEN_COUNTER = new AtomicInteger();
     private static final AtomicInteger FAILURE_BODY_DUMP_COUNTER = new AtomicInteger();
     private static final AtomicLong SYNTHETIC_MEMBER_COUNTER =
@@ -147,7 +144,7 @@ public final class LoadTestConfig {
     }
 
     public static String consoleRunId() {
-        return optionalSystemProperty("consoleRunId", "manual");
+        return property(ConfigKey.CONSOLE_RUN_ID);
     }
 
     public static int durationSeconds() {
@@ -344,8 +341,14 @@ public final class LoadTestConfig {
     public static ChainBuilder authenticate() {
         final String mode = property(ConfigKey.ACCESS_TOKEN_MODE).toLowerCase(Locale.ROOT);
         if ("tokens".equals(mode)) {
+            // 토큰 모드에서만 읽는다. 파일이 모자라거나 잘못되면 실행 전에 실패한다.
+            final List<String> tokens = parseAccessTokens();
             return exec(session -> {
-                final String accessToken = nextAccessToken();
+                final int index = TOKEN_COUNTER.getAndIncrement();
+                if (index >= tokens.size()) {
+                    throw new IllegalStateException("Access token values exhausted");
+                }
+                final String accessToken = tokens.get(index);
                 return session.set("accessToken", accessToken)
                         .set("memberId", LoadTestTokens.readSubjectAsLong(accessToken));
             });
@@ -464,14 +467,6 @@ public final class LoadTestConfig {
         return value == null || value.isBlank() ? property(fallbackKey) : value.trim();
     }
 
-    private static String optionalSystemProperty(final String propertyName, final String defaultValue) {
-        final String value = System.getProperty(propertyName);
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-        return value.trim();
-    }
-
 
     private static int intProperty(final ConfigKey key) {
         return Integer.parseInt(property(key));
@@ -539,16 +534,7 @@ public final class LoadTestConfig {
         return value;
     }
 
-    private static String nextAccessToken() {
-        final CsvValues csvValues = CSV_VALUES.computeIfAbsent(ConfigKey.ACCESS_TOKENS, ignored -> parseAccessTokens());
-        final int index = TOKEN_COUNTER.getAndIncrement();
-        if (index >= csvValues.values().size()) {
-            throw new IllegalStateException("Access token values exhausted");
-        }
-        return csvValues.values().get(index);
-    }
-
-    private static CsvValues parseAccessTokens() {
+    private static List<String> parseAccessTokens() {
         final List<String> values = LoadTestTokenValues.fromCsvOrFile(
                 System.getProperty(ConfigKey.ACCESS_TOKENS.propertyName()),
                 optionalProperty(ConfigKey.ACCESS_TOKENS_FILE, ""),
@@ -564,7 +550,7 @@ public final class LoadTestConfig {
                 throw new IllegalStateException("Access token values must have unique member subjects");
             }
         }
-        return new CsvValues(values);
+        return values;
     }
 
     private static void addScheduledStartDelay(final List<OpenInjectionStep> steps) {
@@ -704,10 +690,8 @@ public final class LoadTestConfig {
         return value.replaceAll("[^A-Za-z0-9._-]", "-");
     }
 
-    private record CsvValues(List<String> values) {
-    }
-
     private enum ConfigKey {
+        CONSOLE_RUN_ID("consoleRunId", "manual"),
         BASE_URL("baseUrl", null),
         CORE_BASE_URL("coreBaseUrl", null),
         QUEUE_BASE_URL("queueBaseUrl", null),
