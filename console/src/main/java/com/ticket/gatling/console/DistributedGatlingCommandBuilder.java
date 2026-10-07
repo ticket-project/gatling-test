@@ -138,9 +138,6 @@ public class DistributedGatlingCommandBuilder {
                 command.add("-GenerateAccessTokens");
                 command.add("-TokenCountPerNode");
                 command.add(String.valueOf(request.generatedAccessTokenCount()));
-            } else if (request.usesAccessTokensFile()) {
-                command.add("-AccessTokensFile");
-                command.add(request.accessTokensFile());
             }
         }
     }
