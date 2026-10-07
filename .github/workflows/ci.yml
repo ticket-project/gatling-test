@@ -48,5 +48,5 @@ jobs:
       - name: Run console tests
         shell: bash
         run: |
-          chmod +x ./console/gradlew
-          ./console/gradlew -p console test --no-daemon
+          chmod +x ./gradlew
+          ./gradlew -p console test --no-daemon
