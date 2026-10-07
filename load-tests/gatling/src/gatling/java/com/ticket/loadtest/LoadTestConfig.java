@@ -188,10 +188,6 @@ public final class LoadTestConfig {
         );
     }
 
-    public static Iterator<Map<String, Object>> orderLookupFeeder(final int expectedRows) {
-        return OrderLookupFeeder.load(Path.of(bookingFeederFile()), expectedRows);
-    }
-
     public static Duration bookingSeatThinkMin() {
         return durationMin(ConfigKey.BOOKING_SEAT_THINK_MIN_MILLIS, ConfigKey.BOOKING_SEAT_THINK_MAX_MILLIS);
     }
