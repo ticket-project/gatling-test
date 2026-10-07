@@ -2,6 +2,8 @@ package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.BookingEvidenceRecorder;
 import com.ticket.loadtest.LoadTestConfig;
+import io.gatling.javaapi.core.OpenInjectionStep;
+import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 
 import java.nio.file.Path;
@@ -17,6 +19,12 @@ abstract class BookingProofSimulation extends Simulation {
                 LoadTestConfig.nodeIndex()
         );
         BookingRunConfigurationWriter.write(Path.of(LoadTestConfig.resultFile()), scenario);
+    }
+
+    protected void run(final ScenarioBuilder scenario, final OpenInjectionStep... steps) {
+        setUp(scenario.injectOpen(steps))
+                .protocols(Protocols.json(LoadTestConfig.coreBaseUrl()))
+                .assertions(Protocols.technicalFailuresBelowThreshold());
     }
 
     @Override

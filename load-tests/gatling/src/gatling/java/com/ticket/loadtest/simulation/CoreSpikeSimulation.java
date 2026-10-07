@@ -2,8 +2,6 @@ package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.LoadTestConfig;
 import io.gatling.javaapi.core.ScenarioBuilder;
-import io.gatling.javaapi.core.Simulation;
-import io.gatling.javaapi.http.HttpProtocolBuilder;
 
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 
@@ -13,17 +11,11 @@ public class CoreSpikeSimulation extends BookingProofSimulation {
 
     public CoreSpikeSimulation() {
         super(SCENARIO);
-        final HttpProtocolBuilder httpProtocol = Protocols.json(LoadTestConfig.coreBaseUrl());
-
         final ScenarioBuilder scenario = scenario("05 Core 순간 부하 및 회복")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.coreSpikeExpectedUsers()))
                 .exec(CoreBookingFlow.initializeRealisticSession(SCENARIO))
                 .exec(CoreBookingFlow.realisticFlow(SCENARIO));
 
-        setUp(scenario.injectOpen(LoadTestConfig.coreSpikeInjection()))
-                .protocols(httpProtocol)
-                .assertions(
-                        Protocols.technicalFailuresBelowThreshold()
-                );
+        run(scenario, LoadTestConfig.coreSpikeInjection());
     }
 }
