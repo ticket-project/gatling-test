@@ -186,48 +186,35 @@ final class DatadogEnvironmentClient implements RunEnvironmentClient {
         final String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20");
         final URI uri = baseUri.resolve("/api/v1/query?from=" + (now - QUERY_WINDOW_SECONDS)
                 + "&to=" + now + "&query=" + encoded);
-        IOException lastFailure = null;
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            final HttpRequest request = HttpRequest.newBuilder(uri)
-                    .timeout(TIMEOUT)
-                    .header("Accept", "application/json")
-                    .header("DD-API-KEY", apiKey)
-                    .header("DD-APPLICATION-KEY", appKey)
-                    .GET()
-                    .build();
-            final HttpResponse<String> response;
+        final HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(TIMEOUT)
+                .header("Accept", "application/json")
+                .header("DD-API-KEY", apiKey)
+                .header("DD-APPLICATION-KEY", appKey)
+                .GET()
+                .build();
+        for (int attempt = 1; ; attempt++) {
+            IOException failure;
+            boolean retry;
             try {
-                response = httpClient.send(
+                final HttpResponse<String> response = httpClient.send(
                         request,
                         HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
                 );
-            } catch (IOException exception) {
-                lastFailure = exception;
-                if (attempt == MAX_ATTEMPTS) {
-                    throw exception;
-                }
-                Thread.sleep(250L * attempt);
-                continue;
-            }
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                try {
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
                     return parseSeries(response.body());
-                } catch (IOException exception) {
-                    lastFailure = exception;
-                    if (attempt == MAX_ATTEMPTS) {
-                        throw exception;
-                    }
-                    Thread.sleep(250L * attempt);
-                    continue;
                 }
+                failure = new IOException("Datadog query returned HTTP " + response.statusCode());
+                retry = retryable(response.statusCode());
+            } catch (IOException exception) {
+                failure = exception;
+                retry = true;
             }
-            lastFailure = new IOException("Datadog query returned HTTP " + response.statusCode());
-            if (!retryable(response.statusCode()) || attempt == MAX_ATTEMPTS) {
-                throw lastFailure;
+            if (!retry || attempt == MAX_ATTEMPTS) {
+                throw failure;
             }
             Thread.sleep(250L * attempt);
         }
-        throw lastFailure == null ? new IOException("Datadog query failed") : lastFailure;
     }
 
     private static String applicationSelector(final DatadogTargetInput target) {
