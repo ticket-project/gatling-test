@@ -146,7 +146,8 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                     session.getLong("seatId"),
                     null,
                     0,
-                    "QUEUE_TIMEOUT"
+                    "QUEUE_TIMEOUT",
+                    "", "", "", "", 0
             );
             return session.markAsFailed();
         });
@@ -162,7 +163,8 @@ public class TicketOpenEndToEndSimulation extends Simulation {
                     session.getLong("seatId"),
                     session.getString("orderKey"),
                     session.getInt("orderHttpStatus"),
-                    "SUCCESS"
+                    "SUCCESS",
+                    "", "", "", "", 0
             );
             return session;
         });

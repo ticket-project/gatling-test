@@ -182,7 +182,9 @@ public class HotSeatConcurrencySimulation extends BookingProofSimulation {
                     normalizedResult,
                     optionalString(updated, "lastStep"),
                     optionalString(updated, "flowStartedAt"),
-                    optionalString(updated, "coreAdmittedAt")
+                    optionalString(updated, "coreAdmittedAt"),
+                    "",
+                    0
             );
             return updated;
         });
