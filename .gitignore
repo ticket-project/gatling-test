@@ -4,12 +4,6 @@ out/
 .idea/
 *.iml
 
-**/.gradle/
-**/build/
-**/out/
-**/.idea/
-**/*.iml
-
 # Gatling test results
 /distributed-results/
 /distributed-results-join/
