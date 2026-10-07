@@ -17,30 +17,6 @@ public final class BookingResultRecorder {
     }
 
     public static void append(
-            final Path file, final String scenario, final int nodeIndex, final long memberId, final long seatId,
-            final String orderKey, final int httpStatus, final String result
-    ) {
-        append(file, scenario, nodeIndex, memberId, seatId, orderKey, httpStatus, result, "", "", "", "", 0);
-    }
-
-    public static void append(
-            final Path file,
-            final String scenario,
-            final int nodeIndex,
-            final long memberId,
-            final long seatId,
-            final String orderKey,
-            final int httpStatus,
-            final String result,
-            final String lastStep,
-            final String startedAt,
-            final String coreAdmittedAt
-    ) {
-        append(file, scenario, nodeIndex, memberId, seatId, orderKey, httpStatus, result,
-                lastStep, startedAt, coreAdmittedAt, "", 0);
-    }
-
-    public static void append(
             final Path file,
             final String scenario,
             final int nodeIndex,

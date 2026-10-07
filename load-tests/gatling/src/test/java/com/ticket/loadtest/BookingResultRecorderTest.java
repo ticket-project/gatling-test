@@ -21,8 +21,8 @@ class BookingResultRecorderTest {
     void writesHeaderOnceAndAppendsEscapedRowsWithoutTokens() throws IOException {
         final Path file = tempDir.resolve("nested/results.csv");
 
-        BookingResultRecorder.append(file, "BOOKING_CAPACITY", 1, 10, 20, "order,\"one\"", 200, "SUCCESS");
-        BookingResultRecorder.append(file, "BOOKING_CAPACITY", 1, 11, 21, null, 409, "SOLD_OUT");
+        BookingResultRecorder.append(file, "BOOKING_CAPACITY", 1, 10, 20, "order,\"one\"", 200, "SUCCESS", "", "", "", "", 0);
+        BookingResultRecorder.append(file, "BOOKING_CAPACITY", 1, 11, 21, null, 409, "SOLD_OUT", "", "", "", "", 0);
 
         final List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
         assertEquals(3, lines.size());

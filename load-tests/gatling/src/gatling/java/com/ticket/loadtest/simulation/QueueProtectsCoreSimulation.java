@@ -185,7 +185,9 @@ public class QueueProtectsCoreSimulation extends BookingProofSimulation {
                     optionalString(session, "terminalResult"),
                     optionalString(session, "lastStep"),
                     optionalString(session, "flowStartedAt"),
-                    optionalString(session, "coreAdmittedAt")
+                    optionalString(session, "coreAdmittedAt"),
+                    "",
+                    0
             );
             return session;
         });

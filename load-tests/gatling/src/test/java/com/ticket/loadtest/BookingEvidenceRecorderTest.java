@@ -22,8 +22,8 @@ class BookingEvidenceRecorderTest {
         BookingEvidenceRecorder.recordStarted(resultFile, "COMPLETE", 0, 2L);
         BookingEvidenceRecorder.recordCoreAdmission(resultFile, "COMPLETE", 0, 1L);
         BookingEvidenceRecorder.recordCoreAdmission(resultFile, "COMPLETE", 0, 2L);
-        BookingResultRecorder.append(resultFile, "COMPLETE", 0, 1L, 11L, "order-1", 201, "SUCCESS");
-        BookingResultRecorder.append(resultFile, "COMPLETE", 0, 2L, 12L, "order-2", 201, "SUCCESS");
+        BookingResultRecorder.append(resultFile, "COMPLETE", 0, 1L, 11L, "order-1", 201, "SUCCESS", "", "", "", "", 0);
+        BookingResultRecorder.append(resultFile, "COMPLETE", 0, 2L, 12L, "order-2", 201, "SUCCESS", "", "", "", "", 0);
 
         final BookingEvidenceRecorder.EvidenceSummary summary = BookingEvidenceRecorder.verifyAndWrite(
                 resultFile, "COMPLETE", 0, 0.0, 0, 0.0, 1.0
@@ -46,9 +46,9 @@ class BookingEvidenceRecorderTest {
         for (long memberId = 1L; memberId <= 3L; memberId++) {
             BookingEvidenceRecorder.recordStarted(resultFile, "OVERLOAD", 0, memberId);
         }
-        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 1L, 11L, "order-1", 201, "SUCCESS");
-        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 2L, 12L, null, 409, "BUSINESS_REJECTED_E6000");
-        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 3L, 13L, null, 409, "OVERLOADED_E6003");
+        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 1L, 11L, "order-1", 201, "SUCCESS", "", "", "", "", 0);
+        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 2L, 12L, null, 409, "BUSINESS_REJECTED_E6000", "", "", "", "", 0);
+        BookingResultRecorder.append(resultFile, "OVERLOAD", 0, 3L, 13L, null, 409, "OVERLOADED_E6003", "", "", "", "", 0);
 
         final BookingEvidenceRecorder.EvidenceSummary summary = BookingEvidenceRecorder.verifyAndWrite(
                 resultFile, "OVERLOAD", 0, 0.0, 0, 0.0, 1.0
@@ -76,7 +76,7 @@ class BookingEvidenceRecorderTest {
         final Path resultFile = tempDir.resolve("timeout/results.csv");
         BookingEvidenceRecorder.begin(resultFile, "TIMEOUT", 0);
         BookingEvidenceRecorder.recordStarted(resultFile, "TIMEOUT", 0, 1L);
-        BookingResultRecorder.append(resultFile, "TIMEOUT", 0, 1L, 11L, null, 0, "QUEUE_TIMEOUT");
+        BookingResultRecorder.append(resultFile, "TIMEOUT", 0, 1L, 11L, null, 0, "QUEUE_TIMEOUT", "", "", "", "", 0);
 
         assertThrows(IllegalStateException.class, () -> BookingEvidenceRecorder.verifyAndWrite(
                 resultFile, "TIMEOUT", 0, 0.0, 0, 0.0, 1.0
