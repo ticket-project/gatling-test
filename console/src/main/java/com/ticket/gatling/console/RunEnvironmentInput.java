@@ -36,18 +36,6 @@ record DatadogTargetInput(
         String datadogMetricPrefix,
         String datadogContainerName
 ) {
-    DatadogTargetInput {
-        role = required(role, "role");
-        baseUrl = baseUrl == null ? "" : baseUrl.trim();
-        datadogEnv = requiredTag(datadogEnv, "datadogEnv");
-        datadogService = requiredTag(datadogService, "datadogService");
-        datadogContainerName = requiredTag(datadogContainerName, "datadogContainerName");
-        datadogMetricPrefix = required(datadogMetricPrefix, "datadogMetricPrefix");
-        if (!datadogMetricPrefix.matches("[A-Za-z][A-Za-z0-9_.]*")) {
-            throw new IllegalArgumentException("datadogMetricPrefix contains unsupported characters");
-        }
-    }
-
     static DatadogTargetInput queue(final String baseUrl) {
         return new DatadogTargetInput(
                 "queue", baseUrl, "prod", "ticket-queue", "ticket_queue", "ticket-queue"
@@ -62,20 +50,5 @@ record DatadogTargetInput(
 
     boolean core() {
         return "core".equals(role);
-    }
-
-    private static String requiredTag(final String value, final String name) {
-        final String normalized = required(value, name);
-        if (!normalized.matches("[A-Za-z0-9_./:-]+")) {
-            throw new IllegalArgumentException(name + " contains unsupported Datadog tag characters");
-        }
-        return normalized;
-    }
-
-    private static String required(final String value, final String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
-        return value.trim();
     }
 }
