@@ -1,6 +1,5 @@
 package com.ticket.loadtest.simulation;
 
-import com.ticket.loadtest.BookingDatabaseAuditor;
 import com.ticket.loadtest.BookingEvidenceRecorder;
 import com.ticket.loadtest.LoadTestConfig;
 import io.gatling.javaapi.core.Simulation;
@@ -45,21 +44,6 @@ abstract class BookingProofSimulation extends Simulation {
                     + LoadTestConfig.expectedUsers() + ", actual=" + summary.startedUsers());
         }
 
-        if (LoadTestConfig.dbAuditEnabled()) {
-            try {
-                BookingDatabaseAuditor.audit(
-                        resultFile,
-                        Long.parseLong(LoadTestConfig.performanceId()),
-                        resultFile.toAbsolutePath().resolveSibling("booking-db-audit.json")
-                );
-            } catch (RuntimeException exception) {
-                if (failure == null) {
-                    failure = exception;
-                } else {
-                    failure.addSuppressed(exception);
-                }
-            }
-        }
         if (failure != null) {
             throw failure;
         }

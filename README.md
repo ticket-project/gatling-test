@@ -295,7 +295,7 @@ Core의 409 응답은 세 가지로 나눠 센다. 분류의 원본은 `load-tes
 
 Console에서는 `Queue timeout 허용률`, `Core 안전 입장률`, `입장률 측정 오차 허용`을 입력한다. Queue Protects Core의 기본 안전 입장률은 300명/초이고, 분산 실행은 노드별 값이 아니라 모든 노드의 `booking-admissions.csv`를 합산한 `booking-admissions-global.csv`로 판정한다.
 
-DB 감사를 켜려면 Console 또는 Gatling 프로세스에 아래 환경 변수를 설정해야 한다. 비밀번호는 명령행이나 결과 파일에 기록하지 않는다.
+DB 감사는 Gatling 실행이 끝난 뒤 `auditBookingDatabase` Gradle task로 돌린다(분산 실행은 `run-distributed-booking.ps1 -DbAuditEnabled`가 합친 결과로 부른다). 실행하는 프로세스에 아래 환경 변수를 설정해야 한다. 비밀번호는 명령행이나 결과 파일에 기록하지 않는다.
 
 ```text
 BOOKING_AUDIT_DB_URL

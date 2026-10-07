@@ -276,8 +276,7 @@ function New-GatlingArgs {
         "-DtechnicalFailureThresholdPercent=$TechnicalFailureThresholdPercent",
         "-DqueueTimeoutThresholdPercent=$QueueTimeoutThresholdPercent",
         "-DmaxCoreAdmissionsPerSecond=0",
-        "-DadmissionRateTolerancePercent=$AdmissionRateTolerancePercent",
-        "-DdbAuditEnabled=false"
+        "-DadmissionRateTolerancePercent=$AdmissionRateTolerancePercent"
     )
     if (-not [string]::IsNullOrWhiteSpace($RunDescription)) {
         $args += @("--run-description", $RunDescription)

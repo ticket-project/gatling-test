@@ -246,10 +246,6 @@ public final class LoadTestConfig {
         return nonNegativeDoubleProperty(ConfigKey.ADMISSION_RATE_TOLERANCE_PERCENT);
     }
 
-    public static boolean dbAuditEnabled() {
-        return booleanProperty(ConfigKey.DB_AUDIT_ENABLED);
-    }
-
     public static boolean http2Enabled() {
         return booleanProperty(ConfigKey.HTTP2_ENABLED);
     }
@@ -758,7 +754,6 @@ public final class LoadTestConfig {
         QUEUE_TIMEOUT_THRESHOLD_PERCENT("queueTimeoutThresholdPercent", "0.0"),
         MAX_CORE_ADMISSIONS_PER_SECOND("maxCoreAdmissionsPerSecond", "0"),
         ADMISSION_RATE_TOLERANCE_PERCENT("admissionRateTolerancePercent", "10.0"),
-        DB_AUDIT_ENABLED("dbAuditEnabled", "false"),
         START_AT_EPOCH_MILLIS("startAtEpochMillis", "0");
 
         private final String propertyName;

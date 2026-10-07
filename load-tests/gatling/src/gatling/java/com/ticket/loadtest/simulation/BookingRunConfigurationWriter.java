@@ -87,7 +87,6 @@ final class BookingRunConfigurationWriter {
                 .put("queueTimeoutPercent", LoadTestConfig.queueTimeoutThresholdPercent())
                 .put("maxCoreAdmissionsPerSecond", LoadTestConfig.maxCoreAdmissionsPerSecond())
                 .put("admissionRateTolerancePercent", LoadTestConfig.admissionRateTolerancePercent());
-        root.put("dbAuditEnabled", LoadTestConfig.dbAuditEnabled());
         try {
             Files.createDirectories(parent);
             Files.writeString(output, MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(root) + "\n",
