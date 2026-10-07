@@ -1587,30 +1587,22 @@ function capacityRunText(body) {
 
 function estimateVirtualUsers(body) {
   const mode = String(body.get('injectionMode') || 'ramp-users');
-  const usersPerSecond = Number(body.get('usersPerSecond') || 0);
   if (String(body.get('executionMode') || 'local') === 'distributed') {
-    const duration = Number(body.get('durationSeconds') || 0);
     const nodes = distributedNodeCount(body);
     if (mode === 'closed-core') {
       return Number(body.get('users') || 0) * nodes;
     }
-    if (mode === 'spike') {
-      return coreSpikeExpectedUsers(usersPerSecond, Number(body.get('targetUsersPerSecond') || 0), duration) * nodes;
-    }
-    if (mode === 'ticket-open') {
-      return ticketOpenExpectedUsers(usersPerSecond) * nodes;
-    }
-    return Math.ceil(duration * usersPerSecond * nodes);
+    return Math.ceil(usersPerNode(body) * nodes);
   }
-  const users = Number(body.get('users') || 0);
+  const usersPerSecond = Number(body.get('usersPerSecond') || 0);
   const duration = Number(body.get('durationSeconds') || 0);
   const targetUsersPerSecond = Number(body.get('targetUsersPerSecond') || 0);
 
   if (mode === 'constant-users-per-sec') {
-    return Math.ceil(usersPerSecond * duration);
+    return constant(usersPerSecond, duration);
   }
   if (mode === 'ramp-users-per-sec') {
-    return Math.ceil(((usersPerSecond + targetUsersPerSecond) / 2) * duration);
+    return ramp(usersPerSecond, targetUsersPerSecond, duration);
   }
   if (mode === 'ticket-open') {
     return ticketOpenExpectedUsers(usersPerSecond);
@@ -1618,12 +1610,32 @@ function estimateVirtualUsers(body) {
   if (mode === 'spike') {
     return coreSpikeExpectedUsers(usersPerSecond, targetUsersPerSecond, duration);
   }
-  return users;
+  return Number(body.get('users') || 0);
+}
+
+// 분산 Open Model에서 노드 하나가 투입하는 사용자 수. 기본 모드는 올림 전 값을 돌려준다.
+function usersPerNode(body) {
+  const mode = String(body.get('injectionMode') || 'ramp-users');
+  const duration = Number(body.get('durationSeconds') || 0);
+  const usersPerSecond = Number(body.get('usersPerSecond') || 0);
+  if (mode === 'spike') {
+    return coreSpikeExpectedUsers(usersPerSecond, Number(body.get('targetUsersPerSecond') || 0), duration);
+  }
+  if (mode === 'ticket-open') {
+    return ticketOpenExpectedUsers(usersPerSecond);
+  }
+  return duration * usersPerSecond;
+}
+
+function constant(rps, seconds) {
+  return Math.ceil(rps * seconds);
+}
+
+function ramp(start, end, seconds) {
+  return Math.ceil(((start + end) / 2) * seconds);
 }
 
 function coreSpikeExpectedUsers(baselineRps, peakRps, peakHoldSeconds) {
-  const constant = (rps, seconds) => Math.ceil(rps * seconds);
-  const ramp = (start, end, seconds) => Math.ceil(((start + end) / 2) * seconds);
   return constant(baselineRps, 30)
           + ramp(baselineRps, peakRps, 5)
           + constant(peakRps, peakHoldSeconds)
@@ -1634,8 +1646,6 @@ function ticketOpenExpectedUsers(peakRps) {
   const firstDecay = peakRps * 0.5;
   const secondDecay = peakRps * 0.2;
   const tail = peakRps * 0.1;
-  const constant = (rps, seconds) => Math.ceil(rps * seconds);
-  const ramp = (start, end, seconds) => Math.ceil(((start + end) / 2) * seconds);
   return constant(peakRps, 10)
           + ramp(peakRps, firstDecay, 20)
           + ramp(firstDecay, secondDecay, 60)
@@ -1672,19 +1682,10 @@ function normalizeAccessTokenSourceForRun(body) {
 
 function estimateAccessTokensPerNode(body) {
   if (String(body.get('executionMode') || 'local') === 'distributed') {
-    const mode = String(body.get('injectionMode') || 'ramp-users');
-    const duration = Number(body.get('durationSeconds') || 0);
-    const usersPerSecond = Number(body.get('usersPerSecond') || 0);
-    if (mode === 'ticket-open') {
-      return ticketOpenExpectedUsers(usersPerSecond);
-    }
-    if (mode === 'closed-core') {
+    if (String(body.get('injectionMode') || 'ramp-users') === 'closed-core') {
       return Number(body.get('bookingFeederRows') || 0);
     }
-    if (mode === 'spike') {
-      return coreSpikeExpectedUsers(usersPerSecond, Number(body.get('targetUsersPerSecond') || 0), duration);
-    }
-    return Math.ceil(duration * usersPerSecond);
+    return Math.ceil(usersPerNode(body));
   }
   return estimateVirtualUsers(body);
 }
