@@ -300,15 +300,30 @@ mkdir -p '$CollectDir'
 if [ -n "`$latest" ]; then cp -R "`$latest" '$CollectDir/gatling-report'; fi
 if [ -f '$RemoteResultFile' ]; then cp '$RemoteResultFile' '$CollectDir/booking-results.csv'; fi
 evidence_dir=`$(dirname '$RemoteResultFile')
-if [ -f "`$evidence_dir/booking-evidence.json" ]; then cp "`$evidence_dir/booking-evidence.json" '$CollectDir/booking-evidence.json'; fi
-if [ -f "`$evidence_dir/booking-admissions.csv" ]; then cp "`$evidence_dir/booking-admissions.csv" '$CollectDir/booking-admissions.csv'; fi
-if [ -f "`$evidence_dir/booking-completions.csv" ]; then cp "`$evidence_dir/booking-completions.csv" '$CollectDir/booking-completions.csv'; fi
-if [ -f "`$evidence_dir/booking-active-users.csv" ]; then cp "`$evidence_dir/booking-active-users.csv" '$CollectDir/booking-active-users.csv'; fi
-if [ -f "`$evidence_dir/booking-run-config.json" ]; then cp "`$evidence_dir/booking-run-config.json" '$CollectDir/booking-run-config.json'; fi
+for f in booking-evidence.json booking-admissions.csv booking-completions.csv booking-active-users.csv booking-run-config.json; do
+  if [ -f "`$evidence_dir/`$f" ]; then cp "`$evidence_dir/`$f" '$CollectDir'/"`$f"; fi
+done
 $cleanup
 exit `$status
 "@
     return (($command -replace "`r`n", "`n") -replace "`r", "`n")
+}
+
+function Merge-PerSecondCounts {
+    param([string]$RunDir, [string]$Filter, [string]$Output)
+    $rows = @()
+    foreach ($file in @(Get-ChildItem -Path $RunDir -Recurse -Filter $Filter -File -ErrorAction SilentlyContinue)) { $rows += @(Import-Csv -Path $file.FullName) }
+    $globalRows = @($rows |
+        Group-Object epochSecond |
+        ForEach-Object {
+            [pscustomobject]@{
+                epochSecond = [long]$_.Name
+                count = [long](($_.Group | Measure-Object -Property count -Sum).Sum)
+            }
+        } |
+        Sort-Object epochSecond)
+    Write-CsvUtf8NoBom -Path (Join-Path $RunDir $Output) -Rows $globalRows
+    return [long]($globalRows | Measure-Object -Property count -Maximum).Maximum
 }
 
 function Write-BookingSummary {
@@ -323,46 +338,14 @@ function Write-BookingSummary {
         try { $evidenceRows += (Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json) }
         catch { Write-Warning "Could not read booking evidence: $($file.FullName)" }
     }
-    $startedUsers = ($evidenceRows | Measure-Object -Property startedUsers -Sum).Sum
-    $terminalUsers = ($evidenceRows | Measure-Object -Property terminalUsers -Sum).Sum
-    $reportedMissingResults = ($evidenceRows | Measure-Object -Property missingTerminalResults -Sum).Sum
-    $seatSelectionConflictAttempts = ($evidenceRows | Measure-Object -Property seatSelectionConflictAttempts -Sum).Sum
-    if ($null -eq $startedUsers) { $startedUsers = 0 }
-    if ($null -eq $terminalUsers) { $terminalUsers = 0 }
-    if ($null -eq $reportedMissingResults) { $reportedMissingResults = 0 }
-    if ($null -eq $seatSelectionConflictAttempts) { $seatSelectionConflictAttempts = 0 }
-    $missingTerminalResults = [Math]::Max([long]$reportedMissingResults, [long]$startedUsers - $resultRows.Count)
+    $startedUsers = [long]($evidenceRows | Measure-Object -Property startedUsers -Sum).Sum
+    $terminalUsers = [long]($evidenceRows | Measure-Object -Property terminalUsers -Sum).Sum
+    $reportedMissingResults = [long]($evidenceRows | Measure-Object -Property missingTerminalResults -Sum).Sum
+    $seatSelectionConflictAttempts = [long]($evidenceRows | Measure-Object -Property seatSelectionConflictAttempts -Sum).Sum
+    $missingTerminalResults = [Math]::Max($reportedMissingResults, $startedUsers - $resultRows.Count)
 
-    $admissionFiles = @(Get-ChildItem -Path $RunDir -Recurse -Filter booking-admissions.csv -File -ErrorAction SilentlyContinue)
-    $admissionRows = @()
-    foreach ($file in $admissionFiles) { $admissionRows += @(Import-Csv -Path $file.FullName) }
-    $globalAdmissionRows = @($admissionRows |
-        Group-Object epochSecond |
-        ForEach-Object {
-            [pscustomobject]@{
-                epochSecond = [long]$_.Name
-                count = [long](($_.Group | Measure-Object -Property count -Sum).Sum)
-            }
-        } |
-        Sort-Object epochSecond)
-    Write-CsvUtf8NoBom -Path (Join-Path $RunDir "booking-admissions-global.csv") -Rows $globalAdmissionRows
-    $maxObservedCoreAdmissions = ($globalAdmissionRows | Measure-Object -Property count -Maximum).Maximum
-    if ($null -eq $maxObservedCoreAdmissions) { $maxObservedCoreAdmissions = 0 }
-    $completionFiles = @(Get-ChildItem -Path $RunDir -Recurse -Filter booking-completions.csv -File -ErrorAction SilentlyContinue)
-    $completionRows = @()
-    foreach ($file in $completionFiles) { $completionRows += @(Import-Csv -Path $file.FullName) }
-    $globalCompletionRows = @($completionRows |
-        Group-Object epochSecond |
-        ForEach-Object {
-            [pscustomobject]@{
-                epochSecond = [long]$_.Name
-                count = [long](($_.Group | Measure-Object -Property count -Sum).Sum)
-            }
-        } |
-        Sort-Object epochSecond)
-    Write-CsvUtf8NoBom -Path (Join-Path $RunDir "booking-completions-global.csv") -Rows $globalCompletionRows
-    $maxObservedSuccessfulCompletions = ($globalCompletionRows | Measure-Object -Property count -Maximum).Maximum
-    if ($null -eq $maxObservedSuccessfulCompletions) { $maxObservedSuccessfulCompletions = 0 }
+    $maxObservedCoreAdmissions = Merge-PerSecondCounts -RunDir $RunDir -Filter booking-admissions.csv -Output booking-admissions-global.csv
+    $maxObservedSuccessfulCompletions = Merge-PerSecondCounts -RunDir $RunDir -Filter booking-completions.csv -Output booking-completions-global.csv
 
     $activeFiles = @(Get-ChildItem -Path $RunDir -Recurse -Filter booking-active-users.csv -File -ErrorAction SilentlyContinue)
     $activeEvents = @()
@@ -379,25 +362,23 @@ function Write-BookingSummary {
     $globalActiveRows = @()
     foreach ($timeGroup in @($activeEvents | Group-Object epochMilli | Sort-Object { [long]$_.Name })) {
         foreach ($event in $timeGroup.Group) { $nodeActiveUsers[$event.node] = $event.activeUsers }
-        $totalActiveUsers = ($nodeActiveUsers.Values | Measure-Object -Sum).Sum
-        if ($null -eq $totalActiveUsers) { $totalActiveUsers = 0 }
-        $globalActiveRows += [pscustomobject]@{ epochMilli = [long]$timeGroup.Name; activeUsers = [long]$totalActiveUsers }
+        $totalActiveUsers = [long]($nodeActiveUsers.Values | Measure-Object -Sum).Sum
+        $globalActiveRows += [pscustomobject]@{ epochMilli = [long]$timeGroup.Name; activeUsers = $totalActiveUsers }
     }
     Write-CsvUtf8NoBom -Path (Join-Path $RunDir "booking-active-users-global.csv") -Rows $globalActiveRows
-    $maxObservedActiveUsers = ($globalActiveRows | Measure-Object -Property activeUsers -Maximum).Maximum
-    if ($null -eq $maxObservedActiveUsers) { $maxObservedActiveUsers = 0 }
+    $maxObservedActiveUsers = [long]($globalActiveRows | Measure-Object -Property activeUsers -Maximum).Maximum
 
     $allowedCoreAdmissions = if ($MaxCoreAdmissionsPerSecond -gt 0) {
         [Math]::Ceiling($MaxCoreAdmissionsPerSecond * (1.0 + $AdmissionRateTolerancePercent / 100.0))
     } else { 0 }
 
     $successRows = @($resultRows | Where-Object { $_.result -eq "SUCCESS" })
-    $businessRows = @($resultRows | Where-Object { $_.result -like "BUSINESS_REJECTED_*" -or $_.result -like "SELECT_BUSINESS_REJECTED_*" })
+    $businessRows = @($resultRows | Where-Object { $_.result -like "BUSINESS_REJECTED_*" })
     # OVERLOADED_*: Core가 E6003(선점 락 대기 초과)으로 거절한 사용자. 비즈니스 거절도 기술 실패도 아니라 따로 센다.
     $overloadedRows = @($resultRows | Where-Object { $_.result -like "OVERLOADED_*" })
     $dropoutRows = @($resultRows | Where-Object { $_.result -like "USER_DROPPED_*" })
     $queueTimeoutRows = @($resultRows | Where-Object { $_.result -eq "QUEUE_TIMEOUT" })
-    $technicalRows = @($resultRows | Where-Object { $_.result -ne "SUCCESS" -and $_.result -notlike "BUSINESS_REJECTED_*" -and $_.result -notlike "SELECT_BUSINESS_REJECTED_*" -and $_.result -notlike "OVERLOADED_*" -and $_.result -notlike "USER_DROPPED_*" -and $_.result -ne "QUEUE_TIMEOUT" })
+    $technicalRows = @($resultRows | Where-Object { $_.result -ne "SUCCESS" -and $_.result -notlike "BUSINESS_REJECTED_*" -and $_.result -notlike "OVERLOADED_*" -and $_.result -notlike "USER_DROPPED_*" -and $_.result -ne "QUEUE_TIMEOUT" })
     $duplicateTerminalMembers = @($resultRows | Group-Object memberId | Where-Object { $_.Count -gt 1 })
     $duplicateSuccessfulSeats = @($successRows | Group-Object seatId | Where-Object { $_.Count -gt 1 })
     $duplicateOrderKeys = @($successRows | Where-Object { -not [string]::IsNullOrWhiteSpace($_.orderKey) } | Group-Object orderKey | Where-Object { $_.Count -gt 1 })
