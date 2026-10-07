@@ -56,7 +56,7 @@ Header/cookie/auth 없음
 
 ```powershell
 .\gradlew.bat -p load-tests/gatling test
-.\console\gradlew.bat -p console test
+.\gradlew.bat -p console test
 ```
 
 실제 부하 실행은 대상 서버, 사용자 수, 투입 시간, 테스트 전용 `performanceId`를 확인한 뒤 수행한다.

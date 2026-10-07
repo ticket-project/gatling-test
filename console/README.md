@@ -43,10 +43,10 @@ Browser
 - `gatling-test` 저장소에 `gradlew.bat`과 `load-tests/gatling`이 존재
 - Core 예매·주문 테스트라면 JWT `sub`로 쓸 ACTIVE 회원이 Core DB에 존재(ticket `seedLocal`/`seedProd`가 비밀번호 없는 테스트 회원을 만든다)
 
-콘솔 실행:
+콘솔 실행(저장소 루트에서):
 
 ```powershell
-.\gradlew.bat run
+.\gradlew.bat -p console run
 ```
 
 브라우저 접속:
