@@ -62,22 +62,13 @@ function Get-SimulationRunName {
     return (($Simulation -split "\.")[-1] -replace "Simulation$", "").ToLowerInvariant()
 }
 
+# $targetUri is validated at the top of the script.
 function Get-BaseUrlRunName {
-    if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
-        return ""
+    $path = $targetUri.AbsolutePath.Trim("/")
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        return "api-$($targetUri.Host.ToLowerInvariant())"
     }
-
-    $target = $BaseUrl.Trim()
-    $uri = $null
-    if ([Uri]::TryCreate($target, [UriKind]::Absolute, [ref]$uri) -and -not [string]::IsNullOrWhiteSpace($uri.Host)) {
-        $path = $uri.AbsolutePath.Trim("/")
-        if ([string]::IsNullOrWhiteSpace($path)) {
-            return "api-$($uri.Host.ToLowerInvariant())"
-        }
-        return "api-$($uri.Host.ToLowerInvariant())-$($path -replace '/', '-')"
-    }
-
-    return "api-$target"
+    return "api-$($targetUri.Host.ToLowerInvariant())-$($path -replace '/', '-')"
 }
 
 function New-RunDirectoryName {
