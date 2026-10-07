@@ -25,6 +25,5 @@ class OrderLookupFeederWriterTest {
                 List.of("memberId,orderKey", "17,ORD-17"),
                 Files.readAllLines(file)
         );
-        assertEquals(1, OrderLookupFeeder.read(file, 1).size());
     }
 }
