@@ -20,7 +20,6 @@ param(
     [int]$StatusPollPauseJitterSeconds = 0,
     [switch]$EnableHttp2,
     [string]$AccessTokenMode = "",
-    [string]$AccessTokensFile = "",
     [switch]$GenerateAccessTokens,
     [int]$TokenCountPerNode = 0,
     [string]$JwtSecret = "",
@@ -168,7 +167,7 @@ function New-GatlingArgs {
             $args += "-DsyntheticJwtRole=$SyntheticJwtRole"
             $args += "-DsyntheticTokenTtlSeconds=$SyntheticTokenTtlSeconds"
         } elseif ($AccessTokenMode -eq "tokens") {
-            $tokenFile = if ([string]::IsNullOrWhiteSpace($NodeAccessTokensFile)) { $AccessTokensFile } else { $NodeAccessTokensFile }
+            $tokenFile = $NodeAccessTokensFile
             if (-not [string]::IsNullOrWhiteSpace($tokenFile)) {
                 $args += "-DaccessTokensFile=$tokenFile"
             }
