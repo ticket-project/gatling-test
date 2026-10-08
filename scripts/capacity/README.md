@@ -12,17 +12,19 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 ## 로컬 Core 다시 띄우기: `reset-local.ps1`
 
 ```powershell
-.\scripts\capacity\reset-local.ps1                                # 표준 회차 30개, 회원 2,000명, 새 DB
+.\scripts\capacity\reset-local.ps1                                # 로컬 PostgreSQL에 표준 회차 30개, 회원 2,000명 적재
 .\scripts\capacity\reset-local.ps1 -LargePerformanceCount 20 -Members 1000000 -BackgroundOrders 5000000
 .\scripts\capacity\reset-local.ps1 -KeepData -PoolSize 20         # 데이터는 그대로 두고 풀만 바꿔 재기동
 ```
 
-- 8080이 쓰이고 있으면 아무것도 끄지 않고 멈춘다. IntelliJ 등에서 띄운 Core는 직접 끈다.
-- `~/ticket-local.*.db`는 지우지 않고 `.bak-<시각>`으로 옮긴다.
+- 지정 포트(기본 8080)가 쓰이고 있으면 멈춘다. 다른 Core가 떠 있으면 `-Port 8083`처럼 빈 포트를 사용한다.
+- PostgreSQL 데이터를 삭제하거나 초기화하지 않는다. `-KeepData`는 시드 적재도 건너뛴다. 새 측정 환경이 필요하면 별도 DB를 만들고 `-EnvFile`로 접속 설정을 전달한다.
 - `bootJar`로 만든 jar를 `java -jar`로 띄운다. 운영과 같은 실행 방식이다.
   - `bootRun`과 IDE 실행은 `-XX:TieredStopAtLevel=1`(C2 컴파일러 꺼짐)을 붙여서 측정에 쓰지 않는다.
   - `local-env/ticket-core.env`를 읽고, SQL 로그(p6spy)는 끈다.
 - seed는 ticket 저장소의 `seedLocal`이다. 대형 회차(15,000석)와 배경 주문은 ticket `seed/README.md`를 따른다.
+- 시드 적재 동안에는 측정용 Core의 worker를 끄고, 완료 후 원래 worker 설정으로 재기동한다.
+- 다른 로컬 앱과 분리할 때는 별도 PostgreSQL DB와 비어 있는 Redis 논리 DB(`SPRING_DATA_REDIS_DATABASE`)를 함께 지정한다.
 - 띄운 Core의 commit·PID·풀·seed 조건을 `distributed-results-join/capacity/core-local.json`에 남긴다.
 - 끝나면 화면에 나온 PID로 `Stop-Process`해서 끈다.
 
@@ -40,7 +42,7 @@ $env:LOADTEST_JWT_SECRET = "<운영 JWT secret>"
 순서는 이렇다.
 
 1. Core health, 회차 존재를 확인한다.
-2. 토큰과 피더를 만든다.
+2. 로컬은 Core 기동에 쓴 환경 파일로 PostgreSQL의 실제 회원 ID·회원 수·주문 수·DB 버전을 읽고, 같은 JWT secret으로 토큰과 피더를 만든다. secret은 명령행 대신 환경변수로 전달한다.
 3. **회차 좌석이 전부 AVAILABLE이고 좌석 ID가 연속인지** 확인한다. 한 번 쓴 회차는 여기서 멈춘다.
 4. 실행 전 `/actuator/prometheus`와 (로컬이면) `ORDERS` 행 수를 기록한다.
 5. 1초 단위 Hikari·Tomcat·CPU를 수집하며 Gatling을 직접 실행한다.
@@ -53,6 +55,7 @@ $env:LOADTEST_JWT_SECRET = "<운영 JWT secret>"
 | `summary.json` | 조건, 유효성, 판정, Gatling 쪽·Core 쪽 숫자 |
 | `summary.md` | 일지에 붙일 표 한 줄 |
 | `core-metrics.tsv` | 1초 단위 Hikari 사용·대기, Tomcat 바쁜 스레드, CPU |
+| `database.properties` | 로컬 PostgreSQL의 DB 이름·버전·실제 회원 수·주문 수 |
 | `prometheus-before.txt`, `prometheus-after.txt` | 실행 전후 `/actuator/prometheus` 원문. 연결 점유 시간, 저장소 메서드별 호출, Core GC를 전후 차이로 본다 |
 | `thread-dump-<n>.txt` | `-ThreadDumps N`일 때만. Core가 막히기 시작한 순간(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상)부터 3초 간격 |
 | `booking-*.csv`, `booking-evidence.json` | 사용자별 결과, 초당 입장·완료, 체류 시간 |
@@ -60,6 +63,8 @@ $env:LOADTEST_JWT_SECRET = "<운영 JWT secret>"
 | `coreadmissioncapacitysimulation-*/` | Gatling HTML 리포트 |
 
 모든 실행의 한 줄 요약은 `distributed-results-join/capacity/steps.md`에도 쌓인다.
+
+별도 포트로 띄웠다면 `run-step.ps1 -CoreUrl http://localhost:8083 ...`처럼 같은 포트를 지정한다. 회원 ID·토큰·feeder 파일은 결과 폴더 안에서만 사용하고 공유하거나 커밋하지 않는다.
 
 `-ThreadDumps 3`은 원인을 찾는 진단 실행용이다. 덤프하는 동안 Core가 잠깐 멈추므로 그 실행의 숫자는 판정에 쓰지 않는다.
 `reset-local.ps1`로 띄운 로컬 Core에서만 된다(같은 JDK의 `jcmd`를 쓴다).

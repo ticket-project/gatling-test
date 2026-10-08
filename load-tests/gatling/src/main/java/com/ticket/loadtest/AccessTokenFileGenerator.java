@@ -21,7 +21,10 @@ public final class AccessTokenFileGenerator {
         final String bookingFeederOutput = System.getProperty("bookingFeederOutput", "").trim();
         final String memberIdsFile = System.getProperty("memberIdsFile", "").trim();
         final String issuer = property("jwtIssuer", "ticket");
-        final String secret = requiredProperty("jwtSecret");
+        final String secret = property("jwtSecret", System.getenv("LOADTEST_JWT_SECRET"));
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("Set jwtSecret or LOADTEST_JWT_SECRET");
+        }
         final long startMemberId = longProperty("syntheticMemberStartId", 1L);
         final int count = intProperty("tokenCount");
         final String role = property("syntheticJwtRole", "MEMBER");

@@ -41,14 +41,14 @@ function Get-Text([string]$url, [hashtable]$headers = @{}) {
     $response = Invoke-WebRequest -UseBasicParsing -Uri $url -Headers $headers -TimeoutSec 10
     [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
 }
+function Write-Utf8([string]$path, [string]$value) {
+    [IO.File]::WriteAllText($path, $value + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+}
 
 # --- 대상과 입력 확인 ----------------------------------------------------------------------------
 $coreUri = [Uri]$CoreUrl
 $isLocal = @("localhost", "127.0.0.1", "::1") -contains $coreUri.Host
 if (-not $isLocal -and -not $OperationalConfirmation) { Fail "non-local target requires -OperationalConfirmation" }
-if (-not $JwtSecret) {
-    if ($isLocal) { $JwtSecret = $localSecret } else { Fail "set -JwtSecret or LOADTEST_JWT_SECRET for a non-local target" }
-}
 if (-not $isLocal -and -not $MemberIdsFile) { Fail "non-local target requires -MemberIdsFile (real ACTIVE member ids)" }
 $users = [int][Math]::Ceiling($UsersPerSecond * $DurationSeconds)
 
@@ -82,10 +82,34 @@ if ($isLocal) {
 }
 
 # --- 토큰과 피더 생성, 회차 오염 검사 --------------------------------------------------------------
+$databaseInfo = $null
+if ($isLocal -and $coreInfo) {
+    # 기동 때 쓴 환경을 읽어 Core와 같은 DB·JWT secret을 사용한다.
+    foreach ($line in Get-Content -Encoding UTF8 $coreInfo.envFile) {
+        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2] }
+    }
+    $snapshotUrl = if ($env:SPRING_DATASOURCE_URL) { $env:SPRING_DATASOURCE_URL } else { "jdbc:postgresql://localhost:5432/ticket" }
+    if ($snapshotUrl -notmatch '^jdbc:postgresql://') { Fail "local snapshot requires PostgreSQL" }
+    if (([Uri]$snapshotUrl.Substring(5)).GetLeftPart([UriPartial]::Path) -ne $coreInfo.databaseTarget) {
+        Fail "environment database differs from the database recorded at Core startup"
+    }
+    if (-not $JwtSecret) { $JwtSecret = $env:JWT_SECRET }
+    $snapshotArgs = @("-p", $gatlingProject, "snapshotLocalPostgres", "-q",
+        "-DlocalSnapshotDir=$runDir", "-DlocalSnapshotMembers=$users")
+    $snapshotExit = Invoke-Process $gradlew $snapshotArgs (Join-Path $runDir "database-snapshot.log") (Join-Path $runDir "database-snapshot.err")
+    if ($snapshotExit -ne 0) { Fail "local PostgreSQL snapshot failed (see database-snapshot.err)" }
+    $databaseInfo = Get-Content -Encoding UTF8 (Join-Path $runDir "database.properties") -Raw | ConvertFrom-StringData
+    if (-not $MemberIdsFile) { $MemberIdsFile = Join-Path $runDir "member-ids.txt" }
+}
+if (-not $JwtSecret) {
+    if ($isLocal) { $JwtSecret = $localSecret } else { Fail "set -JwtSecret or LOADTEST_JWT_SECRET for a non-local target" }
+}
+# 토큰 서명 비밀값을 명령행에 넣지 않는다. Java 생성기는 환경변수로 읽는다.
+$env:LOADTEST_JWT_SECRET = $JwtSecret
 $tokensFile = Join-Path $runDir "access-tokens.txt"
 $feederFile = Join-Path $runDir "feeder.csv"
 $genArgs = @("-p", $gatlingProject, "generateAccessTokens", "-q",
-    "-Doutput=$tokensFile", "-DtokenCount=$users", "-DjwtSecret=$JwtSecret", "-DjwtIssuer=ticket",
+    "-Doutput=$tokensFile", "-DtokenCount=$users", "-DjwtIssuer=ticket",
     "-DsyntheticMemberStartId=1", "-DsyntheticJwtRole=MEMBER", "-DsyntheticTokenTtlSeconds=3600",
     "-DbookingFeederOutput=$feederFile", "-DbookingSeatStartId=$seatStartId")
 if ($MemberIdsFile) { $genArgs += "-DmemberIdsFile=$((Resolve-Path $MemberIdsFile).Path)" }
@@ -113,28 +137,11 @@ function Get-Gauge([string]$text, [string]$name) {
 }
 $before = Get-Metrics
 # 원문을 남겨 두면 연결 점유 시간, 저장소 메서드별 호출, Core GC 같은 다른 지표도 실행 뒤에 전후 차이로 볼 수 있다.
-$before | Set-Content (Join-Path $runDir "prometheus-before.txt") -Encoding UTF8
+Write-Utf8 (Join-Path $runDir "prometheus-before.txt") $before
 $hikariMax = Get-Gauge $before "hikaricp_connections_max"
 $tomcatMax = Get-Gauge $before "tomcat_threads_config_max_threads"
 
-# 로컬 H2라면 주문 행 수를 남긴다. 주문 존재 확인이 전체 스캔이라 행 수가 결과에 영향을 줄 수 있다(P-001).
-# Core와 같은 H2 jar(Spring Boot가 관리하는 최신 2.x)를 쓴다. 1.4는 2.x 파일을 못 연다.
-# 빈 비밀번호는 PowerShell 5.1이 인자에서 지우므로 인자를 문자열 하나로 넘긴다. 멈추면 20초 뒤 포기한다.
-# Start-Process -PassThru의 ExitCode는 5.1에서 비어 오므로 출력으로만 판단한다.
-$ordersBefore = $null
-if ($isLocal) {
-    $h2 = Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.h2database\h2" -Recurse -Filter "h2-2*.jar" -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notmatch "sources" } | Sort-Object Name | Select-Object -Last 1
-    if ($h2) {
-        $h2Out = Join-Path $runDir "orders-before.txt"
-        $h2Args = "-cp `"$($h2.FullName)`" org.h2.tools.Shell -url `"jdbc:h2:file:~/ticket-local;MODE=Oracle;AUTO_SERVER=TRUE`" -user sa -password `"`" -sql `"SELECT COUNT(*) FROM ORDERS`""
-        $h2Proc = Start-Process -FilePath "java" -ArgumentList $h2Args -NoNewWindow -PassThru -RedirectStandardOutput $h2Out -RedirectStandardError "$h2Out.err"
-        if ($h2Proc.WaitForExit(20000)) {
-            $lines = @(Get-Content $h2Out)
-            if ($lines.Count -ge 2 -and $lines[1].Trim() -match '^\d+$') { $ordersBefore = [long]$lines[1].Trim() }
-        } else { Stop-Process -Id $h2Proc.Id -Force }
-    }
-}
+$ordersBefore = if ($databaseInfo) { [long]$databaseInfo.orders } else { $null }
 
 # --- 1초 단위 Core 지표 수집과 Gatling 실행 ----------------------------------------------------------
 $metricsFile = Join-Path $runDir "core-metrics.tsv"
@@ -163,7 +170,8 @@ $sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile, $ThreadDum
             # ponytail: 고정 문턱(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상). 문턱 아래에서 FAIL하면 덤프가 안 남으니 그때 매개변수로 뺀다.
             if ($taken -lt $dumps -and ([double]$values[1] -gt 0 -or [double]$values[2] -ge 20) -and ((Get-Date) - $lastDump).TotalSeconds -ge 3) {
                 $taken++; $lastDump = Get-Date
-                & $jcmd $corePid Thread.print -l | Set-Content (Join-Path $dir "thread-dump-$taken.txt") -Encoding UTF8
+                $dump = (& $jcmd $corePid Thread.print -l) -join [Environment]::NewLine
+                [IO.File]::WriteAllText((Join-Path $dir "thread-dump-$taken.txt"), $dump, [Text.UTF8Encoding]::new($false))
             }
         } catch { Add-Content $file "$t`tTIMEOUT" }
         Start-Sleep -Milliseconds 1000
@@ -185,7 +193,7 @@ New-Item -ItemType File $stopFile | Out-Null
 Wait-Job $sampler -Timeout 10 | Out-Null; Remove-Job $sampler -Force
 Remove-Item $stopFile -ErrorAction SilentlyContinue
 $after = Get-Metrics
-$after | Set-Content (Join-Path $runDir "prometheus-after.txt") -Encoding UTF8
+Write-Utf8 (Join-Path $runDir "prometheus-after.txt") $after
 $gcLog = Join-Path $gatlingProject "build\gatling-jvm.log"
 if (Test-Path $gcLog) { Copy-Item $gcLog (Join-Path $runDir "gatling-jvm.log") }
 
@@ -255,7 +263,7 @@ $summary = [ordered]@{
     runId = $runId; label = $Label; startedAt = $startedAt.ToString("s"); coreUrl = $CoreUrl; performanceId = $PerformanceId
     usersPerSecond = $UsersPerSecond; durationSeconds = $DurationSeconds; users = $users
     conditions = [ordered]@{ hikariMax = $hikariMax; tomcatMaxThreads = $tomcatMax; ordersBefore = $ordersBefore; seats = $seats.Count
-        core = $coreInfo; coreWarnings = $coreWarnings }
+        core = $coreInfo; coreWarnings = $coreWarnings; database = $databaseInfo }
     verdict = $verdict; invalidReasons = $invalid; failReasons = $reasons
     client = [ordered]@{ successful = $evidence.successfulUsers; started = $evidence.startedUsers; technicalFailurePercent = $evidence.technicalFailurePercent
         overloaded = $evidence.overloadedUsers; residenceP95Ms = $evidence.p95CoreResidenceMillis; residenceP99Ms = $evidence.p99CoreResidenceMillis
@@ -263,7 +271,7 @@ $summary = [ordered]@{
     server = [ordered]@{ hikariActiveMax = $maxActiveConn; hikariPendingMax = $maxPending; tomcatBusyMax = $maxBusy; processCpuMax = $maxCpu; metricTimeouts = $timeouts }
     coreRequests = $core
 }
-$summary | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $runDir "summary.json") -Encoding UTF8
+Write-Utf8 (Join-Path $runDir "summary.json") ($summary | ConvertTo-Json -Depth 6)
 
 # 표에 들어갈 짧은 이름. 03이 부르는 다섯 요청이다.
 $shortNames = [ordered]@{
@@ -277,8 +285,8 @@ $row = "| {0} | {1} | {2} x {3}s | {4} | {5}/{6} | {7} / {8} | {9} | {10}/{11} p
     $startedAt.ToString("MM-dd HH:mm"), "$Label $commitLabel", $UsersPerSecond, $DurationSeconds, $PerformanceId, $evidence.successfulUsers, $evidence.startedUsers,
     $evidence.p95CoreResidenceMillis, $evidence.p99CoreResidenceMillis, $coreLine, $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax,
     $(if ($invalid.Count -gt 0) { "invalid" } else { "valid" }), $verdict
-$row | Set-Content (Join-Path $runDir "summary.md") -Encoding UTF8
-Add-Content (Join-Path $repo "distributed-results-join\capacity\steps.md") $row -Encoding UTF8
+Write-Utf8 (Join-Path $runDir "summary.md") $row
+[IO.File]::AppendAllText((Join-Path $repo "distributed-results-join\capacity\steps.md"), $row + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 
 Write-Host ""
 Write-Host "verdict: $verdict"
