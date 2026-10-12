@@ -17,8 +17,12 @@ final class Protocols {
         return acceptJson(baseUrl).contentTypeHeader("application/json");
     }
 
+    /** 브라우저처럼 압축 응답을 받겠다고 알린다. 보내지 않으면 서버가 압축을 켜도 1MB 좌석 상태를 그대로 받는다. */
     static HttpProtocolBuilder acceptJson(final String baseUrl) {
-        return http.baseUrl(baseUrl).shareConnections().acceptHeader("application/json");
+        return http.baseUrl(baseUrl)
+                .shareConnections()
+                .acceptHeader("application/json")
+                .acceptEncodingHeader("gzip, deflate");
     }
 
     static Assertion technicalFailuresBelowThreshold() {
