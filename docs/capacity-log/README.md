@@ -39,6 +39,7 @@ ticket-core [Core 수용량](https://github.com/ticket-project/ticket-core/blob/
 | 10-12 | 로컬 PostgreSQL(같은 PC) | `812fd552` | 위와 같고 Hikari 풀만 20(`-PoolSize 20`) | 100 u/s FAIL·재현(p99 11.66초·15.13초). 연결 1회 사용 8 → 18ms로 늘어 처리량 같음 | [풀 20 실험](2026-10-12-pending-index-remeasure.md#hikari-풀-20-실험--812fd552). 풀은 한계 아님 |
 | 10-12 | 로컬 compose(Core 컨테이너, PG 18) | `76316283` | 새 seed(회원 100만·주문 500만·15,000석), Core·DB 같은 Docker 네트워크, Gatling은 Windows | 80 u/s PASS(p99 2.36초), 100 FAIL·재현(p99 19.2초·8.3초). Core 쪽 p95는 100 u/s에서도 39ms 이하 | [컨테이너 측정](2026-10-12-pending-index-remeasure.md#core-컨테이너-측정통로-확인--76316283). DB·Core 환경이 함께 바뀌어 앞 줄과 직접 비교하지 않는다. 남은 한계는 P-010 |
 | 10-12 | 로컬 compose(Core 컨테이너, PG 18) | `fcb103bd`(src `21de0a3c`) | 위와 같고 응답 압축 켬, Gatling Accept-Encoding·결과 파일 쓰기 수정, IntelliJ 종료 | 80 u/s PASS 두 번(p99 216·208ms), **100 u/s PASS 두 번(p99 200·277ms)** | [압축·도구 수정 뒤](2026-10-12-pending-index-remeasure.md#intellij를-끄고-다시-잼-결과-파일-쓰기-수정--fcb103bd--8e8d61e). 사다리 끝까지 통과, Core 쪽 p95 28ms 이하. C는 운영에서 |
+| 10-12 | 로컬 compose(Core 컨테이너, PG 18) | `20754b40`(src `21de0a3c`) | 위와 같음, IntelliJ 종료, Rancher Desktop 재시작 직후 | 120·150 u/s PASS(p99 4.49·2.62초, 시작 10초만 느림), **200 u/s FAIL 세 번**(p99 17.9·6.5·31.3초) | [100 u/s 위 사다리](2026-10-12-pending-index-remeasure.md#100-us-위-사다리--20754b40). 한계 150~200 u/s. 연결 풀 대기 186/200, 최대 점유는 좌석 상태 조회(15,000행) |
 
 ## 일지 틀
 
