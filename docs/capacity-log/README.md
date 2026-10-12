@@ -14,7 +14,7 @@ ticket-core [Core 수용량](https://github.com/ticket-project/ticket-core/blob/
 | 번호 | 문제 | 종류 | 발견 | 상태 | 영향과 수치 |
 | --- | --- | --- | --- | --- | --- |
 | P-001 | 주문 생성마다 같은 회원의 진행 중 주문을 인덱스 없이 전체 스캔한다 | Core·DB | [10-01](2026-10-01-local-first.md#p-001) | 해결 확인(PENDING 부분 인덱스 `57f4db85`) | [10-12](2026-10-12-pending-index-remeasure.md#p-001-결과-부분-인덱스로-해결-확인) 같은 10 u/s에서 체류 p99 14.69초 → 0.11초, 존재 확인 922ms → 0.6ms. 인덱스 사용 +7,389회, 전체 스캔 0회 |
-| P-002 | 같은 PC의 Gatling이 실행 중 1~2초씩 멈춰 응답 시간이 부풀려진다 | 측정 도구 | [10-01](2026-10-01-local-first.md#p-002) | 원인 미확정, 우회 규칙 있음 | 같은 조건에서 체류 p95가 45ms~1,350ms로 흔들린다. 그동안 Core 쪽 p95는 3~28ms |
+| P-002 | 같은 PC의 Gatling이 실행 중 1~2초씩 멈춰 응답 시간이 부풀려진다 | 측정 도구 | [10-01](2026-10-01-local-first.md#p-002) | 원인 미확정, 우회 규칙 있음 | 같은 조건에서 체류 p95가 45ms~1,350ms로 흔들린다. 그동안 Core 쪽 p95는 3~28ms. [10-12](2026-10-12-pending-index-remeasure.md#invalid-원인-windows-쪽이-함께-멈춘다p-002-갱신) 압축 측정 80 u/s 두 번 INVALID, 1초 수집 루프도 4~5초 함께 멈춤, 커밋 메모리 90%·메모리 압축 5.2GB(미확인) |
 | P-003 | 콘솔이 지난 실행의 증거 파일을 다른 실행 폴더로 복사했다 | 측정 도구 | [10-01](2026-10-01-local-first.md#p-003) | 수정함(`6c3c689`) | 운영 대상 결과 폴더 35개 중 20개가 사본이었다 |
 | P-004 | IntelliJ 실행 설정과 `local-env/ticket-core.env`의 JWT secret이 다르다 | 로컬 환경 | [10-01](2026-10-01-local-first.md#p-004) | 결정 대기 | 설정 파일을 바꿔 띄우면 부하 토큰이 전부 401 |
 | P-005 | 재기동 직후 첫 부하가 크게 느리다 | Core JVM | [10-01](2026-10-01-local-first.md#p-005) | 측정 규칙으로 우회 | 같은 조건에서 첫 실행 체류 p95 7,975ms, 다음 실행 1,103ms(Gatling 쪽) |
@@ -22,7 +22,7 @@ ticket-core [Core 수용량](https://github.com/ticket-project/ticket-core/blob/
 | P-007 | 주문 만료 worker가 주문 전체를 스캔한다 | Core·DB | [10-02](2026-10-02-large-data-first.md#p-007) | 개선 확인, 장시간 측정에서 재확인 | [10-12](2026-10-12-pending-index-remeasure.md#p-007-결과-같은-인덱스로-만료-조회도-개선) P-001의 부분 인덱스를 타서 292ms → 2.3ms. 비용은 PENDING 수에 비례 |
 | P-008 | 연결이 차고 다섯 API가 함께 연결을 기다린다(DB는 연결 시간의 대부분을 Core를 기다림) | 로컬 환경 | [10-12](2026-10-12-pending-index-remeasure.md#p-008-초당-40명에서-db-연결-10개가-차고-다섯-api가-함께-연결을-기다린다) | 원인 확인: Windows ↔ Rancher Desktop 포트 중계(DB 쪽). Core를 compose 컨테이너로 옮겨 해소 | [컨테이너 측정](2026-10-12-pending-index-remeasure.md#p-008-결과-통로가-원인이었다db-쪽) 100 u/s에서 연결 1회 사용 8~9ms → 1.6~1.7ms, 사용자당 연결 시간 110~131ms → 22~24ms, 연결 대기 0 |
 | P-009 | Core가 막히면 1초 지표 수집(`/actuator/prometheus`)이 같은 Tomcat 스레드를 기다리다 타임아웃된다 | 측정 도구 | [10-12](2026-10-12-pending-index-remeasure.md#좌석-상태-projection-재측정--812fd552) | 우회(판정은 전후 히스토그램이라 영향 없음), 결정 대기 | 100 u/s에서 Core ERROR 12·16건(`ClientAbortException`), `core-metrics.tsv` 표본 33개 중 9~23개. 연결 대기 최대값이 낮게 잡힐 수 있다. 근본 해결은 Core 관리 포트 분리(Core 설정) |
-| P-010 | 좌석 상태 응답(1MB, 압축 없음)이 100 u/s에서 Gatling에 늦게 닿는다 | 측정 환경·Core | [10-12](2026-10-12-pending-index-remeasure.md#p-010-좌석-상태-응답1mb-압축-없음이-초당-100명에서-gatling에-늦게-닿는다) | 결정 대기 | Core 쪽 좌석 상태 p95 28~39ms, Gatling 쪽 p50 985ms·p99 7.75초. curl은 같은 길로 초당 400~530개. gzip이면 1,050KB → 78KB |
+| P-010 | 좌석 상태 응답(1MB, 압축 없음)이 100 u/s에서 Gatling에 늦게 닿는다 | 측정 환경·Core | [10-12](2026-10-12-pending-index-remeasure.md#p-010-좌석-상태-응답1mb-압축-없음이-초당-100명에서-gatling에-늦게-닿는다) | 응답 압축 적용(Core `21de0a3c`, Gatling `01b58d1`), 재측정은 측정 환경 정리 뒤 | [압축 측정](2026-10-12-pending-index-remeasure.md#응답-압축-측정--21de0a3c) 1,050KB → 78KB. 80 u/s Gatling 쪽 좌석 상태 p50 287ms → 22~25ms(압축 후 실행은 INVALID) |
 
 ## 성능 변화
 
