@@ -46,6 +46,9 @@ function Write-Utf8([string]$path, [string]$value) {
 }
 
 # --- 대상과 입력 확인 ----------------------------------------------------------------------------
+# compose가 127.0.0.1에만 연 포트는 ::1(IPv6 localhost)로는 닿지 않고, Windows는 거절된 연결을 약 2초 재시도한다.
+# localhost를 쓰면 1초 지표 수집(타임아웃 2초)이 매번 실패하므로 주소를 127.0.0.1로 고정한다.
+$CoreUrl = $CoreUrl -replace '^(https?://)localhost(?=[:/]|$)', '${1}127.0.0.1'
 $coreUri = [Uri]$CoreUrl
 $isLocal = @("localhost", "127.0.0.1", "::1") -contains $coreUri.Host
 if (-not $isLocal -and -not $OperationalConfirmation) { Fail "non-local target requires -OperationalConfirmation" }
@@ -67,14 +70,24 @@ try { Get-Text "$CoreUrl/api/v1/performances/$PerformanceId/summary" | Out-Null 
 $coreWarnings = @()
 $coreInfo = $null
 if ($isLocal) {
-    $listener = Get-NetTCPConnection -LocalPort $coreUri.Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($listener) {
-        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)").CommandLine
-        if ($cmd -match "jdwp") { $coreWarnings += "Core runs with a debugger agent (jdwp)" }
-        if ($cmd -match "TieredStopAtLevel=1") { $coreWarnings += "Core runs with TieredStopAtLevel=1 (C2 compiler off)" }
-        $infoFile = Join-Path $repo "distributed-results-join\capacity\core-local.json"
-        if (Test-Path $infoFile) { $coreInfo = Get-Content $infoFile -Raw | ConvertFrom-Json }
-        if (-not $coreInfo -or $coreInfo.pid -ne $listener.OwningProcess) {
+    $infoFile = Join-Path $repo "distributed-results-join\capacity\core-local.json"
+    if (Test-Path $infoFile) { $coreInfo = Get-Content $infoFile -Raw | ConvertFrom-Json }
+    if ($coreInfo -and $coreInfo.container) {
+        # reset-local.ps1 -Compose로 띄운 컨테이너 Core. 호스트 포트는 Docker 포트 중계가 잡으므로 PID 대신 컨테이너와 포트를 본다.
+        # 컨테이너는 compose의 java -jar로만 뜨므로 디버거·C2 꺼짐 검사는 하지 않는다.
+        $running = & docker inspect -f "{{.State.Running}}" $coreInfo.container
+        if ($running -ne "true" -or $coreInfo.port -ne $coreUri.Port) {
+            $coreWarnings += "Core container $($coreInfo.container) is not running on port $($coreUri.Port)"
+            $coreInfo = $null
+        }
+    } else {
+        $listener = Get-NetTCPConnection -LocalPort $coreUri.Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($listener) {
+            $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)").CommandLine
+            if ($cmd -match "jdwp") { $coreWarnings += "Core runs with a debugger agent (jdwp)" }
+            if ($cmd -match "TieredStopAtLevel=1") { $coreWarnings += "Core runs with TieredStopAtLevel=1 (C2 compiler off)" }
+        }
+        if (-not $listener -or -not $coreInfo -or $coreInfo.pid -ne $listener.OwningProcess) {
             $coreWarnings += "Core was not started by reset-local.ps1, so commit and conditions are unknown"
             $coreInfo = $null
         }
@@ -148,15 +161,20 @@ $metricsFile = Join-Path $runDir "core-metrics.tsv"
 $stopFile = Join-Path $runDir ".stop-sampler"
 # 진단 실행(-ThreadDumps N): Core가 막히기 시작한 순간부터 3초 간격으로 스레드 덤프 N장을 thread-dump-<n>.txt로 남긴다.
 # 덤프하는 동안 Core가 잠깐 멈추므로 진단 실행의 숫자는 판정과 사다리에 쓰지 않는다.
-$jcmd = ""; $corePid = 0
+# 컨테이너 Core는 이미지가 JRE라 jcmd가 없다. kill -3(SIGQUIT)으로 JVM이 stdout에 덤프를 쓰게 하고 docker logs에서 잘라 온다.
+$jcmd = ""; $corePid = 0; $container = ""
 if ($ThreadDumps -gt 0) {
     if (-not $coreInfo) { Fail "-ThreadDumps needs a local Core started by reset-local.ps1" }
-    $jcmd = Join-Path (Split-Path $coreInfo.java) "jcmd.exe"
-    if (-not (Test-Path $jcmd)) { Fail "jcmd not found next to Core java: $jcmd" }
-    $corePid = $coreInfo.pid
+    if ($coreInfo.container) {
+        $container = $coreInfo.container
+    } else {
+        $jcmd = Join-Path (Split-Path $coreInfo.java) "jcmd.exe"
+        if (-not (Test-Path $jcmd)) { Fail "jcmd not found next to Core java: $jcmd" }
+        $corePid = $coreInfo.pid
+    }
 }
-$sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir -ScriptBlock {
-    param($url, $file, $stop, $dumps, $jcmd, $corePid, $dir)
+$sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container -ScriptBlock {
+    param($url, $file, $stop, $dumps, $jcmd, $corePid, $dir, $container)
     Set-Content $file "time`thikari_active`thikari_pending`ttomcat_busy`tprocess_cpu`tsystem_cpu"
     $names = "hikaricp_connections_active", "hikaricp_connections_pending", "tomcat_threads_busy_threads", "process_cpu_usage", "system_cpu_usage"
     $taken = 0; $lastDump = [datetime]::MinValue
@@ -170,7 +188,16 @@ $sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile, $ThreadDum
             # ponytail: 고정 문턱(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상). 문턱 아래에서 FAIL하면 덤프가 안 남으니 그때 매개변수로 뺀다.
             if ($taken -lt $dumps -and ([double]$values[1] -gt 0 -or [double]$values[2] -ge 20) -and ((Get-Date) - $lastDump).TotalSeconds -ge 3) {
                 $taken++; $lastDump = Get-Date
-                $dump = (& $jcmd $corePid Thread.print -l) -join [Environment]::NewLine
+                if ($container) {
+                    $since = (Get-Date).ToUniversalTime().AddSeconds(-2).ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    & docker exec $container kill -3 1
+                    Start-Sleep -Milliseconds 1500
+                    $log = @(& docker logs --since $since $container 2>&1 | ForEach-Object { "$_" })
+                    $start = [Array]::FindLastIndex($log, [Predicate[string]] { param($line) $line -like "Full thread dump*" })
+                    $dump = if ($start -ge 0) { $log[$start..($log.Count - 1)] -join [Environment]::NewLine } else { "no thread dump found in docker logs" }
+                } else {
+                    $dump = (& $jcmd $corePid Thread.print -l) -join [Environment]::NewLine
+                }
                 [IO.File]::WriteAllText((Join-Path $dir "thread-dump-$taken.txt"), $dump, [Text.UTF8Encoding]::new($false))
             }
         } catch { Add-Content $file "$t`tTIMEOUT" }

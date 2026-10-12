@@ -17,6 +17,19 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 .\scripts\capacity\reset-local.ps1 -KeepData -PoolSize 20         # 데이터는 그대로 두고 풀만 바꿔 재기동
 ```
 
+`-Compose`는 Core를 Windows가 아니라 ticket `docker-compose-local.yml`의 컨테이너(`ticket-core`)로 띄운다.
+
+```powershell
+.\scripts\capacity\reset-local.ps1 -Compose -LargePerformanceCount 45 -Members 1000000 -BackgroundOrders 5000000
+.\scripts\capacity\reset-local.ps1 -Compose -KeepData             # 이미 적재된 DB로 Core만 새로 띄움
+```
+
+- Core가 PostgreSQL·Redis와 같은 Docker 네트워크(`ticket`)에서 이름으로 접속한다. Windows의 Core는 쿼리마다 Docker
+  포트 중계를 지나는데, 그 중계가 측정 천장이었다([capacity-log P-008](../../docs/capacity-log/README.md)).
+- 포트(127.0.0.1:8083), 환경 파일(`local-env/ticket-core.env`), DB(compose의 PostgreSQL)는 compose가 정한다. `-PoolSize`는 쓸 수 없다.
+- 부하는 여전히 Windows의 Gatling이 `http://localhost:8083`으로 보내므로 HTTP 요청은 포트 중계를 지난다. 판정은 Core 쪽 숫자로 한다.
+- `-ThreadDumps`는 jcmd 대신 `docker exec ticket-core kill -3 1`로 뜨고, `docker logs`에서 덤프 부분을 잘라 저장한다.
+
 - 지정 포트(기본 8080)가 쓰이고 있으면 멈춘다. 다른 Core가 떠 있으면 `-Port 8083`처럼 빈 포트를 사용한다.
 - PostgreSQL 데이터를 삭제하거나 초기화하지 않는다. `-KeepData`는 시드 적재도 건너뛴다. 새 측정 환경이 필요하면 별도 DB를 만들고 `-EnvFile`로 접속 설정을 전달한다.
 - `bootJar`로 만든 jar를 `java -jar`로 띄운다. 운영과 같은 실행 방식이다.
