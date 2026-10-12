@@ -114,7 +114,7 @@ Hibernate 행 변환(`JdbcValuesResultSetImpl`, `BasicExtractor`) 중인 스레�
 
 DB는 Core를 기다리고 Core는 DB를 기다린다. 그러면 시간은 둘 사이, 즉 왕복과 결과 전송에 쓰이고 있다.
 작은 PK 조회의 저장소 평균이 10명 0.4~0.8ms에서 40명 4.3~5.0ms로 종류와 상관없이 고르게 늘어난 것도 쿼리 자체가 아니라 왕복이 느려졌다는 쪽과 맞는다.
-로컬에서 5432 포트는 `wslrelay`(Docker Desktop WSL2 중계)가 받는다. 운영의 EC2 → RDS에는 이 중계가 없다.
+로컬에서 5432 포트는 `wslrelay`(Rancher Desktop WSL2 중계)가 받는다. 운영의 EC2 → RDS에는 이 중계가 없다.
 
 **근거 4: CPU가 먼저 찬 것은 아니다**
 
@@ -361,7 +361,7 @@ DB도 Core 프로세스도 여유가 있고, 연결 수를 늘리면 기다리�
 
 **원인 후보**
 
-1. **로컬 Windows ↔ Docker WSL2 중계(`wslrelay`, 5432 포트)가 왕복 처리량을 막는다.** 가능성 높음.
+1. **로컬 Windows ↔ Rancher Desktop WSL2 중계(`wslrelay`, 5432 포트)가 왕복 처리량을 막는다.** 가능성 높음.
    - 지지: DB는 Core를 기다리고(`ClientRead`/`idle` 92%) Core는 DB를 기다린다(덤프). 양쪽이 기다리면 메시지는 통로에 있다. 풀 크기를 바꿔도 처리량이 같다. 작은 조회의 시간이 연결 수에 비례해 늘었다.
    - 미확인: 중계 프로세스와 VM CPU는 Windows에서 보이지 않는다. 왕복 시간을 직접 재지 않았다. 운영 EC2 → RDS에는 이 중계가 없다.
 2. **Core JVM 안의 직렬화 지점(드라이버·연결 반납 경로 등)이 막는다.** 가능성 낮음.
@@ -388,3 +388,90 @@ DB도 Core 프로세스도 여유가 있고, 연결 수를 늘리면 기다리�
 | `20261012-100050-pool20-diag-100ups-30s` | 덤프 3개(INVALID) |
 
 측정용 Core PID 152740은 보고 뒤 종료했다. 남은 대형 회차는 035~045(11개)다.
+
+## Core 컨테이너 측정(통로 확인) — 76316283
+
+### 요약
+
+P-008 원인 후보 1(Windows ↔ Docker 포트 중계가 DB 왕복을 막는다)을 확인하려고 Core를 PostgreSQL·Redis와 같은 Docker 네트워크의 컨테이너로 옮겨 쟀다.
+DB 쪽은 가설대로였다. 초당 100명에서 연결 1회 사용 시간이 8~9ms에서 1.6~1.7ms로, 사용자당 연결 시간이 110~131ms에서 22~24ms로 줄었고 연결 대기가 사라졌다.
+Core 쪽 p95는 100명에서도 전부 40ms 아래였다. 그런데 사용자 체류는 100명에서 여전히 FAIL이었다. 이번에는 Core 밖, 1MB짜리 좌석 상태 응답이 Gatling에 닿는 구간에서 시간이 쓰였다(P-010).
+
+### 바뀐 환경(사용자 결정 10-12)
+
+| 항목 | 오전·오후 측정 | 이번 측정 |
+| --- | --- | --- |
+| Core | Windows `java -jar`(JDK 25.0.2) | ticket `docker-compose-local.yml`의 `ticket-core` 컨테이너(JDK 25.0.3, alpine JRE), `reset-local.ps1 -Compose` |
+| Core commit | `812fd552` | `76316283`(`812fd552` 뒤로 compose·문서만 바뀜. `src/main` 같음) |
+| DB | 기존 로컬 PostgreSQL 16.13 컨테이너, DB `ticket_loadtest_20261008` | `ticket-postgres`(postgres:18, 18.4), DB `ticket`, 새로 seed(11:12~11:21, 약 9분) 뒤 `ANALYZE` |
+| 데이터 | 회원 100만, 주문 약 500만, 좌석 행 182만 | 회원 100만, 주문 5,000,000건, 대형 회차 45개, 표준 30개, 좌석 행 182만(같은 규모, 새 데이터) |
+| Redis | 기존 로컬 Redis, 논리 DB 15 | `ticket-redis`(redis:7.4-alpine), DB 0 |
+| Core ↔ DB·Redis | Windows `localhost` → `wslrelay` → VM | Docker 네트워크 `ticket` 안 직통(`postgres:5432`, `redis:6379`) |
+| Gatling ↔ Core | Windows 안 직통 | Windows `127.0.0.1:8083` → Rancher Desktop `host-switch.exe` → 컨테이너 8080 |
+| 풀·스레드 | Hikari 10, Tomcat 200 | 같음 |
+
+`127.0.0.1`에만 연 포트는 `wslrelay`가 아니라 `host-switch.exe`가 받는다(포트 주인 프로세스로 확인). 이 PC의 엔진은 Docker Desktop이 아니라 Rancher Desktop(WSL2)이다. 앞 절의 "Docker 중계"는 이 중계를 말한다.
+
+### 측정 도구 수정
+
+- `reset-local.ps1 -Compose`: compose로 Core를 띄우고(`--build --force-recreate --wait`), 필요하면 Core를 멈춘 채 seed한 뒤 다시 띄운다. `core-local.json`에 `container`·`image`를 남긴다.
+- `run-step.ps1`: `core-local.json`의 `container`가 있으면 PID 대신 컨테이너 실행 여부와 포트로 Core를 확인한다. `-ThreadDumps`는 `docker exec ticket-core kill -3 1` 뒤 `docker logs`에서 덤프를 잘라 저장한다(수동으로 한 번 확인, 요청 스레드 10개 포함).
+- `run-step.ps1`: 주소의 `localhost`를 `127.0.0.1`로 바꾼다. compose가 `127.0.0.1`에만 연 포트에 `localhost`로 접속하면 Windows가 `::1`부터 시도하고 거절을 약 2초 재시도한다. 그래서 1초 지표 수집(타임아웃 2초)이 첫 예열에서 전부 TIMEOUT이었다(`localhost` 2,033ms 실패, `127.0.0.1` 62ms). 판정용 전후 히스토그램(타임아웃 10초)은 영향을 받지 않았다.
+
+### 실행 표
+
+| 시각 | 용도 | 부하 | 회차 | 성공/시작 | 체류 p95 / p99(ms) | Core 쪽 p95(ms) | 연결·스레드 최대 | 유효 | 판정 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 11:22 | 예열(버림, 1초 수집 TIMEOUT) | 10 × 30s | 920000001 | 300/300 | 101 / 291 | 요약 7, 좌석 34, 선택 10, 주문 39, 주문상태 6 | 기록 없음 | 유효 | PASS |
+| 11:24 | 컨테이너 | 80 × 30s | 920000002 | 2400/2400 | 5,889 / 7,738 | 요약 7, 좌석 3,579, 선택 15, 주문 50, 주문상태 6 | 9/10 대기 4, busy 109 | 입장 68~93 | INVALID |
+| 11:26 | 다시 | 80 × 30s | 920000003 | 2400/2400 | 1,185 / 2,356 | 요약 2, 좌석 22, 선택 6, 주문 22, 주문상태 2 | 7/10 대기 0, busy 10 | 유효 | PASS |
+| 11:27 | 컨테이너(첫 FAIL) | 100 × 30s | 920000004 | 3000/3000 | 13,641 / 19,202 | 요약 6, 좌석 39, 선택 8, 주문 28, 주문상태 3 | 9/10 대기 4, busy 16 | 유효 | FAIL |
+| 11:29 | 재현 | 100 × 30s | 920000005 | 3000/3000 | 5,139 / 8,264 | 요약 3, 좌석 28, 선택 7, 주문 22, 주문상태 2 | 10/10 대기 1, busy 11 | 유효 | FAIL |
+
+기술 실패·E6003·비즈니스 거절은 0이다. 80명 첫 실행은 예열 직후였고 그 실행만 좌석 상태가 Core 쪽에서도 느렸다(Tomcat busy 109). 원인은 확인하지 못했다.
+Core 덤프 진단 실행은 하지 않았다. Core 쪽 숫자가 모두 빠르고 연결·스레드에 여유가 있어 Core 안에서 기다리는 지점이 없다.
+
+### P-008 결과: 통로가 원인이었다(DB 쪽)
+
+| 초당 100명 | Windows Core(풀 10) | 컨테이너 Core(풀 10) |
+| --- | --- | --- |
+| 연결 1회 사용 평균(ms) | 7.9~9.4 | 1.6~1.7 |
+| 사용자당 연결 사용 시간(ms) | 110~131 | 22~24 |
+| 연결 획득 대기 평균(ms) | 192~228 | 0.0~0.2 |
+| 좌석 상태 저장소 평균(ms) | 20~26 | 11~12 |
+| Core 쪽 p95 최대(ms) | 1,790(주문 생성) | 39(좌석 상태) |
+| PG 세션 | 연결 10개가 늘 빌려진 채 `idle in transaction` 60%·트랜잭션 밖 30% | 표본 170개 중 빈 연결 74%, `idle in transaction` 15%, `active` 11% |
+
+사용자당 연결 대여는 그대로 14번이다. 바뀐 것은 Core와 DB 사이 길뿐이고, 연결 1번이 5배 짧아졌다. 연결 10개면 10 ÷ 1.7ms ≈ 초당 5,900번까지 처리할 수 있어 초당 100명(1,400번)의 4배 이상 여유가 있다.
+P-008의 원인은 로컬 측정 환경(Windows ↔ Rancher Desktop 포트 중계)이고 Core 코드가 아니다. 좌석 상태 projection(`812fd552`)은 그와 별개로 좌석 상태의 DB 시간과 전송량을 줄였다.
+
+### P-010 좌석 상태 응답(1MB, 압축 없음)이 초당 100명에서 Gatling에 늦게 닿는다
+
+**증상**: 초당 100명에서 Core 쪽 좌석 상태 p95는 28~39ms인데 Gatling이 잰 좌석 상태는 p50 985ms, p95 4,576ms, p99 7,750ms(재현 실행 리포트)였다.
+다른 요청은 Gatling 쪽 p95 180~280ms로 덜 밀렸다. 체류 p99 기준(5초)을 넘긴 원인은 이 응답이다.
+
+**근거**
+
+- 좌석 상태 응답 크기 1,050,052바이트, `Content-Encoding` 없음(서버 압축 꺼짐). gzip이면 78,453바이트(7.5%).
+- Core는 응답을 빨리 끝낸다: Tomcat busy 최대 11~16, 연결 대기 0~4.
+- 같은 응답을 curl로 Windows → `host-switch` → Core에서 받으면 동시 10·20·50·100·200 연결에서 초당 391·511·534·425·442개(약 400~560MB/s)였다. 요청마다 새 연결을 열어도 초당 487개(연결 평균 1.7ms)였다. 문지기의 처리량 자체는 초당 100개(약 105MB/s)를 넉넉히 넘는다.
+- 그 시간 Gatling JVM은 약 0.96코어, `host-switch.exe` 1.27코어, IntelliJ 0.87코어를 썼다.
+
+**원인 후보**
+
+1. **Gatling의 응답 수신 쪽이 1MB 응답 100개/초를 따라가지 못한다.** curl과 같은 길에서 Gatling만 늦다. Gatling CPU가 1코어 근처에서 멈춘 것은 한 스레드가 막는 모양과 맞다. 미확인: Gatling 스레드 덤프·Netty 설정을 보지 않았다.
+2. **Gatling과 `host-switch`의 조합(흐름 제어·버퍼)이 curl과 다르게 동작한다.** 미확인.
+3. **Core 문제**: 근거 없음. Core 쪽 시간과 연결·스레드 지표가 모두 여유 있다.
+
+**해결 선택지**
+
+| 선택 | 장점 | 단점 |
+| --- | --- | --- |
+| A. 좌석 상태 응답 압축(Core `server.compression` 또는 운영 nginx gzip) | 전송 1MB → 약 78KB. 운영 사용자 브라우저에도 그대로 이득이고 부하 발생기 부담도 준다 | Core·인프라 설정 변경(사용자 결정). 압축 CPU 비용 |
+| B. Gatling 쪽 원인 확인(좌석 상태만 보내는 `CoreSeatStatusApiSimulation`을 같은 속도로 실행하고 Gatling 스레드 덤프) | 측정 도구 문제인지 확정한다 | 측정 환경 작업 |
+| C. 로컬 측정은 초당 80명(Core 쪽 기준 100명까지 여유)으로 정리하고 운영 측정을 준비 | 로컬 환경 한계를 더 파지 않는다 | 운영 측정 준비가 든다 |
+
+### 원자료
+
+`20261012-112243-warmup-10ups-30s`, `-112434-compose-80ups-30s`(INVALID), `-112605-compose-repeat-80ups-30s`, `-112718-compose-100ups-30s`, `-112916-compose-repro-100ups-30s`.
+PG 세션·프로세스 CPU 표본은 `20261012-112718-compose-100ups-30s/postgres-activity-sample.tsv`, `process-cpu-sample.tsv`에 있다. curl 처리량 측정은 명령과 결과를 위 근거에 옮겼다. Core 컨테이너는 보고 뒤 멈춘다.

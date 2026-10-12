@@ -20,8 +20,9 @@ ticket-core [Core 수용량](https://github.com/ticket-project/ticket-core/blob/
 | P-005 | 재기동 직후 첫 부하가 크게 느리다 | Core JVM | [10-01](2026-10-01-local-first.md#p-005) | 측정 규칙으로 우회 | 같은 조건에서 첫 실행 체류 p95 7,975ms, 다음 실행 1,103ms(Gatling 쪽) |
 | P-006 | IntelliJ 실행 설정이 측정에 맞지 않는다(디버거, 최적화 컴파일러 꺼짐, SQL 로그) | 로컬 환경 | [10-01](2026-10-01-local-first.md#p-006) | 측정 규칙으로 우회 | 측정용 Core는 `bootRun`으로 띄운다 |
 | P-007 | 주문 만료 worker가 주문 전체를 스캔한다 | Core·DB | [10-02](2026-10-02-large-data-first.md#p-007) | 개선 확인, 장시간 측정에서 재확인 | [10-12](2026-10-12-pending-index-remeasure.md#p-007-결과-같은-인덱스로-만료-조회도-개선) P-001의 부분 인덱스를 타서 292ms → 2.3ms. 비용은 PENDING 수에 비례 |
-| P-008 | 연결이 차고 다섯 API가 함께 연결을 기다린다(DB는 연결 시간의 대부분을 Core를 기다림) | Core·로컬 환경 | [10-12](2026-10-12-pending-index-remeasure.md#p-008-초당-40명에서-db-연결-10개가-차고-다섯-api가-함께-연결을-기다린다) | 좌석 상태 projection(`812fd552`)으로 40 → 100 u/s. 풀 20 실험은 효과 없음, 한계는 Core-DB 통로로 유력. 결정 대기 | [풀 20 실험](2026-10-12-pending-index-remeasure.md#hikari-풀-20-실험--812fd552) 초당 연결 대여 처리량이 풀 10·20 모두 약 1,150회(사용자 14회 → 약 80 u/s). 풀 20에서 1회 사용 8 → 18ms, DB 실행 중 7.5% |
+| P-008 | 연결이 차고 다섯 API가 함께 연결을 기다린다(DB는 연결 시간의 대부분을 Core를 기다림) | 로컬 환경 | [10-12](2026-10-12-pending-index-remeasure.md#p-008-초당-40명에서-db-연결-10개가-차고-다섯-api가-함께-연결을-기다린다) | 원인 확인: Windows ↔ Rancher Desktop 포트 중계(DB 쪽). Core를 compose 컨테이너로 옮겨 해소 | [컨테이너 측정](2026-10-12-pending-index-remeasure.md#p-008-결과-통로가-원인이었다db-쪽) 100 u/s에서 연결 1회 사용 8~9ms → 1.6~1.7ms, 사용자당 연결 시간 110~131ms → 22~24ms, 연결 대기 0 |
 | P-009 | Core가 막히면 1초 지표 수집(`/actuator/prometheus`)이 같은 Tomcat 스레드를 기다리다 타임아웃된다 | 측정 도구 | [10-12](2026-10-12-pending-index-remeasure.md#좌석-상태-projection-재측정--812fd552) | 우회(판정은 전후 히스토그램이라 영향 없음), 결정 대기 | 100 u/s에서 Core ERROR 12·16건(`ClientAbortException`), `core-metrics.tsv` 표본 33개 중 9~23개. 연결 대기 최대값이 낮게 잡힐 수 있다. 근본 해결은 Core 관리 포트 분리(Core 설정) |
+| P-010 | 좌석 상태 응답(1MB, 압축 없음)이 100 u/s에서 Gatling에 늦게 닿는다 | 측정 환경·Core | [10-12](2026-10-12-pending-index-remeasure.md#p-010-좌석-상태-응답1mb-압축-없음이-초당-100명에서-gatling에-늦게-닿는다) | 결정 대기 | Core 쪽 좌석 상태 p95 28~39ms, Gatling 쪽 p50 985ms·p99 7.75초. curl은 같은 길로 초당 400~530개. gzip이면 1,050KB → 78KB |
 
 ## 성능 변화
 
@@ -36,6 +37,7 @@ ticket-core [Core 수용량](https://github.com/ticket-project/ticket-core/blob/
 | 10-12 | 로컬 PostgreSQL(같은 PC) | `57f4db85` | 03, 회원 100만·주문 약 500만·15,000석, 각 30초. 6cc73867과 `src/main` 차이는 부분 인덱스뿐, 좌석 행만 49만 늘어남 | 10 u/s PASS(p99 0.11초, 이전 14.69초), 15·20·30 PASS(30은 p99 4.57초), 40 FAIL·재현(p99 11.08초·10.29초) | [PENDING 부분 인덱스 재측정](2026-10-12-pending-index-remeasure.md). P-001 해결로 첫 FAIL이 10 → 40 u/s. 다음 병목 P-008. C 미확정 |
 | 10-12 | 로컬 PostgreSQL(같은 PC) | `812fd552` | 위와 같은 데이터(주문 +7,350), 각 30초. `57f4db85`와 차이는 좌석 상태 projection뿐 | 40 u/s PASS(p99 0.17초, 이전 11.08초), 50·60·80 PASS(50·60은 첫 실행 INVALID 뒤 다시 잼), 100 FAIL·재현(p99 21.08초·10.26초) | [좌석 상태 projection 재측정](2026-10-12-pending-index-remeasure.md#좌석-상태-projection-재측정--812fd552). 첫 FAIL 40 → 100 u/s. P-008 같은 모양 재발. C 미확정 |
 | 10-12 | 로컬 PostgreSQL(같은 PC) | `812fd552` | 위와 같고 Hikari 풀만 20(`-PoolSize 20`) | 100 u/s FAIL·재현(p99 11.66초·15.13초). 연결 1회 사용 8 → 18ms로 늘어 처리량 같음 | [풀 20 실험](2026-10-12-pending-index-remeasure.md#hikari-풀-20-실험--812fd552). 풀은 한계 아님 |
+| 10-12 | 로컬 compose(Core 컨테이너, PG 18) | `76316283` | 새 seed(회원 100만·주문 500만·15,000석), Core·DB 같은 Docker 네트워크, Gatling은 Windows | 80 u/s PASS(p99 2.36초), 100 FAIL·재현(p99 19.2초·8.3초). Core 쪽 p95는 100 u/s에서도 39ms 이하 | [컨테이너 측정](2026-10-12-pending-index-remeasure.md#core-컨테이너-측정통로-확인--76316283). DB·Core 환경이 함께 바뀌어 앞 줄과 직접 비교하지 않는다. 남은 한계는 P-010 |
 
 ## 일지 틀
 
