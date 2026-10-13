@@ -303,6 +303,7 @@ Write-Utf8 (Join-Path $runDir "summary.json") ($summary | ConvertTo-Json -Depth 
 # 표에 들어갈 짧은 이름. 03이 부르는 다섯 요청이다.
 $shortNames = [ordered]@{
     "GET /api/v1/performances/{performanceId}/summary" = "summary"; "GET /api/v1/performances/{performanceId}/seats/status" = "seats"
+    "GET /api/v1/performances/{performanceId}/seats/occupied" = "seats"
     "POST /api/v1/performances/{performanceId}/seats/{seatId}/select" = "select"; "POST /api/v1/orders" = "order"
     "GET /api/v1/orders/{orderKey}/status" = "orderStatus"
 }

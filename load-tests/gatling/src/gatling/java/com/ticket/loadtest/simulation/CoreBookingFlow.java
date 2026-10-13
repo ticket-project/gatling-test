@@ -343,7 +343,10 @@ final class CoreBookingFlow {
         return exec(session -> session.removeAll("seatStatusHttpStatus", "availableSeatIds")
                         .set("lastStep", "SEAT_STATUS"))
                 .exec(http("seat status")
-                        .get("/api/v1/performances/#{performanceId}/seats/status")
+                        // 좌석을 응답에서 고르는 시나리오만 빈 좌석 목록이 필요해 좌석 전체(status)를 부른다.
+                        // 좌석을 피더에서 정하는 시나리오는 FE처럼 점유 좌석 번호만(occupied) 받는다.
+                        .get(session -> "/api/v1/performances/" + session.get("performanceId")
+                                + (isDynamicSeatSelection(session) ? "/seats/status" : "/seats/occupied"))
                         .headers(bookingHeaders(includeAdmissionToken))
                         .check(status().saveAs("seatStatusHttpStatus"))
                         .check(status().is(200))
