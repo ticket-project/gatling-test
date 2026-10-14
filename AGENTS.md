@@ -18,7 +18,7 @@
 ## 먼저 읽을 순서
 
 1. `README.md`
-2. `docs/development.md`
+2. `docs/development.md`, 시뮬레이션·feeder·판정을 바꾸면 `docs/scenarios.md`
 3. `console` 변경이면 `console/AGENTS.md`와 `console/README.md`
 4. 관련 Gradle 설정과 simulation, runner, 테스트 코드
 

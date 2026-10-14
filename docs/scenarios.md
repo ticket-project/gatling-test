@@ -1,0 +1,296 @@
+# 시나리오와 판정
+
+이 저장소의 시뮬레이션이 무엇을 재는지, 어떤 입력(feeder)이 필요한지, 무엇으로 합격을 가르는지의 원본이다. 로컬에서
+Core 수용량을 한 단계씩 재는 방법은 [scripts/capacity](../scripts/capacity/README.md), 운영 측정 절차는
+[운영 Core 안전 입장률 측정 가이드](core-capacity-production.md), 콘솔 사용법은 [console](../console/README.md)을 본다.
+
+Queue·CDN 시뮬레이션과 분산 실행 스크립트에는 실제 서버 URL 기본값이 없다. `-DbaseUrl` 또는 `-BaseUrl`을 실행마다
+명시해야 하며, 콘솔에서 localhost가 아닌 대상을 실행할 때는 대상 URL·회차·허용 부하를 확인했다는 체크가 필요하다.
+
+## Queue CDN public state
+
+CDN public state 확인용 경로:
+
+```text
+Base URL: Cloudflare가 프록시하는 state endpoint
+GET /api/v1/queue/performances/{performanceId}/state
+Header/cookie/auth 없음
+```
+
+`/join` 부하 테스트는 승인받은 Queue origin Nginx URL을 명시해 Cloudflare를 거치지 않고 요청한다. `cdn-public-state` 테스트는 별도의 Cloudflare state endpoint가 구성된 경우에만 CDN 캐시를 검증하며, 실행 전 `CF-Ray`와 `CF-Cache-Status` 응답 헤더를 확인한다.
+
+## `/join` 예매 오픈 패턴
+
+`QueueJoinOnlySimulation`은 `-DinjectionMode=ticket-open`에서 실제 예매 오픈에 가까운 형태로 사용자를 투입한다.
+
+- 예매 오픈 시각부터 최고 RPS로 10초 유지
+- 20초 동안 50%, 다음 60초 동안 20%, 다음 180초 동안 10%까지 감소
+- 본 부하 종료 30초 후 60초 동안 1 RPS로 회복 상태 확인(총 360초)
+
+분산 실행은 모든 노드에 동일한 UTC 예매 오픈 시각을 전달하고 그 시각부터 최고 RPS로 시작한다. 준비가 늦어 시작 시각을 놓친 노드는 늦게 합류하지 않고 실패한다. 토큰 파일은 본 부하와 회복 확인에 필요한 사용자 수 이상이어야 하며, member subject가 중복되면 실행을 거부한다.
+
+성공 조건은 전체 실패율 1% 미만, 본 부하와 회복 구간 각각의 `/join` p99 2초 미만이다. 응답의 `queueToken`, `shardId`, `localSeq`, `pollAfterMs`도 함께 검증한다.
+
+## Access token 파일 생성
+
+큰 `/join` 부하 테스트에서는 실행 중 synthetic JWT를 만들지 말고 토큰 파일을 미리 만들어 `-DaccessTokenMode=tokens -DaccessTokensFile=...`로 사용한다.
+
+```powershell
+.\gradlew.bat -p load-tests/gatling generateAccessTokens `
+  -Doutput=load-tests\gatling\build\tokens\access-tokens.txt `
+  -DjwtSecret=0123456789abcdef0123456789abcdef `
+  -DjwtIssuer=ticket `
+  -DsyntheticMemberStartId=1 `
+  -DsyntheticJwtRole=MEMBER `
+  -DsyntheticTokenTtlSeconds=3600 `
+  -DtokenCount=60000
+```
+
+생성된 파일은 UTF-8 텍스트이며 JWT가 한 줄에 하나씩 들어간다. 콘솔에서는 `Token mode=직접 입력`을 선택하고 `Access Token 파일 경로`에 위 파일 경로를 넣는다.
+
+## Booking capacity 시나리오
+
+새 예매 부하 테스트는 구형 예매 오픈/홀드 경합/티켓 서버 용량 시나리오를 대체한다.
+운영 Core의 안전 입장률을 단계별로 측정할 때는 [운영 Core 안전 입장률 측정 가이드](core-capacity-production.md)를 먼저 확인한다.
+
+| key | Simulation | 측정 대상 |
+| --- | --- | --- |
+| `ticket-open-end-to-end` | `TicketOpenEndToEndSimulation` | Queue join/state/enter부터 Ticket/Core 예매까지 전체 흐름 |
+
+### Booking feeder CSV
+
+모든 booking 시나리오는 순환하지 않는 feeder 파일을 사용한다. 파일은 UTF-8 without BOM이어야 하고 첫 줄은 정확히 아래와 같아야 한다.
+
+```csv
+memberId,accessToken,seatId,admissionToken
+1,access-jwt-1,101,admission-jwt-1
+2,access-jwt-2,102,admission-jwt-2
+```
+
+규칙:
+
+- `memberId`는 중복되면 안 된다.
+- `ticket-open-end-to-end`는 좌석이 중복되면 안 된다.
+- `ticket-open-end-to-end`는 admission token을 Queue `enter` 응답에서 받으므로 feeder의 `admissionToken`은 비워도 된다.
+- feeder가 부족하면 실행 전 검증 또는 Gatling feeder exhaustion으로 실패한다.
+
+04·05에서는 아래 3컬럼 형식을 사용할 수 있다. 좌석 ID는 Core의 좌석 상태 응답에서 자동으로 고른다. 03은 feeder 자체를 사용하지 않는다.
+
+```csv
+memberId,accessToken,admissionToken
+1,access-jwt-1,admission-jwt-1
+2,access-jwt-2,admission-jwt-2
+```
+
+### 3 VM 분산 실행
+
+Booking 전용 실행기는 `run-distributed-booking.ps1`이다. 원격 Gradle 명령에는 운영 URL, performanceId, feeder 경로, injection mode, polling timeout, node/result 경로만 전달한다. JWT secret이나 admission secret은 명령행에 전달하지 않는다.
+
+```powershell
+.\run-distributed-booking.ps1 `
+  -Hosts ubuntu@<vm-1>,ubuntu@<vm-2>,ubuntu@<vm-3> `
+  -KeyPath C:\path\<ssh-key>.pem `
+  -RemoteProjectDir ~/gatling-test `
+  -Simulation com.ticket.loadtest.simulation.TicketOpenEndToEndSimulation `
+  -CoreBaseUrl https://api.example.com `
+  -QueueBaseUrl https://queue.example.com `
+  -PerformanceId 1 `
+  -FeederFile C:\path\booking-feeder.csv `
+  -RpsPerNode 100 `
+  -DurationSeconds 300 `
+  -InjectionMode constant-users-per-sec `
+  -PollingTimeoutSeconds 300
+```
+
+스크립트는 주입 방식별 예상 사용자 수만큼 feeder 행을 VM별로 연속 분할하고 `manifest.csv`에 기준·목표 RPS, 주입 방식, 행 범위를 기록한다. URL/feeder/manifest 오류는 exit 2, 원격 노드 실패나 중복 성공 검출은 exit 1이다.
+
+모든 Gatling 결과는 `distributed-results-join` 아래에 모이며, `booking-summary.json`과 `booking-results-merged.csv`를 확인한다. 실제 smoke와 단계별 증분 부하는 운영 URL, performanceId, feeder, VM별 RPS를 사람이 확인한 뒤 별도로 실행한다.
+
+## Core API별 독립 성능 시나리오
+
+API 하나의 순수 처리량을 확인할 때는 아래 시나리오를 사용한다. 콘솔과 Gatling에는 설명식 별칭이 아니라 Core 컨트롤러의 실제 HTTP 메서드와 엔드포인트가 그대로 표시된다.
+
+| 표시 이름 | 한 사용자당 호출 | 필요한 입력·초기 상태 |
+| --- | --- | --- |
+| `GET /api/v1/performances/{performanceId}/summary` | 공연 요약 조회 1회 | 인증·feeder 불필요, 같은 회차 사용 |
+| `GET /api/v1/performances/{performanceId}/seats/status` | 좌석 상태 조회 1회 | 인증 사용자 필요, 같은 좌석 수와 상태 비율 유지 |
+| `POST /api/v1/performances/{performanceId}/seats/{seatId}/select` | 고유 좌석 선택 1회(5분 뒤 저절로 풀림) | `memberId,accessToken,seatId,admissionToken` CSV, 모든 좌석 AVAILABLE |
+| `POST /api/v1/orders` | 좌석 선택 직후 주문 생성 1회 | 같은 CSV, 모든 좌석 AVAILABLE. Core가 본인이 선택 중인 좌석으로만 주문을 받아(ticket-core ADR 0021) 테스트가 주문 직전에 선택한다 |
+| `GET /api/v1/orders/{orderKey}` | 주문 조회 1회 | `memberId,orderKey` CSV, 회원 소유 주문. JWT는 실행 중 메모리에서 생성 |
+
+단일 API 테스트 안에서는 준비용 API를 호출하지 않는다. 예외는 주문 생성이다 — Core가 본인이 선택 중인 좌석으로만 주문을 받으므로 주문 직전에 선택을 함께 호출하고, 주문 비용은 `create order` 요청 통계로 따로 본다. 따라서 상태 변경 API는 실행 전에 데이터를 준비하고 실행 후 원상 복구한다. 현재 분산 Booking 실행기는 전체 예매 증거 파일을 전제로 하므로 이 다섯 테스트는 로컬 Gatling 실행만 지원한다.
+
+대상 서버는 콘솔의 `대상 환경`에서 고른다. 로컬 Ticket/Core를 대상으로 하려면 ticket 저장소를 `local` 프로파일로 실행한 뒤 `.\gradlew.bat seedLocal`로 전용 회차·좌석과 부하테스트 회원을 준비한다(ticket 저장소 `seed/README.md`). 로컬 전용 데이터는 운영과 같은 고정 ID 대역을 쓰므로 회차 배정표를 그대로 쓸 수 있고, 로컬 대상에서는 회원 ID 파일 없이 연속 회원 ID를 사용한다.
+
+## 정합성·Core 보호 증명 시나리오
+
+신규 시나리오는 아래 순서로 실행한다. Java 클래스명은 숫자로 시작할 수 없으므로 실행 클래스에는 숫자를 붙이지 않고, Gatling 시나리오 이름에 `01`~`06` 순서를 유지한다.
+
+| 순서 | Simulation | 증명 대상 |
+| --- | --- | --- |
+| 01 | `SmokeSimulation` | 좌석 조회부터 주문 조회까지 실제 예매 계약이 정상인지 확인 |
+| 02 | `HotSeatConcurrencySimulation` | 같은 좌석에 동시 요청해 선택 성공 1건, 주문 성공 1건, 나머지 정상 거부인지 확인 |
+| 03 | `CoreAdmissionCapacitySimulation` | 고정 회원·고유 좌석·고정 요청 흐름으로 Queue 없이 Core의 안전한 초당 입장 사용자 수 측정 |
+| 03-2 | `CoreRealisticContentionSimulation` | 인기 좌석 쏠림·충돌·재시도·이탈을 포함한 현실형 사용자 행동에서 Core 반응 측정 |
+| 03-3 | `CoreRealisticUserMixSimulation` | 03-2에 좌석 알림 WebSocket·배치도 조회·이탈 시 전체 해제·결제 전 주문 취소를 더한 실제 사용자 흐름 |
+| 04 | `CoreActiveUsersClosedSimulation` | Closed Model로 Core가 안정적으로 유지할 수 있는 동시 활성 사용자 상한 측정 |
+| 05 | `CoreSpikeSimulation` | 기준 부하에서 5초 안에 최고 부하로 상승한 뒤 유지·회복하는지 측정 |
+| 06 | `QueueProtectsCoreSimulation` | 외부 유입과 Queue 통과 후 Core 실제 진입을 분리해 보호 효과 측정 |
+
+03 고정 조건 Core 용량은 사용자마다 서로 다른 회원·`seatId`가 담긴 feeder를 사용하며 Admission Token은 비워 둔다. 03-2 현실형 경합은 feeder 없이 합성 JWT와 실행 중 조회한 잔여 좌석을 사용한다. 04 Active Users·05 Spike는 실행 중 실제 잔여 좌석을 조회하므로 feeder에 `seatId`가 없어도 된다. Smoke와 Queue 보호는 회원마다 서로 다른 `seatId`를 사용하고, Hot Seat는 반대로 모든 행에 같은 `seatId`를 넣는다. 모든 시나리오는 회원별로 고유한 access token을 사용한다. Queue 보호 시나리오는 `enter` 응답으로 admission token을 받으므로 feeder의 `admissionToken`을 비워 둔다.
+
+### 고정 비교 모델과 현실형 사용자 모델
+
+03은 코드 변경 전후를 공정하게 비교하기 위한 고정 모델이다. 한 사용자는 feeder에서 정해진 고유 좌석으로 아래 요청을 각각 한 번만 수행한다.
+
+```text
+공연 요약 조회 → 좌석 상태 조회 → 고정 좌석 선점 → 주문 생성 → 주문 PENDING 조회
+```
+
+좌석 새로고침, 무작위 선택, 충돌 재시도, 생각 시간, 주문 전 이탈이 없으므로 같은 초기 데이터와 같은 주입률이라면 사용자당 요청 구성이 같다. 단, 앞 요청이 기술적으로 실패하면 이후 요청은 중단되므로 실패가 늘어난 구간에서는 실제 완료 요청 수도 함께 확인한다.
+
+03-2·04·05는 현실형 사용자 모델이다. 한 사용자를 다음 흐름으로 실행한다.
+
+```text
+공연 요약 조회 → 좌석 상태 조회 → 좌석 선택 시간 → 잔여 좌석 중 하나를 선택해 선점
+→ 충돌 시 좌석 재조회 후 아직 시도하지 않은 다른 좌석으로 최대 2회 재시도
+→ 주문 전 판단 시간 → 주문 생성 → 주문 PENDING 조회
+```
+
+사용자의 80%가 현재 잔여 좌석 중 앞쪽 10%의 인기 좌석에 몰리고, 충돌하면 다른 좌석을 골라 총 3회까지 시도한다. 기본값은 좌석 선택 시간 1~3초, 주문 전 판단 시간 2~6초, 재시도 대기 0.5~2초, 좌석 재조회 사용자 25%, 주문 전 이탈 사용자 10%다. 각각 `bookingSeatThinkMinMillis`/`bookingSeatThinkMaxMillis`, `bookingOrderThinkMinMillis`/`bookingOrderThinkMaxMillis`, `bookingRetryThinkMinMillis`/`bookingRetryThinkMaxMillis`, `bookingSeatRefreshPercent`, `bookingDropoutPercent`로 조정한다. 실제 서비스 행동 로그가 있으면 그 분포로 보정한다. 이 모델은 현실성 확인에는 유용하지만 충돌량과 요청 수가 실행마다 달라질 수 있으므로 코드 변경 전후의 1차 성능 판정에는 03을 사용한다.
+
+응답 시간은 판정 기준으로 쓰지 않는다. Gatling assertion은 실제 실패만 KO로 표시하며, 판정에 쓰이는 기준은 `technicalFailureThresholdPercent`, `queueTimeoutThresholdPercent`, `maxCoreAdmissionsPerSecond`, `admissionRateTolerancePercent`뿐이다. p95/p99는 리포트의 Requests 표와 APM에서 추세로 읽는다.
+
+현재 Core에는 결제 확정 흐름이 연결되어 있지 않으므로 직접 검증 범위는 주문 `PENDING`까지다. 결제가 구현되면 결제 성공·실패·재시도와 결제 단계 체류 시간을 같은 사용자 흐름에 추가해야 한다.
+
+### Core 안전 입장률 측정
+
+`CoreAdmissionCapacitySimulation`은 Queue를 완전히 우회하고, feeder에 미리 고정한 회원과 고유 좌석으로 Core만 직접 호출한다. Admission Token은 보내지 않는다. Open Model로 한 실행에 하나의 고정 입장률만 사용하며 최초 경계 탐색은 5, 10, 15, 20, 30, 40, 50 users/sec를 각각 별도 실행한다.
+
+같은 테스트가 되려면 부하 값만 같아서는 부족하다. 실행마다 좌석 수와 상태가 같은 독립 전용 회차를 사용하고 모든 대상 좌석이 `AVAILABLE`인 상태에서 시작해야 한다. 앞 실행의 주문·선점 상태를 자동 복원하지 않고 다음 독립 performance로 이동한다. 약 2,000석 데이터의 최초 경계 탐색은 모든 단계를 30초로 고정하고, 장시간 검증은 후보 입장률을 찾은 뒤 필요한 좌석 수와 데이터 구조를 별도로 승인한다.
+
+feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 수만큼 고유한 기존 ACTIVE 회원과 고유한 AVAILABLE 좌석을 사용한다. 이 테스트에서는 `admissionToken` 열을 비워도 된다. 전용 performance는 기존 Queue 정책을 `FORCE_OFF`로 설정해 Admission Token 없이 직접 Core를 호출할 수 있어야 한다. 전용 회차·좌석은 ticket 저장소 `seedProd`의 부하 테스트 픽스처(`LoadTestFixtureSeeder`, ticket 저장소 `seed/README.md`)로 만들고, 회원 ID 파일과 Console의 JWT·feeder 자동 생성은 [운영 Core 안전 입장률 측정 가이드](core-capacity-production.md)를 따른다.
+
+```powershell
+.\gradlew.bat -p load-tests\gatling gatlingRun `
+  --simulation com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation `
+  -DcoreBaseUrl=https://api.example.com `
+  -DperformanceId=910000001 `
+  -DbookingFeederFile=C:\path\booking-feeder.csv `
+  -DbookingScenario=CORE_ADMISSION_CAPACITY `
+  -DinjectionMode=constant-users-per-sec `
+  -DusersPerSecond=5 `
+  -DdurationSeconds=30 `
+  -DresultFile=..\..\distributed-results-join\_latest\core-capacity-005.csv
+```
+
+03-2 `CoreRealisticContentionSimulation`은 기존의 인기 좌석 쏠림·충돌·재시도·이탈 모델을 보존한다. 합성 JWT를 쓰고 feeder 없이 실행하므로 실행 간 충돌량이 달라질 수 있다. 고정 03에서 한계를 찾은 뒤 실제 행동을 섞었을 때 병목이 어떻게 변하는지 확인하는 보조 테스트로 사용한다.
+
+03-3 `CoreRealisticUserMixSimulation`은 03-2 흐름에 실제 예매 화면이 하는 일을 더한다. 03-2와 결과를 섞지 않도록 별도 시나리오로 둔다.
+
+- 좌석 알림 WebSocket: 흐름이 끝날 때까지 `/ws/websocket`에 STOMP로 연결해 `/topic/performance/{performanceId}/seats`를 구독한다. FE는 SockJS로 붙지만 부하 발생기는 SockJS가 함께 여는 순수 WebSocket 경로를 쓴다. Core CORS 허용 목록을 거치게 하려면 `-DwsOrigin`에 허용 Origin을 준다(비우면 Origin 헤더를 보내지 않는다).
+- 배치도: 화면이 처음 부르는 `GET /api/v1/shows/{showId}/venue-layout`과 `GET /api/v1/shows/{showId}/seats`를 조회한다. `-DshowId` 기본값은 부하 전용 공연 `910000001`이다.
+- 전체 해제: 주문 전에 이탈하는 사용자(`bookingDropoutPercent`, 기본 10%)는 `DELETE /api/v1/performances/{performanceId}/seats/select`로 선택을 모두 푼다. 결과는 `USER_DROPPED_BEFORE_ORDER`다.
+- 주문 취소: 주문을 만든 사용자 중 `bookingOrderCancelPercent`(기본 10%)가 `DELETE /api/v1/orders/{orderKey}`로 취소한다. 결과는 `USER_DROPPED_ORDER_CANCELED`다.
+
+이탈·취소 비율은 실측이 아니라 가정값이다. 실제 서비스 로그로 비율을 정하기 전에는 이 값에 기대어 용량을 확정하지 않는다.
+
+Core 직접 호출 테스트(03·03-2·04·05)의 Gatling 요청 통계에는 실제 HTTP API만 표시한다. 외부 유입과 Core 진입을 구분해야 하는 `QueueProtectsCoreSimulation`에서만 `external arrival` 지표를 유지하며, 실제 Core 진입률은 `booking-admissions.csv`로 판정한다.
+
+### Core 동시 사용자 상한
+
+`CoreActiveUsersClosedSimulation`은 Closed Model이다. `users`만큼의 동시 사용자를 30초 동안 올린 뒤 `durationSeconds` 동안 유지하며, 각 사용자가 좌석 조회 → 좌석 선점 → 주문 생성을 마치면 Gatling이 즉시 새 사용자를 보충한다.
+
+이 테스트가 필요한 이유는 Open Model의 안전 입장률과 Closed Model의 동시 사용자 상한이 서로 다른 한계이기 때문이다. Open Model은 외부 도착률을 고정해 과부하를 그대로 드러내고, Closed Model은 느려진 사용자를 새 사용자로 보충하지 않으므로 처리량 저하가 가려질 수 있다. 따라서 Closed 결과를 Queue 입장률로 사용하면 안 된다. 50, 100, 200, 300명처럼 단계별로 실행하면서 API p95·p99, 5xx·timeout, DB Pool·Lock뿐 아니라 `booking-completions.csv`의 성공 완료 흐름 수/초가 함께 유지되는지 확인한다.
+
+Closed Model은 실행 중 사용자를 계속 교체하므로 `bookingFeederRows`가 `users`와 별도로 필요하다. 피더는 순환시키지 않으며 모든 행의 회원, access token, admission token은 고유해야 한다. 좌석은 실행 중 실제 잔여 좌석에서 고른다. 필요한 행 수는 응답 시간이 빨라질수록 증가하므로 예상 완료 흐름 수보다 여유 있게 준비하고, 부족하면 테스트를 실패시켜 정합성 오염을 막는다.
+
+```powershell
+.\run-distributed-booking.ps1 `
+  -Simulation com.ticket.loadtest.simulation.CoreActiveUsersClosedSimulation `
+  -CoreBaseUrl https://api.example.com `
+  -PerformanceId 1 `
+  -FeederFile C:\path\booking-feeder.csv `
+  -ConcurrentUsersPerNode 100 `
+  -FeederRowsPerNode 10000 `
+  -DurationSeconds 300
+```
+
+위 예시는 3개 노드라면 Core 동시 사용자 300명을 유지한다. `FeederRowsPerNode`는 각 노드에 배정할 고유 사용자·좌석 행 수이고, `ConcurrentUsersPerNode`는 각 노드가 동시에 유지할 사용자 수다.
+
+### Spike와 Queue 보호 비교
+
+`CoreSpikeSimulation`은 30초 기준 부하 → 5초 상승 → 최고 부하 유지 → 5초 하강 → 30초 회복 순서다. `usersPerSecond`는 기준 부하, `targetUsersPerSecond`는 최고 부하, `durationSeconds`는 최고 부하 유지 시간이다.
+
+```powershell
+.\run-distributed-booking.ps1 `
+  -Simulation com.ticket.loadtest.simulation.CoreSpikeSimulation `
+  -CoreBaseUrl https://api.example.com `
+  -PerformanceId 1 `
+  -FeederFile C:\path\booking-feeder.csv `
+  -RpsPerNode 34 `
+  -TargetRpsPerNode 667 `
+  -DurationSeconds 60 `
+  -InjectionMode spike
+```
+
+위 예시는 3개 노드에서 합계 약 100 users/sec → 2,000 users/sec를 만든다. 같은 고정 외부 유입률을 비교할 때는 Queue 미적용 기준으로 `CoreAdmissionCapacitySimulation`, Queue 적용 기준으로 `QueueProtectsCoreSimulation`을 실행한다. Spike 비교는 Queue 보호 시나리오에도 `-InjectionMode spike`와 같은 기준·최고 RPS를 적용한다.
+
+Queue 보호 시나리오의 `pollingTimeoutSeconds`는 최소한 `외부 유입 사용자 수 / Queue 입장률`보다 길어야 한다. 예를 들어 120,000명이 들어오고 Core 입장률이 300명/초이면 대기열 소진에만 약 400초가 필요하므로 300초 timeout은 정상 대기 사용자를 실패로 오판한다.
+
+public state에서 입장 가능 순번이 된 뒤에도 실제 `/enter` token bucket이 `429`를 반환할 수 있다. `QueueProtectsCoreSimulation`은 이 응답을 기술 실패로 세지 않고 100ms 간격으로 같은 queueToken을 재시도하며, 전체 입장 timeout을 넘긴 경우에만 `QUEUE_ENTER_TIMEOUT`으로 기록한다.
+
+### 정합성 최종 판정
+
+Gatling 결과만으로는 응답 timeout 직전에 DB commit된 주문을 놓칠 수 있다. 따라서 Hot Seat 실행 후에는 반드시 테스트 DB를 조회해 대상 좌석의 활성 주문이 1건인지 확인한다.
+
+```sql
+SELECT os.performance_seat_id, COUNT(DISTINCT o.id) AS active_order_count
+FROM order_seats os
+JOIN orders o ON o.id = os.order_id
+WHERE o.performance_id = :performance_id
+  AND os.performance_seat_id = :performance_seat_id
+  AND o.status IN ('PENDING', 'CONFIRMED')
+GROUP BY os.performance_seat_id
+HAVING COUNT(DISTINCT o.id) > 1;
+```
+
+조회 결과가 0행이어야 한다. 현재 시스템의 주문 생성 결과는 `PENDING`이므로 이 테스트가 직접 증명하는 범위는 중복 선점·중복 활성 주문이 없다는 것까지다. 결제 확정 기능이 연결되기 전에는 이를 중복 판매 방지 증거로 과장하지 않는다.
+
+## Booking 증거 파일과 합격 조건
+
+새 Booking Proof 시나리오는 Gatling HTML의 요청 통계만으로 합격시키지 않는다. 다음 파일을 함께 만든다.
+
+- `booking-results.csv`: 시작한 각 회원의 최종 결과를 정확히 한 줄씩 기록하며, 오류 코드와 좌석 선택 시도 횟수를 포함한다.
+- `booking-evidence.json`: 시작·성공·비즈니스 거절·과부하·사용자 이탈·기술 실패·누락 수와 좌석 경쟁 횟수, 관측된 최대 Core 입장률·성공 완료율을 기록한다.
+- `booking-admissions.csv`: Queue 통과 후 실제 Core 좌석 상태 흐름에 진입한 수를 초 단위로 기록한다.
+- `booking-completions.csv`: 성공적으로 예매 흐름을 끝낸 수를 초 단위로 기록한다.
+- `booking-active-users.csv`: Core 입장과 예매 흐름 종료 때마다 부하 발생기에서 관측한 활성 사용자 수를 기록한다.
+- `booking-run-config.json`: 실행 ID, 시나리오, 주입 모델, 사용자 행동 모델, 합격 기준 등 재현에 필요한 비밀 제외 설정을 기록한다.
+- `booking-db-audit.json`: 클라이언트 성공 주문 수와 DB 주문 수, 중복 좌석 주문, 활성 중복 선점, 좌석 없는 주문 등을 조회한 결과다.
+
+Core의 409 응답은 세 가지로 나눠 센다. 분류의 원본은 `load-tests/gatling/src/main/java/com/ticket/loadtest/CoreRejections.java`이고, 코드 자체의 원본은 ticket-core의 `BookingErrorCode`다.
+
+| 분류 | 선택 API | 주문 API | 결과 이름 |
+| --- | --- | --- | --- |
+| 비즈니스 거절 | E4001(다른 사용자가 선택), E6000(이미 선점), E6001(선택 좌석 수가 선점 한도에 닿음) | E4006(본인이 선택 중인 좌석이 아님), E4007(선택 시간이 지나 풀린 좌석), E5004(진행 중 결제 대기 주문), E6000, E6001(선점 좌석 수 한도) | `BUSINESS_REJECTED_<코드>` |
+| 과부하 | E6003(선점 락 대기 초과) | E6003 | `OVERLOADED_E6003` |
+| 기술 실패 | 그 밖의 409와 다른 모든 상태 | 같음 | `TECHNICAL_<단계>_HTTP_<상태>` |
+
+과부하는 서버가 요청 순서를 제때 처리하지 못했다는 뜻이다. 비즈니스 거절로 숨기지 않고 기술 실패와도 섞지 않도록 `overloadedUsers`로 따로 센다. Gatling 요청 통계에서는 분류된 409를 KO로 세지 않으므로 과부하는 이 값으로 판단한다.
+
+`booking-results.csv`에는 Core 입장·종료 시각과 개별 체류 시간이 추가되고, `booking-evidence.json`에는 최대 활성 사용자 수와 평균·p95·p99 Core 체류 시간이 추가된다. 분산 실행은 완료율과 활성 사용자 파일도 각각 `booking-completions-global.csv`, `booking-active-users-global.csv`로 합산한다. 이 값들이 안전 입장률과 함께 Queue의 `maxActiveUsers`를 정하는 근거다.
+
+Console에서는 `Queue timeout 허용률`, `Core 안전 입장률`, `입장률 측정 오차 허용`을 입력한다. Queue Protects Core의 기본 안전 입장률은 300명/초이고, 분산 실행은 노드별 값이 아니라 모든 노드의 `booking-admissions.csv`를 합산한 `booking-admissions-global.csv`로 판정한다.
+
+DB 감사는 Gatling 실행이 끝난 뒤 `auditBookingDatabase` Gradle task로 돌린다(분산 실행은 `run-distributed-booking.ps1 -DbAuditEnabled`가 합친 결과로 부른다). 실행하는 프로세스에 아래 환경 변수를 설정해야 한다. 비밀번호는 명령행이나 결과 파일에 기록하지 않는다.
+
+```text
+BOOKING_AUDIT_DB_URL
+BOOKING_AUDIT_DB_USERNAME
+BOOKING_AUDIT_DB_PASSWORD
+```
+
+DB 감사 대상 공연은 테스트 전에 주문 이력이 없는 전용 `performanceId`여야 한다. 감사 쿼리가 공연 전체 주문을 조회하므로 기존 주문이 섞이면 현재 실행의 성공 수와 비교할 수 없고 의도적으로 실패한다.
+
+합격은 다음을 모두 만족할 때만 성립한다: 시작 사용자 수와 종료 결과 수가 같음, 회원별 종료 결과가 한 건임, Queue timeout 비율이 허용치 이하임, Queue 적용 시 전역 Core 입장률이 상한 이내임, 클라이언트 성공 주문 수와 DB 주문 수가 같음, DB 중복·누락 정합성 위반이 0건임. `booking-admissions.csv`는 부하 발생기에서 Core 흐름 진입 직전에 관측한 값이므로 서버 내부 수신 메트릭과는 구분해서 해석한다.
