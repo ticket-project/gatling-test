@@ -196,8 +196,65 @@ P-013의 처방으로 사용자가 주문 생성의 예매 전 확인을 `Bookin
 
 400 u/s에서 DB 연결 풀(평균 75% + 몰림), Redis(최대 100%), PC CPU(약 85%)가 함께 한계 근처다.
 
+## Redis 명령별 측정 — e17c6a4b
+
+### 실행
+
+| 시각 | 용도 | 부하 | 회차 | 성공/시작 | 체류 p95 / p99(ms) | Core 쪽 p95(ms) | 연결·스레드 최대 | 유효 | 판정 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10:33 | Redis 측정(스크립트 오류로 수집 못 함) | 400 × 30s | 920000044 | 12000/12000 | 25,365 / 25,510 | 요약 224, 좌석 358, 선택 447, 주문 626, 주문상태 224 | 10/10 대기 306, busy 200 | 유효 | FAIL |
+| 10:38 | Redis 측정 | 400 × 30s | 920000045 | 8998/12000 | 75,281 / 75,662 | 요약 500, 좌석 1074, 선택 1432, 주문 2000, 주문상태 716 | 0/10 대기 0, busy 2 | 기술 실패 25% | INVALID |
+
+- 10:33 실행은 측정 스크립트의 도우미 함수 이름 `R`이 PowerShell 기본 별칭(`Invoke-History`)과 겹쳐 Redis 명령이 하나도 실행되지 않았다. SLOWLOG 설정도 바뀌지 않았다.
+- 10:38 실행의 실패 3,002건은 모두 Gatling의 `j.n.ConnectException: Connection refused`였다.
+  - Core는 재시작하지 않았다(가동 33분, 재시작 0회).
+  - 1초 지표가 연결 0/10, 스레드 2/200으로 찍혔다. 그런데 Core 쪽 요청 수는 약 9,000명분이 잡혔다.
+  - 그래서 Windows → Rancher Desktop 포트 중계 → 컨테이너 통로가 연결을 거부한 것으로 본다(미확인, P-012와 같은 계열).
+- 앞선 400 u/s 결과 범위: p99 7.7·8.3·13.6·25.5초, 그리고 이 실행의 75초. 400 u/s를 연달아 돌리면 로컬 통로 자체가 흔들린다.
+- 앞 실행들의 선점 만료 처리(주문 3만 6천 건)는 10:27에 끝났다. 10:33·10:38 실행과 겹치지 않았다.
+
+### 결과(10:38 실행이 처리한 약 9,000명분)
+
+측정 동안 SLOWLOG 기준을 0.5ms로 낮췄고, 끝난 뒤 10ms/128건으로 되돌렸다. 원자료는 `20261014-103721-redis-stats-400ups-30s/redis/`에 있다.
+
+| 항목 | 값 |
+| --- | --- |
+| Redis 메인 스레드 CPU | 36.7초(user 20.7 + sys 16.0) |
+| Redis가 내보낸 데이터 | 380MB. 점유 좌석 조회 9,494번이라 한 번에 약 40KB |
+| 처리한 명령 | 745,467개 |
+
+**`INFO commandstats` 차이, 상위 3개** (Redis 7은 스크립트 안에서 부른 명령도 따로 세므로 아래 비율은 서로 겹친다)
+
+| 명령 | 호출 | Redis 시간 | 1회 평균 |
+| --- | --- | --- | --- |
+| `zrangebyscore` | 28,195 | 7.60초 | 270µs |
+| `evalsha_ro`(읽기 전용 Lua) | 18,493 | 7.47초 | 404µs |
+| `evalsha`(락·선택·선점 Lua) | 99,298 | 5.31초 | 54µs |
+
+**SLOWLOG(0.5ms 이상, 253초 동안 8,052건) 키별 합계**
+
+| 명령 | 키 | 건수 | 합계 | 평균 / 최대 |
+| --- | --- | --- | --- | --- |
+| 선택 목록 읽기 Lua(`EVALSHA_RO`) | `seat:select:index:{perf}` | 3,810 | 5.60초 | 1.47ms / 34ms |
+| `ZRANGEBYSCORE` | `seat:hold:index:{perf}` | 2,026 | 3.07초 | 1.52ms / 23ms |
+| `ZRANGEBYSCORE` | `seat:select:index:{perf}` | 1,362 | 1.83초 | 1.34ms / 28ms |
+| Redisson `RSetCache` 만료 정리 Lua | `seat:hold:index:{perf}` | 43 | 0.62초 | 14.5ms / **141ms** |
+| `ZREM` | `seat:hold:index:{perf}` | 26 | 0.37초 | 14.3ms / **141ms** |
+
+### 해석
+
+- **P-014의 원인 후보가 확인됐다.** Redis 시간의 대부분이 회차 전체의 선택 목록과 선점 목록을 통째로 읽는 데 쓰였다.
+  - 선택 목록: [RedissonSeatSelectionStore.java:157](../../../ticket/src/main/java/com/ticket/booking/selection/persistence/RedissonSeatSelectionStore.java)
+  - 선점 목록: `RSetCache.readAll`, [RedissonHoldStore.java:80](../../../ticket/src/main/java/com/ticket/booking/hold/persistence/RedissonHoldStore.java)
+  - 부르는 곳은 `SeatOccupancy.occupiedSeatIds`이고, 점유 좌석·좌석 상태·등급별 잔여석 조회가 이것을 쓴다.
+  - 이 실행이 끝날 때 선점 목록은 8,998개였다. 380MB 송신의 대부분이 이 응답으로 보인다(명령별 송신량은 재지 않음).
+- **Redisson `RSetCache`의 만료 정리**가 선점 목록에서 한 번에 최대 141ms 동안 Redis를 붙잡았다. Redis는 단일 스레드라 그동안 모든 락과 선점 명령이 멈춘다.
+- `seat:select:index`에 대한 맨 바깥 `ZRANGEBYSCORE` 1,362건을 Java 코드의 어디서 부르는지는 찾지 못했다(미확인). Redis 7이 스크립트 안의 명령을 SLOWLOG에 따로 남겼을 가능성도 있다.
+
 ## 다음
 
-- 원인을 하나로 좁히기 전에 400 u/s를 한 번 더 돌린다. 이때 Redis `INFO commandstats`와 `SLOWLOG`를 실행 전후로 받는다(측정만, 사용자 결정 대기).
+- P-014의 해결 방법은 사용자가 정한다. 선택지는 채팅 보고에 적었다.
+- 대형 회차를 다 썼다(920000045까지 사용). 다음 측정 전에 seedLocal로 회차를 더한다.
+- 400 u/s를 연달아 돌리면 Windows 포트 중계가 연결을 거부한다(10:38). 부하 발생기를 Docker 네트워크 안으로 옮기는 방안을 측정 도구 쪽에서 검토한다.
 - P-013·P-014의 해결 방법은 사용자가 정한다. 선택지는 채팅 보고에 적었다.
 - FE를 `seats/occupied`로 바꾼 뒤 `seats/status`를 지운다(ticket-fe, 아직 시작 안 함).
