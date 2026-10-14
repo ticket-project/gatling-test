@@ -6,7 +6,7 @@ Copilot Chat, code review, coding agent는 루트 [AGENTS.md](../AGENTS.md)를 �
 
 1. `AGENTS.md`
 2. `docs/development.md`
-3. `README.md`
+3. `README.md`, 시뮬레이션·feeder·판정 변경이면 `docs/scenarios.md`
 4. `console` 변경이면 `console/AGENTS.md`와 `console/README.md`
 5. 관련 Gradle 설정, simulation, runner와 테스트 코드
 
