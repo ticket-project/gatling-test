@@ -23,11 +23,15 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 .\scripts\capacity\reset-local.ps1 -Compose -LargePerformanceCount 45 -Members 1000000 -BackgroundOrders 5000000
 .\scripts\capacity\reset-local.ps1 -Compose -KeepData             # 이미 적재된 DB로 Core만 새로 띄움
 .\scripts\capacity\reset-local.ps1 -Compose -KeepData -PoolSize 20 # 풀만 바꿔 재기동. 빼고 다시 띄우면 기본값(10)
+.\scripts\capacity\reset-local.ps1 -Compose -KeepData -Datadog    # Datadog Agent와 Core 트레이서를 켜고 재기동
 ```
 
 - Core가 PostgreSQL·Redis와 같은 Docker 네트워크(`ticket`)에서 이름으로 접속한다. Windows의 Core는 쿼리마다 Docker
   포트 중계를 지나는데, 그 중계가 측정 천장이었다([capacity-log P-008](../../docs/capacity-log/README.md)).
 - 포트(127.0.0.1:8083), 환경 파일(`local-env/ticket-core.env`), DB(compose의 PostgreSQL)는 compose가 정한다. `-PoolSize`는 셸 환경변수로 compose에 넘긴다.
+- `-Datadog`은 compose의 `datadog-agent`(profile `datadog`)를 함께 띄우고 Core 트레이서·프로파일러를 켠다.
+  `local-env/datadog.env`에 `DD_API_KEY`·`DD_SITE`가 있어야 한다. 트레이서가 Core CPU를 쓰므로 켠 실행과 끈 실행의 숫자를 섞어 비교하지 않는다.
+  빼고 다시 띄우면 Agent 컨테이너를 지우고 트레이서도 끈다.
 - 로컬 compose면 실행 전후 PostgreSQL WAL 통계를 `postgres-wal.txt`에 남기고 `summary.json`의 `server.postgresWal`에 차이를 적는다.
   fsync 시간은 PostgreSQL `track_wal_io_timing`이 켜져 있어야 쌓인다(capacity-log P-016).
 - 부하는 여전히 Windows의 Gatling이 `http://localhost:8083`으로 보내므로 HTTP 요청은 포트 중계를 지난다. 판정은 Core 쪽 숫자로 한다.

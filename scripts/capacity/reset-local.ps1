@@ -6,6 +6,7 @@ param(
     [int]$PoolSize = 0,
     [switch]$KeepData,
     [switch]$Compose,
+    [switch]$Datadog,
     [string]$TicketRepo = (Join-Path $PSScriptRoot "..\..\..\ticket"),
     [string]$EnvFile = (Join-Path $PSScriptRoot "..\..\..\local-env\ticket-core.env"),
     [int]$Port = 8080
@@ -21,6 +22,8 @@ param(
 # -Compose: Core를 Windows가 아니라 ticket docker-compose-local.yml의 컨테이너로 띄운다. PostgreSQL·Redis와 같은
 #    Docker 네트워크라 쿼리가 Docker 포트 중계를 지나지 않는다(capacity-log P-008). 포트·환경 파일은 compose가 정한다.
 #    -PoolSize는 이 셸의 SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE로 compose에 넘긴다.
+# -Datadog(-Compose 전용): compose의 datadog-agent를 함께 띄우고 CORE_JAVA_TOOL_OPTIONS로 Core 트레이서를 켠다.
+#    빼고 띄우면 Agent를 지우고 트레이서도 끈다. 트레이서가 Core CPU를 쓰므로 켠 실행은 끈 실행과 따로 비교한다.
 # 메시지는 영어로 쓴다(run-step.ps1과 같은 이유).
 
 $ErrorActionPreference = "Stop"
@@ -71,12 +74,23 @@ $seed = if ($KeepData) { $null } else { [ordered]@{ performances = $PerformanceC
 $workerEnabled = if ($env:WORKER_ENABLED) { $env:WORKER_ENABLED } else { "true" }
 $infoFile = Join-Path $capacityDir "core-local.json"
 
+if ($Datadog -and -not $Compose) { Fail "-Datadog needs -Compose" }
 if ($Compose) {
     if ($env:SPRING_DATASOURCE_URL) { Fail "-Compose uses the compose PostgreSQL; remove SPRING_DATASOURCE_URL from $EnvFile" }
     if ($PoolSize -gt 0) { $env:SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "$PoolSize" } else { Remove-Item env:SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE -ErrorAction SilentlyContinue }
     $composeArgs = @("compose", "-f", (Join-Path $TicketRepo "docker-compose-local.yml"))
+    $services = @("core")
+    if ($Datadog) {
+        $ddEnv = Join-Path (Split-Path $EnvFile) "datadog.env"
+        if (-not ((Test-Path $ddEnv) -and (Select-String -Quiet -Path $ddEnv -Pattern '^DD_API_KEY=.+'))) { Fail "-Datadog needs DD_API_KEY and DD_SITE in $ddEnv" }
+        $env:CORE_JAVA_TOOL_OPTIONS = "-javaagent:/opt/datadog/dd-java-agent.jar"
+        $services += "datadog-agent"
+    } else {
+        Remove-Item env:CORE_JAVA_TOOL_OPTIONS -ErrorAction SilentlyContinue
+        Invoke-Native "docker" ($composeArgs + @("rm", "-s", "-f", "datadog-agent"))
+    }
     # 새 DB면 Core가 기동하며 Flyway로 스키마를 만든다. seed는 그 뒤에 worker 없이(Core를 멈추고) 넣는다.
-    Invoke-Native "docker" ($composeArgs + @("up", "-d", "--build", "--force-recreate", "--wait", "core"))
+    Invoke-Native "docker" ($composeArgs + @("up", "-d", "--build", "--force-recreate", "--wait") + $services)
     if (-not $KeepData) {
         Invoke-Native "docker" ($composeArgs + @("stop", "core"))
         Write-Host "seeding (this can take long with large fixtures or background orders)..."
@@ -86,7 +100,7 @@ if ($Compose) {
     $published = [int](((& docker @composeArgs port core 8080) -split ':')[-1])
     [ordered]@{
         startedAt = (Get-Date).ToString("s"); container = "ticket-core"; image = (& docker inspect -f "{{.Image}}" ticket-core).Trim()
-        commit = $commit; sourceDirty = $dirty; mode = "docker compose"; p6spy = "off"; hikariPool = $(if ($PoolSize -gt 0) { $PoolSize } else { "default" })
+        commit = $commit; sourceDirty = $dirty; mode = "docker compose"; p6spy = "off"; hikariPool = $(if ($PoolSize -gt 0) { $PoolSize } else { "default" }); datadog = [bool]$Datadog
         dataReset = $false; seedApplied = (-not $KeepData); port = $published; database = "PostgreSQL"
         databaseTarget = $databaseUri.GetLeftPart([UriPartial]::Path); envFile = $EnvFile
         redisDatabase = $env:SPRING_DATA_REDIS_DATABASE; workerEnabled = $workerEnabled; seed = $seed
