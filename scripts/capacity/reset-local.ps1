@@ -20,6 +20,7 @@ param(
 # 5) 띄운 Core의 commit과 조건을 distributed-results-join/capacity/core-local.json에 남긴다. run-step.ps1이 읽는다.
 # -Compose: Core를 Windows가 아니라 ticket docker-compose-local.yml의 컨테이너로 띄운다. PostgreSQL·Redis와 같은
 #    Docker 네트워크라 쿼리가 Docker 포트 중계를 지나지 않는다(capacity-log P-008). 포트·환경 파일은 compose가 정한다.
+#    -PoolSize는 이 셸의 SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE로 compose에 넘긴다.
 # 메시지는 영어로 쓴다(run-step.ps1과 같은 이유).
 
 $ErrorActionPreference = "Stop"
@@ -71,8 +72,8 @@ $workerEnabled = if ($env:WORKER_ENABLED) { $env:WORKER_ENABLED } else { "true" 
 $infoFile = Join-Path $capacityDir "core-local.json"
 
 if ($Compose) {
-    if ($PoolSize -gt 0) { Fail "-PoolSize is not supported with -Compose (compose fixes the pool)" }
     if ($env:SPRING_DATASOURCE_URL) { Fail "-Compose uses the compose PostgreSQL; remove SPRING_DATASOURCE_URL from $EnvFile" }
+    if ($PoolSize -gt 0) { $env:SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "$PoolSize" } else { Remove-Item env:SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE -ErrorAction SilentlyContinue }
     $composeArgs = @("compose", "-f", (Join-Path $TicketRepo "docker-compose-local.yml"))
     # 새 DB면 Core가 기동하며 Flyway로 스키마를 만든다. seed는 그 뒤에 worker 없이(Core를 멈추고) 넣는다.
     Invoke-Native "docker" ($composeArgs + @("up", "-d", "--build", "--force-recreate", "--wait", "core"))
@@ -85,7 +86,7 @@ if ($Compose) {
     $published = [int](((& docker @composeArgs port core 8080) -split ':')[-1])
     [ordered]@{
         startedAt = (Get-Date).ToString("s"); container = "ticket-core"; image = (& docker inspect -f "{{.Image}}" ticket-core).Trim()
-        commit = $commit; sourceDirty = $dirty; mode = "docker compose"; p6spy = "off"; hikariPool = "default"
+        commit = $commit; sourceDirty = $dirty; mode = "docker compose"; p6spy = "off"; hikariPool = $(if ($PoolSize -gt 0) { $PoolSize } else { "default" })
         dataReset = $false; seedApplied = (-not $KeepData); port = $published; database = "PostgreSQL"
         databaseTarget = $databaseUri.GetLeftPart([UriPartial]::Path); envFile = $EnvFile
         redisDatabase = $env:SPRING_DATA_REDIS_DATABASE; workerEnabled = $workerEnabled; seed = $seed
