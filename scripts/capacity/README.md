@@ -27,6 +27,8 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 - Core가 PostgreSQL·Redis와 같은 Docker 네트워크(`ticket`)에서 이름으로 접속한다. Windows의 Core는 쿼리마다 Docker
   포트 중계를 지나는데, 그 중계가 측정 천장이었다([capacity-log P-008](../../docs/capacity-log/README.md)).
 - 포트(127.0.0.1:8083), 환경 파일(`local-env/ticket-core.env`), DB(compose의 PostgreSQL)는 compose가 정한다. `-PoolSize`는 쓸 수 없다.
+- 로컬 compose면 실행 전후 PostgreSQL WAL 통계를 `postgres-wal.txt`에 남기고 `summary.json`의 `server.postgresWal`에 차이를 적는다.
+  fsync 시간은 PostgreSQL `track_wal_io_timing`이 켜져 있어야 쌓인다(capacity-log P-016).
 - 부하는 여전히 Windows의 Gatling이 `http://localhost:8083`으로 보내므로 HTTP 요청은 포트 중계를 지난다. 판정은 Core 쪽 숫자로 한다.
 - `-ThreadDumps`는 jcmd 대신 `docker exec ticket-core kill -3 1`로 뜨고, `docker logs`에서 덤프 부분을 잘라 저장한다.
 

@@ -153,6 +153,14 @@ $before = Get-Metrics
 Write-Utf8 (Join-Path $runDir "prometheus-before.txt") $before
 $hikariMax = Get-Gauge $before "hikaricp_connections_max"
 $tomcatMax = Get-Gauge $before "tomcat_threads_config_max_threads"
+# compose PostgreSQL의 WAL 누적값(capacity-log P-016). 커밋이 WAL을 디스크에 내리는 횟수와 시간을 전후 차이로 본다.
+# fsync·write 시간은 PostgreSQL의 track_wal_io_timing이 켜져 있을 때만 쌓인다(마지막 열).
+$pgContainer = if ($coreInfo -and $coreInfo.container) { "ticket-postgres" } else { "" }
+$walSql = "select (select sum(writes) from pg_stat_io where object = 'wal'), (select sum(write_time) from pg_stat_io where object = 'wal'), " +
+    "(select sum(fsyncs) from pg_stat_io where object = 'wal'), (select sum(fsync_time) from pg_stat_io where object = 'wal'), wal_records, wal_fpi, wal_bytes, " +
+    "(select xact_commit from pg_stat_database where datname = current_database()), current_setting('track_wal_io_timing') from pg_stat_wal"
+function Get-Wal { if ($pgContainer) { "$(& docker exec $pgContainer psql -U ticket -d ticket -At -F ',' -c $walSql)".Trim() } }
+$walBefore = Get-Wal
 
 $ordersBefore = if ($databaseInfo) { [long]$databaseInfo.orders } else { $null }
 
@@ -221,6 +229,10 @@ Wait-Job $sampler -Timeout 10 | Out-Null; Remove-Job $sampler -Force
 Remove-Item $stopFile -ErrorAction SilentlyContinue
 $after = Get-Metrics
 Write-Utf8 (Join-Path $runDir "prometheus-after.txt") $after
+$walAfter = Get-Wal
+if ($walBefore) {
+    Write-Utf8 (Join-Path $runDir "postgres-wal.txt") ("writes,write_time_ms,fsyncs,fsync_time_ms,wal_records,wal_fpi,wal_bytes,xact_commit,track_wal_io_timing`n" + "before,$walBefore`nafter,$walAfter")
+}
 $gcLog = Join-Path $gatlingProject "build\gatling-jvm.log"
 if (Test-Path $gcLog) { Copy-Item $gcLog (Join-Path $runDir "gatling-jvm.log") }
 
@@ -286,6 +298,15 @@ if ($evidence.p99CoreResidenceMillis -gt $ResidenceP99LimitMillis) { $reasons +=
 if ($evidence.businessRejectedUsers -gt 0) { $reasons += "business rejected $($evidence.businessRejectedUsers) users (data not clean)" }
 $verdict = if ($invalid.Count -gt 0) { "INVALID" } elseif ($reasons.Count -gt 0) { "FAIL" } else { "PASS" }
 
+$wal = $null
+if ($walBefore -and $walAfter) {
+    $w0 = $walBefore -split ","; $w1 = $walAfter -split ","
+    $d = { param($i) [double]$w1[$i] - [double]$w0[$i] }
+    $avg = { param($time, $count) if ($count -gt 0) { [Math]::Round($time / $count, 3) } else { $null } }
+    $wal = [ordered]@{ timing = $w1[8]; writes = & $d 0; writeAvgMs = & $avg (& $d 1) (& $d 0); fsyncs = & $d 2; fsyncAvgMs = & $avg (& $d 3) (& $d 2)
+        records = & $d 4; fullPageImages = & $d 5; megabytes = [Math]::Round((& $d 6) / 1MB, 1); commits = & $d 7 }
+}
+
 $summary = [ordered]@{
     runId = $runId; label = $Label; startedAt = $startedAt.ToString("s"); coreUrl = $CoreUrl; performanceId = $PerformanceId
     usersPerSecond = $UsersPerSecond; durationSeconds = $DurationSeconds; users = $users
@@ -295,7 +316,7 @@ $summary = [ordered]@{
     client = [ordered]@{ successful = $evidence.successfulUsers; started = $evidence.startedUsers; technicalFailurePercent = $evidence.technicalFailurePercent
         overloaded = $evidence.overloadedUsers; residenceP95Ms = $evidence.p95CoreResidenceMillis; residenceP99Ms = $evidence.p99CoreResidenceMillis
         maxActiveUsers = $evidence.maxObservedActiveUsers; admissionsPerSecondMin = $minAdmit; admissionsPerSecondMax = $maxAdmit; gatlingGcMaxPauseMs = $gcMax }
-    server = [ordered]@{ hikariActiveMax = $maxActiveConn; hikariPendingMax = $maxPending; tomcatBusyMax = $maxBusy; processCpuMax = $maxCpu; metricTimeouts = $timeouts }
+    server = [ordered]@{ hikariActiveMax = $maxActiveConn; hikariPendingMax = $maxPending; tomcatBusyMax = $maxBusy; processCpuMax = $maxCpu; metricTimeouts = $timeouts; postgresWal = $wal }
     coreRequests = $core
 }
 Write-Utf8 (Join-Path $runDir "summary.json") ($summary | ConvertTo-Json -Depth 6)
@@ -322,6 +343,7 @@ foreach ($r in $invalid) { Write-Host "  invalid: $r" -ForegroundColor Yellow }
 foreach ($r in $reasons) { Write-Host "  fail: $r" -ForegroundColor Red }
 Write-Host ("client: {0}/{1} ok, residence p95 {2}ms p99 {3}ms, admissions/s {4}..{5}, gatling GC max {6}ms" -f $evidence.successfulUsers, $evidence.startedUsers, $evidence.p95CoreResidenceMillis, $evidence.p99CoreResidenceMillis, $minAdmit, $maxAdmit, $gcMax)
 Write-Host ("server: hikari {0}/{1} (pending max {2}), tomcat busy max {3}/{4}, cpu max {5}, orders before {6}" -f $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax, $maxCpu, $ordersBefore)
+if ($wal) { Write-Host ("postgres wal: fsyncs {0} avg {1}ms, writes {2} avg {3}ms, {4}MB, full-page images {5}, commits {6} (timing {7})" -f $wal.fsyncs, $wal.fsyncAvgMs, $wal.writes, $wal.writeAvgMs, $wal.megabytes, $wal.fullPageImages, $wal.commits, $wal.timing) }
 foreach ($key in $core.Keys) { Write-Host ("  core {0}: n={1} p50<={2} p95<={3} p99<={4} ms" -f $key, $core[$key].count, $core[$key].p50Ms, $core[$key].p95Ms, $core[$key].p99Ms) }
 Write-Host $row
 if ($verdict -eq "PASS") { exit 0 } elseif ($verdict -eq "FAIL") { exit 1 } else { exit 3 }
