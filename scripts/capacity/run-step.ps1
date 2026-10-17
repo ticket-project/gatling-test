@@ -1,6 +1,7 @@
 param(
-    [Parameter(Mandatory = $true)][double]$UsersPerSecond,
-    [Parameter(Mandatory = $true)][long]$PerformanceId,
+    [double]$UsersPerSecond = 0,
+    # 비우면(0) -Prod는 주문이 없는 다음 대형 회차를 운영 DB에서 고른다. 그 밖의 대상은 반드시 준다.
+    [long]$PerformanceId = 0,
     [int]$DurationSeconds = 30,
     [string]$CoreUrl = "http://localhost:8080",
     [string]$Label = "step",
@@ -17,7 +18,14 @@ param(
     [string]$KeyPath = "",
     [string]$RemoteProjectDir = "~/gatling-test",
     # reset-local.ps1이 기록하지 않는 대상(운영)의 Core commit. steps.md의 commit 칸에 쓴다.
-    [string]$CoreCommit = ""
+    [string]$CoreCommit = "",
+    # 운영 측정 묶음. 운영 호스트에 SSH로 들어가 지표 터널·JWT secret·회원 ID·다음 회차·실행 전 점검·회복 대기를
+    # 스스로 한다(prod-target.ps1). 사람이 줄 것은 부하 발생기 IP(-LoadHost)뿐이다.
+    # 키는 -KeyPath, 비우면 ~/.ssh/ticket-test-key-01.pem부터 찾는다(운영 호스트와 부하 발생기가 같은 키).
+    [switch]$Prod,
+    [string]$ProdHost = "ubuntu@oneticket.site",
+    # -Prod 준비와 점검만 하고 부하는 보내지 않는다. Core EC2를 켠 뒤나 다른 PC에서 준비가 됐는지 볼 때 쓴다.
+    [switch]$CheckOnly
 )
 
 # 03 고정 조건(CoreAdmissionCapacitySimulation) 한 단계를 콘솔 없이 실행하고 판정한다.
@@ -32,11 +40,12 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $gradlew = Join-Path $repo "gradlew.bat"
 $gatlingProject = Join-Path $repo "load-tests\gatling"
 $localSecret = "0123456789abcdef0123456789abcdef"
-# 부하 픽스처는 공연·회차·좌석이 모두 idBase + n이다(ticket seed LoadTestFixtureSeeder).
-# 표준 910000001~(2,000석), 대형 920000001~(15,000석). 좌석은 idBase + 1부터 연속이다.
-$seatStartId = [long]([Math]::Floor($PerformanceId / 10000000) * 10000000 + 1)
 
-function Fail([string]$message) { Write-Host "ABORT: $message" -ForegroundColor Red; exit 2 }
+# -Prod면 prod-target.ps1이 진짜 Stop-ProdTunnel로 덮어쓴다.
+function Stop-ProdTunnel {}
+function Fail([string]$message) { Stop-ProdTunnel; Write-Host "ABORT: $message" -ForegroundColor Red; exit 2 }
+# 예상하지 못한 예외도 중단(2)으로 끝낸다. 그대로 두면 종료 코드 1(FAIL과 같은 값)이 되어 판정과 섞인다.
+trap { Fail "unexpected error: $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))" }
 # Start-Process -Wait는 자식 프로세스까지 기다린다. gradlew가 새로 띄운 Gradle 데몬은 계속 살아 있으므로 끝나지 않는다.
 # 띄운 프로세스만 기다린다. Handle을 먼저 읽어야 Windows PowerShell 5.1에서 ExitCode가 남는다.
 function Invoke-Process([string]$file, [string[]]$arguments, [string]$out, [string]$err) {
@@ -55,6 +64,16 @@ function Write-Utf8([string]$path, [string]$value) {
 }
 
 # --- 대상과 입력 확인 ----------------------------------------------------------------------------
+if ($Prod) {
+    # 운영 묶음의 기본값. 터널·secret·회차는 결과 폴더를 만든 뒤 "운영 준비"에서 채운다.
+    if (-not $PSBoundParameters.ContainsKey('CoreUrl')) { $CoreUrl = "https://oneticket.site" }
+    $OperationalConfirmation = $true
+    if (-not $MemberIdsFile) { $MemberIdsFile = Join-Path $repo "scripts\core-capacity\member-ids.txt" }
+    if (-not $LoadHost -and -not $CheckOnly) { Fail "-Prod needs -LoadHost ubuntu@<load generator IP>" }
+    if ($CheckOnly -and -not $PSBoundParameters.ContainsKey('Label')) { $Label = "check" }
+} elseif ($CheckOnly) { Fail "-CheckOnly works only with -Prod" }
+if (-not $CheckOnly -and $UsersPerSecond -le 0) { Fail "-UsersPerSecond is required" }
+if (-not $Prod -and $PerformanceId -le 0) { Fail "-PerformanceId is required" }
 # compose가 127.0.0.1에만 연 포트는 ::1(IPv6 localhost)로는 닿지 않고, Windows는 거절된 연결을 약 2초 재시도한다.
 # localhost를 쓰면 1초 지표 수집(타임아웃 2초)이 매번 실패하므로 주소를 127.0.0.1로 고정한다.
 $CoreUrl = $CoreUrl -replace '^(https?://)localhost(?=[:/]|$)', '${1}127.0.0.1'
@@ -71,6 +90,40 @@ $runDir = Join-Path $repo ("distributed-results-join\capacity\{0}-{1}-{2}ups-{3}
 New-Item -ItemType Directory -Force $runDir | Out-Null
 $runId = [guid]::NewGuid().ToString()
 Write-Host "run dir: $runDir"
+
+# --- 운영 준비(-Prod) -------------------------------------------------------------------------------
+# 운영 호스트에서 commit·DB 규모·다음 회차·앞단 설정을 읽고, 지표 터널을 열고, JWT secret을 메모리로 받고,
+# 회원 ID 파일이 없으면 만들고, 앞 실행의 부하가 빠질 때까지 기다린다.
+# Core EC2는 측정할 때만 켜므로 JVM이 차가울 수 있다. 기동 시간(coreUptimeSeconds)이 짧으면 첫 실행은 예열로 쓴다.
+if ($Prod) {
+    . (Join-Path $repo "scripts\distributed-common.ps1")
+    . (Join-Path $PSScriptRoot "prod-target.ps1")
+    $LocalProjectDir = $repo
+    try { Initialize-SshSession -RunDir $runDir } catch { Fail "SSH setup failed: $($_.Exception.Message)" }
+    $prodInfo = Get-ProdPreflight
+    Write-Utf8 (Join-Path $runDir "server-conditions.txt") $prodInfo.Conditions
+    $MetricsUrl = Start-ProdTunnel $prodInfo.CoreIp
+    if (-not $PSBoundParameters.ContainsKey('JwtSecret')) { $JwtSecret = Get-ProdJwtSecret }
+    if (-not $CoreCommit) { $CoreCommit = $prodInfo.Commit.Substring(0, [Math]::Min(8, $prodInfo.Commit.Length)) }
+    if ($PerformanceId -le 0) {
+        if ($prodInfo.NextPerformance -le 0) { Fail "no large performance without orders is left; seed more large performances" }
+        $PerformanceId = $prodInfo.NextPerformance
+    }
+    if (-not (Test-Path $MemberIdsFile)) { Save-ProdMemberIds $MemberIdsFile ([Math]::Max(10000, $users)) }
+    Wait-CoreRecovered $MetricsUrl
+    $uptime = [regex]::Match((Get-Text "$MetricsUrl/actuator/prometheus"), '(?m)^process_uptime_seconds\{[^}]*\} ([0-9.eE+-]+)').Groups[1].Value
+    $prodConditions = [ordered]@{ prodHost = $ProdHost; image = $prodInfo.Image; coreCommit = $CoreCommit
+        coreUptimeSeconds = [Math]::Round([double]$uptime); members = $prodInfo.Members; orders = $prodInfo.Orders
+        maxConnections = $prodInfo.MaxConnections; largePerformances = $prodInfo.LargePerformances; performanceId = $PerformanceId
+        loadHost = $LoadHost; memberIdsFile = $MemberIdsFile }
+    Write-Utf8 (Join-Path $runDir "prod-conditions.json") ($prodConditions | ConvertTo-Json)
+    Write-Host ("prod: commit {0}, core up {1}s, members {2}, orders {3}, max_connections {4}, large performances {5}, next performance {6}" -f
+        $CoreCommit, $prodConditions.coreUptimeSeconds, $prodInfo.Members, $prodInfo.Orders, $prodInfo.MaxConnections, $prodInfo.LargePerformances, $PerformanceId)
+    if ($CheckOnly) { Stop-ProdTunnel; Write-Host "check: OK (no load sent)"; exit 0 }
+}
+# 부하 픽스처는 공연·회차·좌석이 모두 idBase + n이다(ticket seed LoadTestFixtureSeeder).
+# 표준 910000001~(2,000석), 대형 920000001~(15,000석). 좌석은 idBase + 1부터 연속이다.
+$seatStartId = [long]([Math]::Floor($PerformanceId / 10000000) * 10000000 + 1)
 
 $health = Get-Text "$MetricsUrl/actuator/health"
 if ($health -notmatch '"status":"UP"') { Fail "Core health is not UP: $health" }
@@ -158,10 +211,13 @@ if ($seatIds[0] -ne $seatStartId -or $seatIds[-1] - $seatIds[0] + 1 -ne $seatIds
 # 토큰은 이 PC에서 만들었으므로 EC2에는 JWT secret이 가지 않는다.
 $remoteDir = ""
 if ($LoadHost) {
-    . (Join-Path $repo "scripts\distributed-common.ps1")
-    $LocalProjectDir = $repo
+    # -Prod면 운영 준비에서 이미 SSH 세션을 만들었다(같은 키).
+    if (-not $Prod) { . (Join-Path $repo "scripts\distributed-common.ps1"); $LocalProjectDir = $repo }
     try {
-        Initialize-SshSession -RunDir $runDir
+        if (-not $Prod) { Initialize-SshSession -RunDir $runDir }
+        # 부하 발생기 EC2는 측정할 때만 켠다. Java 21이 없으면(새 인스턴스) 설치한다. 설치는 디스크에 남는다.
+        & $SshCommand @SshOptions $LoadHost 'v=$(java -version 2>&1 | head -1 | grep -oE [0-9]+ | head -1); [ ${v:-0} -ge 21 ] || (sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openjdk-21-jdk-headless >/dev/null)'
+        if ($LASTEXITCODE -ne 0) { throw "Java 21 install failed" }
         $archive = New-ProjectArchive -RunDir $runDir
         Sync-RemoteProject -HostName $LoadHost -ArchivePath $archive -StartedAt $stamp
         Remove-Item $archive
@@ -274,6 +330,8 @@ Wait-Job $sampler -Timeout 10 | Out-Null; Remove-Job $sampler -Force
 Remove-Item $stopFile -ErrorAction SilentlyContinue
 $after = Get-Metrics
 Write-Utf8 (Join-Path $runDir "prometheus-after.txt") $after
+# 운영 지표는 여기까지 읽는다. 이후는 결과 받아 오기와 이 PC의 분석뿐이다.
+Stop-ProdTunnel
 $walAfter = Get-Wal
 if ($walBefore) {
     Write-Utf8 (Join-Path $runDir "postgres-wal.txt") ("writes,write_time_ms,fsyncs,fsync_time_ms,wal_records,wal_fpi,wal_bytes,xact_commit,track_wal_io_timing`n" + "before,$walBefore`nafter,$walAfter")

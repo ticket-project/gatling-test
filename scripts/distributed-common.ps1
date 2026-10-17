@@ -101,6 +101,7 @@ function Resolve-DefaultSshKeyPath {
         $env:USERPROFILE
     }
     $candidates = @(
+        (Join-Path $userRoot ".ssh\ticket-test-key-01.pem"),
         (Join-Path $userRoot "OneDrive\바탕 화면\ticket\ticket-test-key-01.pem"),
         (Join-Path $userRoot "Desktop\ticket\ticket-test-key-01.pem")
     )
