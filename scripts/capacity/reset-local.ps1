@@ -22,8 +22,9 @@ param(
 # -Compose: Core를 Windows가 아니라 ticket docker-compose-local.yml의 컨테이너로 띄운다. PostgreSQL·Redis와 같은
 #    Docker 네트워크라 쿼리가 Docker 포트 중계를 지나지 않는다(capacity-log P-008). 포트·환경 파일은 compose가 정한다.
 #    -PoolSize는 이 셸의 SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE로 compose에 넘긴다.
-# -Datadog(-Compose 전용): compose의 datadog-agent를 함께 띄우고 CORE_JAVA_TOOL_OPTIONS로 Core 트레이서를 켠다.
-#    빼고 띄우면 Agent를 지우고 트레이서도 끈다. 트레이서가 Core CPU를 쓰므로 켠 실행은 끈 실행과 따로 비교한다.
+# -Datadog: Core 트레이서를 켠다. 트레이서가 Core CPU를 쓰므로 켠 실행은 끈 실행과 따로 비교한다.
+#    -Compose와 쓰면 compose의 datadog-agent를 함께 띄우고 CORE_JAVA_TOOL_OPTIONS로 켠다. 빼고 띄우면 Agent를 지우고 트레이서도 끈다.
+#    java -jar로 띄우면 운영과 같은 버전의 dd-java-agent를 붙인다. 이때 Agent는 직접 띄우고, 8126에서 기다리지 않으면 멈춘다.
 # 메시지는 영어로 쓴다(run-step.ps1과 같은 이유).
 
 $ErrorActionPreference = "Stop"
@@ -74,7 +75,6 @@ $seed = if ($KeepData) { $null } else { [ordered]@{ performances = $PerformanceC
 $workerEnabled = if ($env:WORKER_ENABLED) { $env:WORKER_ENABLED } else { "true" }
 $infoFile = Join-Path $capacityDir "core-local.json"
 
-if ($Datadog -and -not $Compose) { Fail "-Datadog needs -Compose" }
 if ($Compose) {
     if ($env:SPRING_DATASOURCE_URL) { Fail "-Compose uses the compose PostgreSQL; remove SPRING_DATASOURCE_URL from $EnvFile" }
     if ($PoolSize -gt 0) { $env:SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "$PoolSize" } else { Remove-Item env:SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE -ErrorAction SilentlyContinue }
@@ -119,8 +119,30 @@ if ($PoolSize -gt 0) { $env:SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE = "$PoolS
 $java = Get-ChildItem "$env:USERPROFILE\.jdks" -Directory -Filter "*25*" -ErrorAction SilentlyContinue | Sort-Object Name |
     Select-Object -Last 1 | ForEach-Object { Join-Path $_.FullName "bin\java.exe" }
 if (-not $java -or -not (Test-Path $java)) { Fail "JDK 25 not found under $env:USERPROFILE\.jdks" }
+
+$javaArgs = @("-jar", "`"$($jar.FullName)`"")
+if ($Datadog) {
+    # 버전은 운영 이미지(ticket Dockerfile의 DD_JAVA_AGENT_VERSION)와 맞춘다. 없으면 Maven Central에서 ~/.datadog에 받는다.
+    $ddVersion = "1.60.1"
+    $ddAgentJar = Join-Path $env:USERPROFILE ".datadog\dd-java-agent-$ddVersion.jar"
+    if (-not (Test-Path $ddAgentJar)) {
+        New-Item -ItemType Directory -Force (Split-Path $ddAgentJar) | Out-Null
+        Write-Host "downloading dd-java-agent $ddVersion..."
+        Invoke-WebRequest -UseBasicParsing "https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/$ddVersion/dd-java-agent-$ddVersion.jar" -OutFile $ddAgentJar
+    }
+    # compose의 datadog-agent는 8126을 호스트에 열지 않으므로 Windows Core에는 쓸 수 없다.
+    if (-not (Get-NetTCPConnection -LocalPort 8126 -State Listen -ErrorAction SilentlyContinue)) {
+        Fail "-Datadog without -Compose needs a Datadog Agent listening on localhost:8126"
+    }
+    $env:DD_SERVICE = "ticket-be"
+    $env:DD_ENV = "local"
+    $env:DD_VERSION = $commit
+    $env:DD_AGENT_HOST = "localhost"
+    $env:DD_LOGS_INJECTION = "true"
+    $javaArgs = @("-javaagent:`"$ddAgentJar`"") + $javaArgs
+}
 function Start-Core([string]$log) {
-    $process = Start-Process -FilePath $java -ArgumentList "-jar", "`"$($jar.FullName)`"" -WorkingDirectory $TicketRepo -WindowStyle Hidden -PassThru `
+    $process = Start-Process -FilePath $java -ArgumentList $javaArgs -WorkingDirectory $TicketRepo -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput $log -RedirectStandardError "$log.err"
     Write-Host "core starting (PID $($process.Id)), log: $log"
     $deadline = (Get-Date).AddSeconds(240)
@@ -152,7 +174,7 @@ if (-not $KeepData) {
 $pool = if ($PoolSize -gt 0) { $PoolSize } else { "default" }
 [ordered]@{
     startedAt = (Get-Date).ToString("s"); pid = $core.Id; jar = $jar.Name; java = $java; commit = $commit; sourceDirty = $dirty
-    mode = "java -jar"; p6spy = "off"; hikariPool = $pool; dataReset = $false; seedApplied = (-not $KeepData)
+    mode = "java -jar"; p6spy = "off"; hikariPool = $pool; datadog = [bool]$Datadog; dataReset = $false; seedApplied = (-not $KeepData)
     port = $Port; database = "PostgreSQL"; databaseTarget = $databaseUri.GetLeftPart([UriPartial]::Path); envFile = $EnvFile
     redisDatabase = $env:SPRING_DATA_REDIS_DATABASE; workerEnabled = $workerEnabled
     seed = $seed
