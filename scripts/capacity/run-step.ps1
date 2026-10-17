@@ -21,8 +21,9 @@ param(
 )
 
 # 03 고정 조건(CoreAdmissionCapacitySimulation) 한 단계를 콘솔 없이 실행하고 판정한다.
-# 판정 근거는 Gatling 쪽 시간이 아니라 Core 쪽 시간(/actuator/prometheus 히스토그램의 실행 전후 차이)이다.
-# 같은 PC의 부하 발생기가 멈추면 Gatling 쪽 시간이 부풀려지므로(capacity-log P-002),
+# 판정은 Gatling이 잰 체류 p99·기술 실패·과부하·비즈니스 거절로 한다(core-capacity.md 판정 기준).
+# Core 쪽 시간(/actuator/prometheus 히스토그램의 실행 전후 차이)은 원인을 찾는 데 쓰고 판정에는 쓰지 않는다.
+# 부하 발생기가 멈추면 Gatling 쪽 시간이 부풀려지므로(capacity-log P-002),
 # 초당 실제 입장 수가 목표에서 벗어난 실행은 무효로 표시한다.
 # 메시지는 영어로 쓴다. Windows PowerShell 5.1은 BOM 없는 UTF-8 스크립트의 한글 문자열을 깨뜨린다.
 
