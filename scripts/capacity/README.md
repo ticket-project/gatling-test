@@ -34,6 +34,8 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
   빼고 다시 띄우면 Agent 컨테이너를 지우고 트레이서도 끈다.
   `-Compose` 없이(`java -jar`) 쓰면 운영과 같은 버전의 dd-java-agent를 `~/.datadog`에 받아 붙인다. compose의 Agent는
   8126을 호스트에 열지 않으므로 Agent는 직접 띄워야 하고, `localhost:8126`에서 기다리지 않으면 멈춘다.
+- `-Datadog`이면 Gatling이 보내는 `X-Load-Test-Run-Id`를 span 태그 `load_test.run_id`로 남긴다. Datadog에서
+  `@load_test.run_id:<runId>`로 한 실행만 찾는다. `java -jar`면 Agent가 읽을 JSON 로그를 `distributed-results-join/capacity/core-logs`에 따로 쓴다.
 - 로컬 compose면 실행 전후 PostgreSQL WAL 통계를 `postgres-wal.txt`에 남기고 `summary.json`의 `server.postgresWal`에 차이를 적는다.
   fsync 시간은 PostgreSQL `track_wal_io_timing`이 켜져 있어야 쌓인다(capacity-log P-016).
 - 부하는 여전히 Windows의 Gatling이 `http://localhost:8083`으로 보내므로 HTTP 요청은 포트 중계를 지난다. 판정은 Core 쪽 숫자로 한다.

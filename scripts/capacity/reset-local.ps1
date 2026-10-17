@@ -25,6 +25,8 @@ param(
 # -Datadog: Core 트레이서를 켠다. 트레이서가 Core CPU를 쓰므로 켠 실행은 끈 실행과 따로 비교한다.
 #    -Compose와 쓰면 compose의 datadog-agent를 함께 띄우고 CORE_JAVA_TOOL_OPTIONS로 켠다. 빼고 띄우면 Agent를 지우고 트레이서도 끈다.
 #    java -jar로 띄우면 운영과 같은 버전의 dd-java-agent를 붙인다. 이때 Agent는 직접 띄우고, 8126에서 기다리지 않으면 멈춘다.
+#    두 방식 모두 요청 header X-Load-Test-Run-Id를 span 태그 load_test.run_id로 남긴다.
+#    java -jar면 Agent가 읽을 JSON 로그를 distributed-results-join/capacity/core-logs에 따로 쓴다.
 # 메시지는 영어로 쓴다(run-step.ps1과 같은 이유).
 
 $ErrorActionPreference = "Stop"
@@ -74,6 +76,8 @@ $seedArgs = @("seedLocal", "-q",
 $seed = if ($KeepData) { $null } else { [ordered]@{ performances = $PerformanceCount; largePerformances = $LargePerformanceCount; members = $Members; backgroundOrders = $BackgroundOrders } }
 $workerEnabled = if ($env:WORKER_ENABLED) { $env:WORKER_ENABLED } else { "true" }
 $infoFile = Join-Path $capacityDir "core-local.json"
+# Gatling이 보내는 실행 ID(summary.json의 runId)를 요청 span 태그로 남긴다. Datadog에서 @load_test.run_id:<runId>로 한 실행만 찾는다.
+$ddHeaderTags = "X-Load-Test-Run-Id:load_test.run_id"
 
 if ($Compose) {
     if ($env:SPRING_DATASOURCE_URL) { Fail "-Compose uses the compose PostgreSQL; remove SPRING_DATASOURCE_URL from $EnvFile" }
@@ -83,7 +87,7 @@ if ($Compose) {
     if ($Datadog) {
         $ddEnv = Join-Path (Split-Path $EnvFile) "datadog.env"
         if (-not ((Test-Path $ddEnv) -and (Select-String -Quiet -Path $ddEnv -Pattern '^DD_API_KEY=.+'))) { Fail "-Datadog needs DD_API_KEY and DD_SITE in $ddEnv" }
-        $env:CORE_JAVA_TOOL_OPTIONS = "-javaagent:/opt/datadog/dd-java-agent.jar"
+        $env:CORE_JAVA_TOOL_OPTIONS = "-javaagent:/opt/datadog/dd-java-agent.jar -Ddd.trace.header.tags=$ddHeaderTags"
         $services += "datadog-agent"
     } else {
         Remove-Item env:CORE_JAVA_TOOL_OPTIONS -ErrorAction SilentlyContinue
@@ -139,11 +143,20 @@ if ($Datadog) {
     $env:DD_VERSION = $commit
     $env:DD_AGENT_HOST = "localhost"
     $env:DD_LOGS_INJECTION = "true"
+    $env:DD_TRACE_HEADER_TAGS = $ddHeaderTags
     $javaArgs = @("-javaagent:`"$ddAgentJar`"") + $javaArgs
 }
 function Start-Core([string]$log) {
+    # -Datadog이면 사람이 읽는 로그는 $log에 그대로 남기고, Agent가 읽을 JSON 로그를 core-logs에 따로 쓴다.
+    # seedLocal에는 넘기지 않도록 Core 기동에만 둔다.
+    if ($Datadog) {
+        New-Item -ItemType Directory -Force (Join-Path $capacityDir "core-logs") | Out-Null
+        $env:LOGGING_FILE_NAME = Join-Path $capacityDir "core-logs\ticket-core.json"
+        $env:LOGGING_STRUCTURED_FORMAT_FILE = "logstash"
+    }
     $process = Start-Process -FilePath $java -ArgumentList $javaArgs -WorkingDirectory $TicketRepo -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+    Remove-Item Env:LOGGING_FILE_NAME, Env:LOGGING_STRUCTURED_FORMAT_FILE -ErrorAction SilentlyContinue
     Write-Host "core starting (PID $($process.Id)), log: $log"
     $deadline = (Get-Date).AddSeconds(240)
     do {
