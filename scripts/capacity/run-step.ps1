@@ -9,7 +9,15 @@ param(
     [double]$AdmissionTolerancePercent = 15,
     [int]$ResidenceP99LimitMillis = 5000,
     [int]$ThreadDumps = 0,
-    [switch]$OperationalConfirmation
+    [switch]$OperationalConfirmation,
+    # 운영 Core는 actuator를 밖에 열지 않는다. health·prometheus는 SSH 터널 같은 다른 주소로 읽는다. 비우면 CoreUrl.
+    [string]$MetricsUrl = "",
+    # 원격 부하 발생기(ubuntu@IP). 준비·지표 수집·판정은 이 PC에서 하고 Gatling만 그 EC2에서 SSH로 돌린다.
+    [string]$LoadHost = "",
+    [string]$KeyPath = "",
+    [string]$RemoteProjectDir = "~/gatling-test",
+    # reset-local.ps1이 기록하지 않는 대상(운영)의 Core commit. steps.md의 commit 칸에 쓴다.
+    [string]$CoreCommit = ""
 )
 
 # 03 고정 조건(CoreAdmissionCapacitySimulation) 한 단계를 콘솔 없이 실행하고 판정한다.
@@ -49,6 +57,8 @@ function Write-Utf8([string]$path, [string]$value) {
 # compose가 127.0.0.1에만 연 포트는 ::1(IPv6 localhost)로는 닿지 않고, Windows는 거절된 연결을 약 2초 재시도한다.
 # localhost를 쓰면 1초 지표 수집(타임아웃 2초)이 매번 실패하므로 주소를 127.0.0.1로 고정한다.
 $CoreUrl = $CoreUrl -replace '^(https?://)localhost(?=[:/]|$)', '${1}127.0.0.1'
+if (-not $MetricsUrl) { $MetricsUrl = $CoreUrl }
+$MetricsUrl = $MetricsUrl -replace '^(https?://)localhost(?=[:/]|$)', '${1}127.0.0.1'
 $coreUri = [Uri]$CoreUrl
 $isLocal = @("localhost", "127.0.0.1", "::1") -contains $coreUri.Host
 if (-not $isLocal -and -not $OperationalConfirmation) { Fail "non-local target requires -OperationalConfirmation" }
@@ -61,7 +71,7 @@ New-Item -ItemType Directory -Force $runDir | Out-Null
 $runId = [guid]::NewGuid().ToString()
 Write-Host "run dir: $runDir"
 
-$health = Get-Text "$CoreUrl/actuator/health"
+$health = Get-Text "$MetricsUrl/actuator/health"
 if ($health -notmatch '"status":"UP"') { Fail "Core health is not UP: $health" }
 try { Get-Text "$CoreUrl/api/v1/performances/$PerformanceId/summary" | Out-Null } catch { Fail "performance $PerformanceId not found: $($_.Exception.Message)" }
 
@@ -142,8 +152,29 @@ if ($seatIds[0] -ne $seatStartId -or $seatIds[-1] - $seatIds[0] + 1 -ne $seatIds
     Fail "seat ids of performance $PerformanceId are $($seatIds[0])..$($seatIds[-1]) ($($seatIds.Count) seats), not consecutive from $seatStartId"
 }
 
+# --- 원격 부하 발생기 준비 ----------------------------------------------------------------------
+# 이 PC의 작업 트리를 EC2에 풀어 Gatling 코드를 맞추고, 토큰·피더를 실행 폴더에 올린다.
+# 토큰은 이 PC에서 만들었으므로 EC2에는 JWT secret이 가지 않는다.
+$remoteDir = ""
+if ($LoadHost) {
+    . (Join-Path $repo "scripts\distributed-common.ps1")
+    $LocalProjectDir = $repo
+    try {
+        Initialize-SshSession -RunDir $runDir
+        $archive = New-ProjectArchive -RunDir $runDir
+        Sync-RemoteProject -HostName $LoadHost -ArchivePath $archive -StartedAt $stamp
+        Remove-Item $archive
+        Test-RemoteProject -HostName $LoadHost
+    } catch { Fail "load generator $LoadHost is not ready: $($_.Exception.Message)" }
+    $remoteDir = "/tmp/capacity-" + (Split-Path $runDir -Leaf)
+    & $SshCommand @SshOptions $LoadHost "mkdir -p $remoteDir"
+    if ($LASTEXITCODE -ne 0) { Fail "could not create $remoteDir on $LoadHost" }
+    & $ScpCommand @ScpOptions $tokensFile $feederFile "${LoadHost}:$remoteDir/"
+    if ($LASTEXITCODE -ne 0) { Fail "could not upload tokens and feeder to $LoadHost" }
+}
+
 # --- 실행 전 상태 ------------------------------------------------------------------------------
-function Get-Metrics { Get-Text "$CoreUrl/actuator/prometheus" }
+function Get-Metrics { Get-Text "$MetricsUrl/actuator/prometheus" }
 function Get-Gauge([string]$text, [string]$name) {
     $m = [regex]::Match($text, "(?m)^$name\{[^}]*\} ([0-9.eE+-]+)")
     if ($m.Success) { [double]$m.Groups[1].Value } else { $null }
@@ -181,7 +212,7 @@ if ($ThreadDumps -gt 0) {
         $corePid = $coreInfo.pid
     }
 }
-$sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container -ScriptBlock {
+$sampler = Start-Job -ArgumentList $MetricsUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container -ScriptBlock {
     param($url, $file, $stop, $dumps, $jcmd, $corePid, $dir, $container)
     Set-Content $file "time`thikari_active`thikari_pending`ttomcat_busy`tprocess_cpu`tsystem_cpu"
     $names = "hikaricp_connections_active", "hikaricp_connections_pending", "tomcat_threads_busy_threads", "process_cpu_usage", "system_cpu_usage"
@@ -213,17 +244,30 @@ $sampler = Start-Job -ArgumentList $CoreUrl, $metricsFile, $stopFile, $ThreadDum
     }
 }
 
-$runArgs = @("-p", $gatlingProject, "gatlingRun", "-DgatlingReportDir=$runDir",
-    "--simulation", "com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation",
-    "-DcoreBaseUrl=$CoreUrl", "-DbookingFeederFile=$feederFile", "-DbookingFeederOffset=0",
-    "-DbookingScenario=CORE_ADMISSION_CAPACITY", "-DresultFile=$(Join-Path $runDir 'booking-results.csv')",
-    "-DtechnicalFailureThresholdPercent=1.0", "-DpollingTimeoutSeconds=300", "-DqueueTimeoutThresholdPercent=0",
-    "-DmaxCoreAdmissionsPerSecond=0", "-DadmissionRateTolerancePercent=0",
-    "-DperformanceId=$PerformanceId", "-Dusers=1", "-DdurationSeconds=$DurationSeconds",
-    "-DinjectionMode=constant-users-per-sec", "-DusersPerSecond=$UsersPerSecond", "-DtargetUsersPerSecond=$UsersPerSecond",
-    "-DaccessTokenMode=tokens", "-DaccessTokensFile=$tokensFile", "-DconsoleRunId=$runId")
+function Get-GatlingArgs([string]$project, [string]$dir, [string]$feeder, [string]$tokens, [string]$result) {
+    @("-p", $project, "gatlingRun", "-DgatlingReportDir=$dir",
+        "--simulation", "com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation",
+        "-DcoreBaseUrl=$CoreUrl", "-DbookingFeederFile=$feeder", "-DbookingFeederOffset=0",
+        "-DbookingScenario=CORE_ADMISSION_CAPACITY", "-DresultFile=$result",
+        "-DtechnicalFailureThresholdPercent=1.0", "-DpollingTimeoutSeconds=300", "-DqueueTimeoutThresholdPercent=0",
+        "-DmaxCoreAdmissionsPerSecond=0", "-DadmissionRateTolerancePercent=0",
+        "-DperformanceId=$PerformanceId", "-Dusers=1", "-DdurationSeconds=$DurationSeconds",
+        "-DinjectionMode=constant-users-per-sec", "-DusersPerSecond=$UsersPerSecond", "-DtargetUsersPerSecond=$UsersPerSecond",
+        "-DaccessTokenMode=tokens", "-DaccessTokensFile=$tokens", "-DconsoleRunId=$runId")
+}
 $startedAt = Get-Date
-$gatlingExit = Invoke-Process $gradlew $runArgs (Join-Path $runDir "gatling.log") (Join-Path $runDir "gatling.err")
+if ($LoadHost) {
+    # 원격 명령은 공백이 있어 큰따옴표로 한 인수로 묶는다(Start-Process는 인수를 따옴표 없이 공백으로 잇는다).
+    # core.autocrlf로 받은 작업 트리는 gradlew가 CRLF라서 Linux에서 실행되지 않는다(/bin/sh^M). 실행 전에 LF로 바꾼다.
+    # 원격 명령은 큰따옴표로 묶여 전달되므로 안에 따옴표를 쓰지 않는다. 안쪽 bash가 \\r을 \r로 풀어 sed에 넘긴다.
+    $remoteRun = "timeout 900s bash -lc 'cd $RemoteProjectDir && sed -i s/\\r`$// gradlew && ./gradlew " + ((Get-GatlingArgs "load-tests/gatling" $remoteDir "$remoteDir/feeder.csv" "$remoteDir/access-tokens.txt" "$remoteDir/booking-results.csv") -join " ") +
+        "; code=`$?; cp load-tests/gatling/build/gatling-jvm.log $remoteDir/ 2>/dev/null; exit `$code'"
+    $sshArgs = @($SshOptions | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) + $LoadHost + ('"' + $remoteRun + '"')
+    $gatlingExit = Invoke-Process $SshCommand $sshArgs (Join-Path $runDir "gatling.log") (Join-Path $runDir "gatling.err")
+} else {
+    $runArgs = Get-GatlingArgs $gatlingProject $runDir $feederFile $tokensFile (Join-Path $runDir 'booking-results.csv')
+    $gatlingExit = Invoke-Process $gradlew $runArgs (Join-Path $runDir "gatling.log") (Join-Path $runDir "gatling.err")
+}
 New-Item -ItemType File $stopFile | Out-Null
 Wait-Job $sampler -Timeout 10 | Out-Null; Remove-Job $sampler -Force
 Remove-Item $stopFile -ErrorAction SilentlyContinue
@@ -233,8 +277,21 @@ $walAfter = Get-Wal
 if ($walBefore) {
     Write-Utf8 (Join-Path $runDir "postgres-wal.txt") ("writes,write_time_ms,fsyncs,fsync_time_ms,wal_records,wal_fpi,wal_bytes,xact_commit,track_wal_io_timing`n" + "before,$walBefore`nafter,$walAfter")
 }
-$gcLog = Join-Path $gatlingProject "build\gatling-jvm.log"
-if (Test-Path $gcLog) { Copy-Item $gcLog (Join-Path $runDir "gatling-jvm.log") }
+if ($LoadHost) {
+    # 결과를 받아 오고, 토큰이 든 원격 실행 폴더를 지운다. 토큰·피더는 이 PC에 이미 있어 받지 않는다.
+    $remoteArchive = "$remoteDir.tgz"
+    & $SshCommand @SshOptions $LoadHost "tar -czf $remoteArchive --exclude=./access-tokens.txt --exclude=./feeder.csv -C $remoteDir .; rm -rf $remoteDir"
+    $localArchive = Join-Path $runDir "remote-results.tgz"
+    & $ScpCommand @ScpOptions "${LoadHost}:$remoteArchive" $localArchive
+    $downloadExit = $LASTEXITCODE
+    & $SshCommand @SshOptions $LoadHost "rm -f $remoteArchive"
+    if ($downloadExit -ne 0) { Fail "could not download results from $LoadHost (see gatling.log)" }
+    & $TarCommand -xzf $localArchive -C $runDir
+    Remove-Item $localArchive
+} else {
+    $gcLog = Join-Path $gatlingProject "build\gatling-jvm.log"
+    if (Test-Path $gcLog) { Copy-Item $gcLog (Join-Path $runDir "gatling-jvm.log") }
+}
 
 # --- 분석 ------------------------------------------------------------------------------------
 # Core 쪽 요청별 분포: 실행 전후 누적 버킷의 차이. 버킷 경계라서 "이하" 값이다.
@@ -264,6 +321,8 @@ foreach ($key in ($b1.Keys | Sort-Object)) {
     $core[$key] = [ordered]@{ count = [int]$total; p50Ms = (& $q 0.5); p95Ms = (& $q 0.95); p99Ms = (& $q 0.99) }
 }
 
+# Gatling이 시작도 못 하면 증거 파일이 없다. FAIL(1)과 섞이지 않게 중단(2)으로 끝낸다.
+if (-not (Test-Path (Join-Path $runDir "booking-evidence.json"))) { Fail "Gatling produced no booking-evidence.json (exit $gatlingExit, see gatling.log and gatling.err)" }
 $evidence = Get-Content (Join-Path $runDir "booking-evidence.json") -Raw | ConvertFrom-Json
 $admissions = @(Import-Csv (Join-Path $runDir "booking-admissions.csv") -Header epochSecond, count | Select-Object -Skip 1 | ForEach-Object { [int]$_.count })
 $inner = if ($admissions.Count -gt 2) { $admissions[1..($admissions.Count - 2)] } else { $admissions }
@@ -311,7 +370,8 @@ $summary = [ordered]@{
     runId = $runId; label = $Label; startedAt = $startedAt.ToString("s"); coreUrl = $CoreUrl; performanceId = $PerformanceId
     usersPerSecond = $UsersPerSecond; durationSeconds = $DurationSeconds; users = $users
     conditions = [ordered]@{ hikariMax = $hikariMax; tomcatMaxThreads = $tomcatMax; ordersBefore = $ordersBefore; seats = $seats.Count
-        core = $coreInfo; coreWarnings = $coreWarnings; database = $databaseInfo }
+        core = $coreInfo; coreCommit = $CoreCommit; coreWarnings = $coreWarnings; database = $databaseInfo
+        metricsUrl = $MetricsUrl; loadGenerator = $(if ($LoadHost) { $LoadHost } else { "local" }) }
     verdict = $verdict; invalidReasons = $invalid; failReasons = $reasons
     client = [ordered]@{ successful = $evidence.successfulUsers; started = $evidence.startedUsers; technicalFailurePercent = $evidence.technicalFailurePercent
         overloaded = $evidence.overloadedUsers; residenceP95Ms = $evidence.p95CoreResidenceMillis; residenceP99Ms = $evidence.p99CoreResidenceMillis
@@ -329,7 +389,7 @@ $shortNames = [ordered]@{
     "GET /api/v1/orders/{orderKey}/status" = "orderStatus"
 }
 $coreLine = ($shortNames.Keys | Where-Object { $core.Contains($_) } | ForEach-Object { "$($shortNames[$_]) $($core[$_].p95Ms)" }) -join ", "
-$commitLabel = if ($coreInfo) { "@$($coreInfo.commit)" } else { "@unknown" }
+$commitLabel = if ($coreInfo) { "@$($coreInfo.commit)" } elseif ($CoreCommit) { "@$CoreCommit" } else { "@unknown" }
 $row = "| {0} | {1} | {2} x {3}s | {4} | {5}/{6} | {7} / {8} | {9} | {10}/{11} pend {12}, busy {13}/{14} | {15} | {16} |" -f `
     $startedAt.ToString("MM-dd HH:mm"), "$Label $commitLabel", $UsersPerSecond, $DurationSeconds, $PerformanceId, $evidence.successfulUsers, $evidence.startedUsers,
     $evidence.p95CoreResidenceMillis, $evidence.p99CoreResidenceMillis, $coreLine, $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax,

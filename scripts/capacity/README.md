@@ -57,11 +57,20 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 ```powershell
 .\scripts\capacity\run-step.ps1 -UsersPerSecond 50 -PerformanceId 910000003 -Label ladder
 .\scripts\capacity\run-step.ps1 -UsersPerSecond 50 -PerformanceId 920000001 -Label large
-# 운영
-$env:LOADTEST_JWT_SECRET = "<운영 JWT secret>"
+# 운영: 지표는 SSH 터널로 읽고, Gatling은 EC2 부하 발생기에서 돌린다
 .\scripts\capacity\run-step.ps1 -CoreUrl https://oneticket.site -OperationalConfirmation `
+  -MetricsUrl http://127.0.0.1:18080 -LoadHost ubuntu@<EC2 IP> -KeyPath <키> -CoreCommit <운영 commit> `
   -MemberIdsFile scripts\core-capacity\member-ids.txt -UsersPerSecond 5 -PerformanceId 920000001 -Label prod
 ```
+
+운영 JWT secret은 사용자 환경 변수 `LOADTEST_JWT_SECRET`에 둔다. 명령행이나 파일에 쓰지 않는다.
+
+- `-MetricsUrl`: health와 `/actuator/prometheus`를 읽을 주소다. 비우면 `-CoreUrl`이다. 운영 Core는 actuator를 밖에 열지 않으므로
+  운영 호스트로 SSH 터널(`ssh -N -L 18080:<ticket-be 컨테이너 IP>:8080 ubuntu@<운영 호스트>`)을 열고 그 주소를 준다.
+- `-LoadHost`: Gatling만 그 EC2에서 SSH로 돌린다. 토큰·피더 생성, 회차 검사, 1초 지표 수집, 판정은 이 PC에서 한다.
+  실행마다 이 작업 트리를 EC2의 `-RemoteProjectDir`(기본 `~/gatling-test`)에 풀고, 토큰·피더를 `/tmp/capacity-<결과 폴더 이름>`에 올린다.
+  끝나면 결과를 받아 오고 EC2의 그 폴더(토큰 포함)를 지운다. EC2에는 JWT secret이 가지 않는다. `-KeyPath`를 비우면 `ticket-test-key-01.pem`을 찾는다.
+- `-CoreCommit`: `reset-local.ps1`이 기록하지 않는 대상의 Core commit이다. `steps.md`의 commit 칸과 `summary.json`에 쓴다.
 
 순서는 이렇다.
 
