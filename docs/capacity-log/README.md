@@ -56,7 +56,7 @@ ticket-core [Core 수용량](https://github.com/ticket-project/ticket-core/blob/
 | 10-15 | 로컬 compose(Core 컨테이너, PG 18) | `a5ec3fab` | 위와 같은 코드·데이터, PC 재부팅 뒤 컨테이너 자동 재기동, IntelliJ 켜짐 | 200·300 u/s PASS(p99 1.99·1.56초), **400 u/s PASS 3·FAIL 3**(PASS p99 1.48~2.07초, FAIL 6.0~13.3초) | [같은 코드 400 u/s 갈림](2026-10-15-400ups-bimodal.md). 400 u/s는 풀 10의 경계라 로컬 판정이 흔들린다(P-016). 로컬 한계 후보 300~400 u/s |
 | 10-15 | 로컬 compose(Core 컨테이너, PG 18) | `a5ec3fab`(앱 jar 동일) | 위와 같음, `track_wal_io_timing` 켬, 단계마다 PENDING 0에서 시작, 대형 회차 105개 | 풀 10: 400 u/s PASS 4(p99 1.98~2.87초), 450 u/s PASS 2(2.20·2.88초), 500 u/s FAIL(13.2초, 다른 한 번 INVALID). 풀 20: 450 u/s PASS(3.20초), 500 u/s FAIL(7.26초) | [B·D 측정](2026-10-15-400ups-bimodal.md#bd-측정--커밋-시간과-풀-20-08140913). 한계는 WAL fsync(500 u/s에서 통로 90% 이상 사용). 풀 20은 효과 없음. 로컬 한계 후보 450~500 u/s |
 
-| 10-17 | **운영**(EC2 2 vCPU, RDS PostgreSQL) | `bca715fe` | 03, 회원 100만·주문 500만·15,000석, 각 30초. Hikari 10, Tomcat 200, Datadog 트레이서 켬. 부하 발생기 EC2 c6i.xlarge(같은 리전) | 5~50 u/s PASS(50은 p99 1,581ms), **60 u/s FAIL 2·PASS 1**(p99 6,754·5,822·4,542ms) | [운영 첫 측정](2026-10-17-prod-first.md). 첫 FAIL 60 u/s, 원인은 호스트 CPU 포화(P-017). 로컬(16코어 PC)과 사양이 달라 직접 비교하지 않는다. C 미확정 |
+| 10-17 | **운영**(EC2 2 vCPU, RDS PostgreSQL) | `bca715fe` | 03, 회원 100만·주문 500만·15,000석, 각 30초. Hikari 10, Tomcat 200, Datadog 트레이서 켬. 부하 발생기 EC2 c6i.xlarge(같은 리전) | 5~50 u/s PASS(50은 체류 p99 1,581ms, 주문 생성 p95 555ms), **60 u/s FAIL**(이전 기준 FAIL 2·PASS 1, 새 기준 FAIL 3) | [운영 첫 측정](2026-10-17-prod-first.md). 첫 FAIL 60 u/s, 원인은 호스트 CPU 포화(P-017). 이날부터 판정 기준이 바뀌었다(요청별 응답·밀림·기술 실패 0.1%). 로컬(16코어 PC)과 사양이 달라 직접 비교하지 않는다. C 미확정 |
 
 ## 일지 틀
 
