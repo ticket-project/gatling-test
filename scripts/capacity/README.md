@@ -124,16 +124,28 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 - 시작 사용자 수가 목표보다 적다.
 - 로컬 Core가 디버거나 `TieredStopAtLevel=1`로 떠 있다.
 - 로컬 Core를 `reset-local.ps1`로 띄우지 않아 commit과 조건을 알 수 없다.
+- 비즈니스 거절이 1명 이상이다. 회차를 다시 썼거나 좌석·회원 준비가 덜 된 것이라 새 회차로 다시 잰다.
+- Gatling HTML 리포트가 없거나 다섯 요청 중 빠진 것이 있어 요청별 응답을 판정할 수 없다.
 
 ### 판정
 
-유효한 실행만 판정한다. 아래 중 하나라도 있으면 `FAIL`이다.
+유효한 실행만 판정한다. 아래 중 하나라도 있으면 `FAIL`이다. 기준의 원본과 이유는 ticket-core
+[Core 수용량](https://github.com/ticket-project/ticket-core/blob/master/docs/core-capacity.md)의 "판정 기준"이다(2026-10-17 개정).
 
-- Gatling 실패
-- 기술 실패 1% 이상
-- 과부하(E6003) 1명 이상
-- 체류 p99가 5,000ms 초과
-- 비즈니스 거절 1명 이상(데이터 오염)
+| 조건 | 기준 |
+| --- | --- |
+| Gatling 실패 | 기술 실패율 assertion(아래 기준과 같은 값) |
+| 기술 실패 | 0.1% 이상 |
+| 과부하(E6003) | 1명 이상 |
+| 조회 응답(`performance summary`, `seat status`, `get order`) | 각각 p95 > 500ms 또는 p99 > 1,000ms |
+| 쓰기 응답(`select seat`, `create order`) | 각각 p95 > 1,000ms 또는 p99 > 2,000ms |
+| 밀림 | 주입이 끝날 때(마지막 입장 시각) 아직 끝나지 않은 사용자 > 부하 × 1초, 또는 마지막 5초 입장 구간의 체류 중앙값 > 1,000ms |
+
+- 응답 시간은 Gatling HTML 리포트 통계 표의 요청별 95th·99th pct다. 사용자가 실제로 기다린 시간이라 네트워크 왕복을 포함한다.
+- 밀림은 `booking-results.csv`의 `coreAdmittedAt`·`flowCompletedAt`·`coreResidenceMillis`로 계산한다. 30초 안에 응답 기준을 넘지 않아도
+  처리가 입장을 못 따라가면 FAIL로 잡으려는 조건이다(capacity-log 2026-10-17, 60 u/s 진단 실행).
+- 체류 p95/p99와 Core 쪽 p95는 `summary.json`·`steps.md`에 기록만 하고 판정에 쓰지 않는다.
+- `summary.json`의 `client.requests`(요청별 p95/p99), `client.leftAtInjectionEnd`, `client.tailResidenceMedianMs`에 판정에 쓴 값이 남는다.
 
 종료 코드는 PASS 0, FAIL 1, 중단 2, INVALID 3이다.
 

@@ -8,7 +8,6 @@ param(
     [string]$MemberIdsFile = "",
     [string]$JwtSecret = $env:LOADTEST_JWT_SECRET,
     [double]$AdmissionTolerancePercent = 15,
-    [int]$ResidenceP99LimitMillis = 5000,
     [int]$ThreadDumps = 0,
     [switch]$OperationalConfirmation,
     # 운영 Core는 actuator를 밖에 열지 않는다. health·prometheus는 SSH 터널 같은 다른 주소로 읽는다. 비우면 CoreUrl.
@@ -29,10 +28,10 @@ param(
 )
 
 # 03 고정 조건(CoreAdmissionCapacitySimulation) 한 단계를 콘솔 없이 실행하고 판정한다.
-# 판정은 Gatling이 잰 체류 p99·기술 실패·과부하·비즈니스 거절로 한다(core-capacity.md 판정 기준).
-# Core 쪽 시간(/actuator/prometheus 히스토그램의 실행 전후 차이)은 원인을 찾는 데 쓰고 판정에는 쓰지 않는다.
-# 부하 발생기가 멈추면 Gatling 쪽 시간이 부풀려지므로(capacity-log P-002),
-# 초당 실제 입장 수가 목표에서 벗어난 실행은 무효로 표시한다.
+# 판정 기준의 원본은 ticket docs/core-capacity.md "판정 기준"이다(2026-10-17 개정).
+# FAIL: 기술 실패, 과부하(E6003), Gatling 쪽 요청별 응답 시간, 밀림(처리가 입장을 못 따라감).
+# INVALID: 입장 속도·부하 발생기 GC·시작 사용자 수가 어긋났거나 비즈니스 거절이 있다(데이터 문제).
+# 체류 p99와 Core 쪽 시간(/actuator/prometheus 히스토그램의 실행 전후 차이)은 기록만 하고 판정에 쓰지 않는다.
 # 메시지는 영어로 쓴다. Windows PowerShell 5.1은 BOM 없는 UTF-8 스크립트의 한글 문자열을 깨뜨린다.
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +39,16 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $gradlew = Join-Path $repo "gradlew.bat"
 $gatlingProject = Join-Path $repo "load-tests\gatling"
 $localSecret = "0123456789abcdef0123456789abcdef"
+# 판정 기준값(core-capacity.md). 요청 이름은 CoreBookingFlow의 http(...) 이름이다. 값은 p95, p99 상한(ms).
+$TechnicalFailureLimitPercent = 0.1
+$LatencyLimits = [ordered]@{
+    "performance summary" = @(500, 1000); "seat status" = @(500, 1000); "get order" = @(500, 1000)
+    "select seat" = @(1000, 2000); "create order" = @(1000, 2000)
+}
+# 밀림: 주입이 끝날 때 Core 안에 남은 사용자가 부하 x 이 초보다 많거나, 마지막 몇 초 입장 구간의 체류 중앙값이 상한을 넘으면 FAIL.
+$BacklogSeconds = 1
+$TailWindowSeconds = 5
+$TailMedianLimitMillis = 1000
 
 # -Prod면 prod-target.ps1이 진짜 Stop-ProdTunnel로 덮어쓴다.
 function Stop-ProdTunnel {}
@@ -306,7 +315,7 @@ function Get-GatlingArgs([string]$project, [string]$dir, [string]$feeder, [strin
         "--simulation", "com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation",
         "-DcoreBaseUrl=$CoreUrl", "-DbookingFeederFile=$feeder", "-DbookingFeederOffset=0",
         "-DbookingScenario=CORE_ADMISSION_CAPACITY", "-DresultFile=$result",
-        "-DtechnicalFailureThresholdPercent=1.0", "-DpollingTimeoutSeconds=300", "-DqueueTimeoutThresholdPercent=0",
+        "-DtechnicalFailureThresholdPercent=$TechnicalFailureLimitPercent", "-DpollingTimeoutSeconds=300", "-DqueueTimeoutThresholdPercent=0",
         "-DmaxCoreAdmissionsPerSecond=0", "-DadmissionRateTolerancePercent=0",
         "-DperformanceId=$PerformanceId", "-Dusers=1", "-DdurationSeconds=$DurationSeconds",
         "-DinjectionMode=constant-users-per-sec", "-DusersPerSecond=$UsersPerSecond", "-DtargetUsersPerSecond=$UsersPerSecond",
@@ -397,6 +406,28 @@ if (Test-Path (Join-Path $runDir "gatling-jvm.log")) {
     foreach ($m in [regex]::Matches((Get-Content (Join-Path $runDir "gatling-jvm.log") -Raw), 'Pause [^\r\n]* ([0-9.]+)ms')) { $gcMax = [Math]::Max($gcMax, [double]$m.Groups[1].Value) }
 }
 
+# Gatling 쪽 요청별 p95/p99: HTML 리포트 통계 표에서 읽는다(col-10 = 95th, col-11 = 99th pct). 사용자가 실제로 기다린 시간이다.
+$requests = [ordered]@{}
+$report = Get-ChildItem (Join-Path $runDir "coreadmissioncapacitysimulation-*\index.html") -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($report) {
+    $html = [IO.File]::ReadAllText($report.FullName, [Text.Encoding]::UTF8)
+    foreach ($row in [regex]::Matches($html, '<tr[^>]*>(?:(?!</tr>).)*?</tr>', 'Singleline')) {
+        $name = [regex]::Match($row.Value, 'class="ellipsed-name">([^<]+)<').Groups[1].Value.Trim()
+        $cols = @{}; foreach ($m in [regex]::Matches($row.Value, 'col-(\d+)">([^<]*)<')) { $cols[[int]$m.Groups[1].Value] = $m.Groups[2].Value.Trim().Replace(",", "") }
+        if ($name -and $cols[10] -match '^\d+$' -and $cols[11] -match '^\d+$') { $requests[$name] = [ordered]@{ p95Ms = [int]$cols[10]; p99Ms = [int]$cols[11] } }
+    }
+}
+
+# 밀림: Open Model에서 버틴다는 것은 처리가 입장을 따라간다는 뜻이다. 주입이 끝난 시각(마지막 입장)에 아직 끝나지 않은 사용자 수와
+# 마지막 입장 구간의 체류 중앙값을 본다. 30초 안에 응답 기준을 넘지 않아도 밀림이 쌓이면 더 긴 실행에서 무너진다(capacity-log 10-17).
+$results = @(Import-Csv (Join-Path $runDir "booking-results.csv") | Where-Object { $_.coreAdmittedAt })
+$admittedAt = @($results | ForEach-Object { [datetime]$_.coreAdmittedAt })
+$injectionEnd = ($admittedAt | Measure-Object -Maximum).Maximum
+$leftAtEnd = @($results | Where-Object { $_.flowCompletedAt -and [datetime]$_.flowCompletedAt -gt $injectionEnd }).Count
+$tail = @($results | Where-Object { [datetime]$_.coreAdmittedAt -ge $injectionEnd.AddSeconds(-$TailWindowSeconds) -and $_.coreResidenceMillis } |
+    ForEach-Object { [int]$_.coreResidenceMillis } | Sort-Object)
+$tailMedian = if ($tail.Count -gt 0) { $tail[[int][Math]::Floor($tail.Count / 2)] } else { $null }
+
 # 유효성: 부하 발생기가 목표 속도로 사람을 넣었는가. Core가 막히면 입장은 일정하고 완료만 흔들린다.
 $invalid = @()
 # 낮은 부하에서는 초 경계 때문에 1~2명 흔들리는 것이 정상이라 ±2명까지는 허용한다.
@@ -407,13 +438,23 @@ if ($minAdmit -lt $UsersPerSecond - $tolerance -or $maxAdmit -gt $UsersPerSecond
 if ($gcMax -gt 200) { $invalid += "load generator GC pause ${gcMax}ms" }
 if ($evidence.startedUsers -ne $users) { $invalid += "started $($evidence.startedUsers) of $users users" }
 if ($coreWarnings.Count -gt 0) { $invalid += $coreWarnings }
+# 비즈니스 거절은 회차를 다시 썼거나 좌석·회원 준비가 덜 됐다는 뜻이다. Core 용량과 상관이 없어 숫자를 쓰지 않는다.
+if ($evidence.businessRejectedUsers -gt 0) { $invalid += "business rejected $($evidence.businessRejectedUsers) users (data not clean, use a fresh performance)" }
+if (-not $report) { $invalid += "Gatling HTML report not found, per-request latency unknown" }
+foreach ($name in $LatencyLimits.Keys) { if ($report -and -not $requests.Contains($name)) { $invalid += "request '$name' missing from Gatling report" } }
 
 $reasons = @()
 if ($gatlingExit -ne 0) { $reasons += "gatling exit $($gatlingExit)" }
-if ($evidence.technicalFailurePercent -ge 1.0) { $reasons += "technical failure $($evidence.technicalFailurePercent)%" }
+if ($evidence.technicalFailurePercent -ge $TechnicalFailureLimitPercent) { $reasons += "technical failure $($evidence.technicalFailurePercent)% >= $TechnicalFailureLimitPercent%" }
 if ($evidence.overloadedUsers -gt 0) { $reasons += "E6003 overloaded $($evidence.overloadedUsers) users" }
-if ($evidence.p99CoreResidenceMillis -gt $ResidenceP99LimitMillis) { $reasons += "residence p99 $($evidence.p99CoreResidenceMillis)ms > $ResidenceP99LimitMillis" }
-if ($evidence.businessRejectedUsers -gt 0) { $reasons += "business rejected $($evidence.businessRejectedUsers) users (data not clean)" }
+foreach ($name in $LatencyLimits.Keys) {
+    if (-not $requests.Contains($name)) { continue }
+    $limit = $LatencyLimits[$name]; $r = $requests[$name]
+    if ($r.p95Ms -gt $limit[0] -or $r.p99Ms -gt $limit[1]) { $reasons += "$name p95 $($r.p95Ms)ms / p99 $($r.p99Ms)ms > $($limit[0]) / $($limit[1])" }
+}
+$backlogLimit = $UsersPerSecond * $BacklogSeconds
+if ($leftAtEnd -gt $backlogLimit) { $reasons += "backlog: $leftAtEnd users still in Core when injection ended > $backlogLimit" }
+if ($null -ne $tailMedian -and $tailMedian -gt $TailMedianLimitMillis) { $reasons += "backlog: last ${TailWindowSeconds}s residence median ${tailMedian}ms > $TailMedianLimitMillis" }
 $verdict = if ($invalid.Count -gt 0) { "INVALID" } elseif ($reasons.Count -gt 0) { "FAIL" } else { "PASS" }
 
 $wal = $null
@@ -434,7 +475,8 @@ $summary = [ordered]@{
     verdict = $verdict; invalidReasons = $invalid; failReasons = $reasons
     client = [ordered]@{ successful = $evidence.successfulUsers; started = $evidence.startedUsers; technicalFailurePercent = $evidence.technicalFailurePercent
         overloaded = $evidence.overloadedUsers; residenceP95Ms = $evidence.p95CoreResidenceMillis; residenceP99Ms = $evidence.p99CoreResidenceMillis
-        maxActiveUsers = $evidence.maxObservedActiveUsers; admissionsPerSecondMin = $minAdmit; admissionsPerSecondMax = $maxAdmit; gatlingGcMaxPauseMs = $gcMax }
+        maxActiveUsers = $evidence.maxObservedActiveUsers; admissionsPerSecondMin = $minAdmit; admissionsPerSecondMax = $maxAdmit; gatlingGcMaxPauseMs = $gcMax
+        requests = $requests; leftAtInjectionEnd = $leftAtEnd; tailResidenceMedianMs = $tailMedian }
     server = [ordered]@{ hikariActiveMax = $maxActiveConn; hikariPendingMax = $maxPending; tomcatBusyMax = $maxBusy; processCpuMax = $maxCpu; metricTimeouts = $timeouts; postgresWal = $wal }
     coreRequests = $core
 }
@@ -461,6 +503,8 @@ Write-Host "verdict: $verdict"
 foreach ($r in $invalid) { Write-Host "  invalid: $r" -ForegroundColor Yellow }
 foreach ($r in $reasons) { Write-Host "  fail: $r" -ForegroundColor Red }
 Write-Host ("client: {0}/{1} ok, residence p95 {2}ms p99 {3}ms, admissions/s {4}..{5}, gatling GC max {6}ms" -f $evidence.successfulUsers, $evidence.startedUsers, $evidence.p95CoreResidenceMillis, $evidence.p99CoreResidenceMillis, $minAdmit, $maxAdmit, $gcMax)
+Write-Host ("backlog: {0} users left at injection end (limit {1}), last {2}s residence median {3}ms (limit {4})" -f $leftAtEnd, $backlogLimit, $TailWindowSeconds, $tailMedian, $TailMedianLimitMillis)
+foreach ($name in $requests.Keys) { Write-Host ("  gatling {0}: p95 {1} p99 {2} ms" -f $name, $requests[$name].p95Ms, $requests[$name].p99Ms) }
 Write-Host ("server: hikari {0}/{1} (pending max {2}), tomcat busy max {3}/{4}, cpu max {5}, orders before {6}" -f $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax, $maxCpu, $ordersBefore)
 if ($wal) { Write-Host ("postgres wal: fsyncs {0} avg {1}ms, writes {2} avg {3}ms, {4}MB, full-page images {5}, commits {6} (timing {7})" -f $wal.fsyncs, $wal.fsyncAvgMs, $wal.writes, $wal.writeAvgMs, $wal.megabytes, $wal.fullPageImages, $wal.commits, $wal.timing) }
 foreach ($key in $core.Keys) { Write-Host ("  core {0}: n={1} p50<={2} p95<={3} p99<={4} ms" -f $key, $core[$key].count, $core[$key].p50Ms, $core[$key].p95Ms, $core[$key].p99Ms) }

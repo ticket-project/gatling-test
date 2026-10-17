@@ -159,7 +159,7 @@ API 하나의 순수 처리량을 확인할 때는 아래 시나리오를 사용
 
 사용자의 80%가 현재 잔여 좌석 중 앞쪽 10%의 인기 좌석에 몰리고, 충돌하면 다른 좌석을 골라 총 3회까지 시도한다. 기본값은 좌석 선택 시간 1~3초, 주문 전 판단 시간 2~6초, 재시도 대기 0.5~2초, 좌석 재조회 사용자 25%, 주문 전 이탈 사용자 10%다. 각각 `bookingSeatThinkMinMillis`/`bookingSeatThinkMaxMillis`, `bookingOrderThinkMinMillis`/`bookingOrderThinkMaxMillis`, `bookingRetryThinkMinMillis`/`bookingRetryThinkMaxMillis`, `bookingSeatRefreshPercent`, `bookingDropoutPercent`로 조정한다. 실제 서비스 행동 로그가 있으면 그 분포로 보정한다. 이 모델은 현실성 확인에는 유용하지만 충돌량과 요청 수가 실행마다 달라질 수 있으므로 코드 변경 전후의 1차 성능 판정에는 03을 사용한다.
 
-응답 시간은 판정 기준으로 쓰지 않는다. Gatling assertion은 실제 실패만 KO로 표시하며, 판정에 쓰이는 기준은 `technicalFailureThresholdPercent`, `queueTimeoutThresholdPercent`, `maxCoreAdmissionsPerSecond`, `admissionRateTolerancePercent`뿐이다. p95/p99는 리포트의 Requests 표와 APM에서 추세로 읽는다.
+Gatling 실행 자체의 판정에는 응답 시간을 쓰지 않는다. Gatling assertion은 실제 실패만 KO로 표시하며, 판정에 쓰이는 기준은 `technicalFailureThresholdPercent`, `queueTimeoutThresholdPercent`, `maxCoreAdmissionsPerSecond`, `admissionRateTolerancePercent`뿐이다. p95/p99는 리포트의 Requests 표와 APM에서 추세로 읽는다. 03으로 Core 수용량을 잴 때는 `scripts/capacity/run-step.ps1`이 요청별 p95/p99와 밀림을 따로 판정한다(기준은 ticket-core `docs/core-capacity.md` "판정 기준").
 
 현재 Core에는 결제 확정 흐름이 연결되어 있지 않으므로 직접 검증 범위는 주문 `PENDING`까지다. 결제가 구현되면 결제 성공·실패·재시도와 결제 단계 체류 시간을 같은 사용자 흐름에 추가해야 한다.
 
