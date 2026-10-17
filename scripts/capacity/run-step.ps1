@@ -440,12 +440,14 @@ if ($evidence.startedUsers -ne $users) { $invalid += "started $($evidence.starte
 if ($coreWarnings.Count -gt 0) { $invalid += $coreWarnings }
 # 비즈니스 거절은 회차를 다시 썼거나 좌석·회원 준비가 덜 됐다는 뜻이다. Core 용량과 상관이 없어 숫자를 쓰지 않는다.
 if ($evidence.businessRejectedUsers -gt 0) { $invalid += "business rejected $($evidence.businessRejectedUsers) users (data not clean, use a fresh performance)" }
-if (-not $report) { $invalid += "Gatling HTML report not found, per-request latency unknown" }
-foreach ($name in $LatencyLimits.Keys) { if ($report -and -not $requests.Contains($name)) { $invalid += "request '$name' missing from Gatling report" } }
+# 기술 실패가 기준을 넘으면 Gatling assertion이 리포트를 만들기 전에 실패로 끝난다. 그때는 리포트가 없어도 기술 실패로 FAIL이다.
+$technicalFailed = $evidence.technicalFailurePercent -ge $TechnicalFailureLimitPercent
+if (-not $report -and -not $technicalFailed) { $invalid += "Gatling HTML report not found, per-request latency unknown" }
+foreach ($name in $LatencyLimits.Keys) { if ($report -and -not $requests.Contains($name) -and -not $technicalFailed) { $invalid += "request '$name' missing from Gatling report" } }
 
 $reasons = @()
 if ($gatlingExit -ne 0) { $reasons += "gatling exit $($gatlingExit)" }
-if ($evidence.technicalFailurePercent -ge $TechnicalFailureLimitPercent) { $reasons += "technical failure $($evidence.technicalFailurePercent)% >= $TechnicalFailureLimitPercent%" }
+if ($technicalFailed) { $reasons +="technical failure $($evidence.technicalFailurePercent)% >= $TechnicalFailureLimitPercent%" }
 if ($evidence.overloadedUsers -gt 0) { $reasons += "E6003 overloaded $($evidence.overloadedUsers) users" }
 foreach ($name in $LatencyLimits.Keys) {
     if (-not $requests.Contains($name)) { continue }
