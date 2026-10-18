@@ -318,6 +318,67 @@
 2. `distributed-results-join/capacity/20261019-080837-ladder-40ups-30s/prometheus-before.txt`·`-after.txt`에서 `process_cpu_time_ns_total`을 찾는다 → (after − before) ÷ 10⁶ ÷ 1,200명 = 29.9ms/사용자.
 3. 50 u/s 폴더의 두 파일에서 `jvm_memory_used_bytes{area="nonheap",id="CodeHeap 'non-profiled nmethods'"`를 찾는다 → 18,382,336 → 18,832,896바이트. 컴파일 시간(`jvm_compilation_time_ms_total`)이 24,815ms 늘어난 것에 비해 코드는 거의 늘지 않았다.
 
+### CPU 프로파일: 사용자당 CPU가 어디에 쓰였나 (Datadog Profiler)
+
+운영 Core의 Datadog 프로파일러로 두 구간을 봤다. 프로파일은 1분 단위라 구간 경계가 실행과 딱 맞지 않는다. 그래서 ms보다 비율을 믿는다. ms는 비율을 사용자당 29ms(prometheus 계산)에 곱한 값이다.
+
+- 포화 전: 08:07~08:09(20·30 u/s와 40 u/s 시작 몇 초). 분당 CPU 19.72초.
+- 포화: 08:09~08:12(50 u/s 세 번). 분당 CPU 51.37초.
+
+**어느 일에 썼나(포화 전, 스레드·엔드포인트 기준)**
+
+| 묶음 | 비율 | 사용자당(29ms 기준) |
+| --- | --- | --- |
+| `POST /orders`(주문 생성) | 30% | 8.8ms |
+| `POST …/select`(좌석 선택) | 10% | 2.8ms |
+| `GET …/seats/occupied` | 8% | 2.2ms |
+| `GET …/summary` | 7% | 2.0ms |
+| `GET /orders/{orderKey}/status` | 7% | 1.9ms |
+| `GET /actuator/prometheus`(지표 수집: run-step 전후·Datadog Agent) | 2% | 0.6ms |
+| 요청 밖(백그라운드) 합계 | 36% | 10.4ms |
+| └ JVM 스레드(GC·JIT·JFR) | 18% | 5.1ms |
+| └ Redisson Netty·timer(Redis 클라이언트 I/O) | 12% | 3.5ms |
+| └ Datadog·StatsD 스레드 | 4% | 1.2ms |
+| └ Tomcat Acceptor·Poller(연결 받기) | 3% | 1.0ms |
+
+**무엇이 썼나(포화 전, 라이브러리 자체 시간)**
+
+| 라이브러리 | 비율 | 안에 든 것 |
+| --- | --- | --- |
+| Native Code | 33% | GC(G1 표시·재구성) 약 1.1초, JIT(C2 `PhaseChaitin`·`ciObjectFactory`) 약 1.8초, JFR 스택 기록 약 0.8초, 가상 호출 stub·memset, gzip `Deflater_end` 0.1초, 소켓 `shutdown` 0.18초 |
+| `<unknown>` | 14% | 라이브러리로 분류되지 않은 프레임(우리 코드 포함) |
+| Tomcat | 12% | 요청·응답 버퍼(`org.apache.tomcat.util.buf`) |
+| Spring(Framework·Request Handling·AOP) | 14% | 필터 체인, 보안 필터, 트랜잭션 프록시 |
+| Datadog 트레이서 | 6% | |
+| Hibernate + PostgreSQL 드라이버 | 9% | |
+| Netty(Redisson) | 5% | |
+| Micrometer + Prometheus | 5% | 요청마다 타이머·히스토그램 기록, 지표 출력 |
+| Jackson | 1% | |
+
+- 우리 코드(`com.ticket`)의 자체 CPU는 작다. 주문 생성 안에서도 상위 20개 패키지에 들지 않는다. 사용자당 시간은 한 곳이 아니라 Java 웹 스택의 요청당 비용(필터·프록시·ORM·드라이버·버퍼)과 JVM(GC·JIT), 관측 도구에 고르게 퍼져 있다.
+- 관측 도구 몫(Datadog 트레이서·스레드·StatsD, Micrometer·Prometheus, JFR): 포화 전 약 15~17%(사용자당 약 4.5~5ms).
+
+**포화(50 u/s)에서 달라진 것**: 분당 51.37초 중 JFR 스택 기록이 약 11초(22%)였다. `JfrVframeStream::next_vframe` 3.99초, `JfrStackTrace::record` 3.07초, `JfrStackTraceRepository::record_for_leak_profiler` 1.19초, `Method::line_number_from_bci` 0.95초, `JfrStackTrace::equals` 0.64초. 이벤트(락 경합, 할당 표본, 누수 추적)마다 스택을 기록하는데, 포화로 경합이 늘자 그 비용이 커졌다. 관측 도구 몫이 약 30%로 늘었다. 프로파일러가 한계 근처에서 측정 대상을 무겁게 만든다.
+
+- 포화 구간에서도 JIT은 실제 CPU를 썼다(`ciObjectFactory` 등 약 1.6초/분, 3%). 앞서 본 컴파일 시간 24.8초가 대부분 기다린 시간이라는 판단은 그대로다.
+- `PersistenceException.<init>`(포화 전 0.06초/분, 포화 0.12초/분)과 `BacktraceBuilder::push`(예외 스택 채우기)가 보인다. 정상 흐름에서 예외가 만들어지고 있다(어디서인지 미확인).
+- `dd-debugger-snapshot-serializer` 스레드가 있다. Datadog Dynamic Instrumentation이 켜져 있다(CPU는 작음).
+
+**늘리는 선택지에 더해진 근거**(모두 사용자 결정, 기대값은 비율로 계산한 추정)
+
+- 관측 도구 줄이기: 프로파일러의 누수 추적·할당 표본(JFR) 끄기, 트레이서의 저장소·핸들러 span 끄기, 측정 중 프로파일러 끄기. 포화 전 최대 약 15%, 한계 근처 무너짐도 줄 것(미확인).
+- 요청 수·왕복 줄이기: 사용자 하나에 HTTP 5번 × 요청당 웹 스택 비용(약 2ms) + Redis 왕복. 조회 API를 합치거나 캐시(P-013)하면 요청당 비용이 통째로 빠진다.
+- nginx → Core 연결 재사용(upstream keepalive) 확인: Acceptor·Poller·`shutdown()`이 약 4%다. 요청마다 연결을 새로 맺고 닫는지 nginx 설정을 봐야 한다(미확인).
+- GC: 할당 사용자당 약 1.5MB. 할당을 줄이면 GC 몫(약 6%)이 준다.
+
+**직접 보려면**
+
+1. Datadog(us5) → **APM → Profiles → Explorer**, 검색 `service:ticket-be env:prod`, 시간 2026-10-19 08:07~08:09 KST.
+2. 위쪽 "CPU Time"이 19.72s per minute인지 본다. 오른쪽 아래 목록의 기준을 **Thread Group** → **Library** → **Method** 순으로 바꾸며 위 표의 숫자를 확인한다.
+3. Method 목록에서 `Native`를 펼친다 → `G1CMOopClosure`(GC), `JfrVframeStream`(JFR), `PhaseChaitin`(JIT)이 보인다.
+4. 시간을 08:09~08:12로 바꾼다 → `JfrVframeStream::next_vframe`이 3.99초로 커진다.
+5. 오른쪽 위 For Endpoints에서 `POST /api/v1/orders`를 누르면 주문 생성만 걸러진다. 기준을 Package로 바꾸면 `com.ticket`이 상위에 없다.
+
 ## 측정 도구
 
 - 틀린 것 1: `run-step.ps1 -Prod`가 `scripts/core-capacity/member-ids.txt`가 있기만 하면 개수를 보지 않고 썼다. 이 PC의 파일은 8월 Oracle 운영에서 받은 500개였다. 1,800명을 넣으면 같은 회원이 겹쳐 비즈니스 거절로 회차를 버리게 된다. 사용자 수보다 적으면 운영 DB에서 다시 받게 고쳤다(`fdc054c`, 20 u/s 실행에서 1만 개로 다시 받음). 옛 파일은 세션 임시 폴더에 복사해 뒀다.
@@ -327,6 +388,7 @@
 
 ## 다음에 할 일
 
-- 결정 대기: 한계를 올리는 쪽(vCPU, 프로파일러로 사용자당 CPU 29ms 쪼개기, 옆 컨테이너 옮기기)과 지금 사양의 C를 정하는 쪽(40 → 45 좁히기) 중 무엇부터 할지.
+- 결정 대기: 한계를 올리는 쪽(vCPU, 관측 도구 줄이기, 요청 수·왕복 줄이기, 옆 컨테이너 옮기기)과 지금 사양의 C를 정하는 쪽(40 → 45 좁히기) 중 무엇부터 할지.
+- 확인할 것: nginx → Core upstream keepalive, 정상 흐름에서 만들어지는 `PersistenceException`의 출처.
 - 이어서 남은 결정: P-018(JWT secret).
 - 첫 사다리의 20 u/s FAIL은 측정 도구(P-020) 탓이라 C 후보로 쓰지 않는다. 두 번째 사다리가 이날의 결과다.
