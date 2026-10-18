@@ -118,7 +118,10 @@ if ($Prod) {
         if ($prodInfo.NextPerformance -le 0) { Fail "no large performance without orders is left; seed more large performances" }
         $PerformanceId = $prodInfo.NextPerformance
     }
-    if (-not (Test-Path $MemberIdsFile)) { Save-ProdMemberIds $MemberIdsFile ([Math]::Max(10000, $users)) }
+    # 다른 PC나 예전(Oracle) 운영에서 남은 짧은 파일을 그대로 쓰면 회원이 겹쳐 비즈니스 거절로 회차를 버린다. 모자라면 다시 받는다.
+    if (-not (Test-Path $MemberIdsFile) -or @(Get-Content $MemberIdsFile).Count -lt $users) {
+        Save-ProdMemberIds $MemberIdsFile ([Math]::Max(10000, $users))
+    }
     Wait-CoreRecovered $MetricsUrl
     $uptime = [regex]::Match((Get-Text "$MetricsUrl/actuator/prometheus"), '(?m)^process_uptime_seconds\{[^}]*\} ([0-9.eE+-]+)').Groups[1].Value
     $prodConditions = [ordered]@{ prodHost = $ProdHost; image = $prodInfo.Image; coreCommit = $CoreCommit
