@@ -210,6 +210,8 @@ function New-ProjectArchive {
         "--exclude=.git",
         "--exclude=.gradle",
         "--exclude=.tmp",
+        "--exclude=.agents",
+        "--exclude=.claude",
         "--exclude=distributed-results-join",
         "--exclude=console/build",
         "--exclude=load-tests/gatling/build",
