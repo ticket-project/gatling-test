@@ -36,38 +36,62 @@ psqlq() {
 }
 '@
 
-# 실행 전 점검: Core 이미지(commit), 컨테이너 IP, DB 규모, 다음 깨끗한 대형 회차, 앞단 설정.
-# 한 번 쓴 대형 회차에는 03 실행이 만든 주문이 남는다. 주문이 없는 가장 작은 920000001~ 회차를 다음 회차로 고른다.
-# orders.performance_id에는 단독 인덱스가 없으므로 회차마다 묻지 않고 NOT IN 한 번(주문 한 번 훑기)으로 구한다.
-function Get-ProdPreflight {
+# 실행 전 점검. 운영 Core·DB는 사양이 낮아 점검이 측정을 흔들지 않게 최소로 한다(사용자 결정 2026-10-19, capacity-log P-020).
+# - 실행마다: Core 이미지(commit)·컨테이너 IP·free -m만 읽는다. DB에는 묻지 않는다(psql 컨테이너도 띄우지 않는다).
+# - -FindPerformance(-PerformanceId를 안 줬을 때): 다음 대형 회차 = 마지막 부하 주문의 회차 + 1.
+#   주문을 PK 역순으로 읽다가 첫 부하 주문에서 멈춘다. 예전처럼 "주문이 없는 회차"를 NOT IN으로 찾으면
+#   orders에 performance_id로 시작하는 인덱스가 없어 실행마다 주문 500만 건을 다 읽었다.
+# - -Full(-CheckOnly): DB 규모는 통계 추정치(pg_class.reltuples)로 남긴다. count(*)는 표 전체를 읽는다.
+#   앞단 설정(nginx·compose)과 docker stats도 여기서만 남긴다. 실행 사이에 바뀌지 않고, 컨테이너 메모리는 Datadog에 있다.
+function Get-ProdPreflight([switch]$Full, [switch]$FindPerformance) {
     # here-string은 끝 줄바꿈이 없으므로 이어 붙일 때 줄바꿈을 넣는다.
-    $body = $prodPsqlPrelude + "`n" + @'
+    $body = ""
+    if ($Full -or $FindPerformance) { $body += $prodPsqlPrelude + "`n" }
+    $body += @'
 image=$(sudo docker inspect -f '{{.Config.Image}}' ticket-be)
 coreip=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' ticket-be | awk '{print $1}')
 echo "image=$image"
 echo "coreIp=$coreip"
-echo "db=$(psqlq "select (select count(*) from members where deleted_at is null and email like 'loadtest%@test.com' and role = 'MEMBER'), (select count(*) from orders), current_setting('max_connections'), (select count(*) from performances where id between 920000001 and 929999999), (select min(id) from performances where id between 920000001 and 929999999 and id not in (select performance_id from orders where performance_id between 920000001 and 929999999))")"
+'@ + "`n"
+    if ($Full) {
+        $body += @'
+echo "db=$(psqlq "select (select reltuples::bigint from pg_class where oid = 'members'::regclass), (select reltuples::bigint from pg_class where oid = 'orders'::regclass), current_setting('max_connections'), (select count(*) from performances where id between 920000001 and 929999999)")"
+'@ + "`n"
+    }
+    if ($FindPerformance) {
+        $body += @'
+echo "next=$(psqlq "select min(id) from performances where id between 920000001 and 929999999 and id > coalesce((select performance_id from orders where performance_id between 920000001 and 929999999 order by id desc limit 1), 0)")"
+'@ + "`n"
+    }
+    $body += @'
 echo '---conditions---'
 echo '# ticket-be image'; echo "$image"
+echo '# free -m'; free -m
+'@ + "`n"
+    if ($Full) {
+        $body += @'
 echo '# nginx'; sudo docker exec ticket-nginx nginx -T 2>/dev/null | grep -nE 'worker_processes|worker_rlimit_nofile|worker_connections|limit_req|limit_conn|gzip' || true
 echo '# compose'; grep -nE 'JAVA_TOOL_OPTIONS|Xmx|mem_limit|cpus|HIKARI|TOMCAT' /home/ubuntu/docker-compose.yml || true
-echo '# free -m'; free -m
 echo '# docker stats'; sudo docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'
 '@
+    }
     $lines = Invoke-ProdBash $body
     $marker = [Array]::IndexOf($lines, '---conditions---')
     if ($marker -lt 0) { Fail "unexpected preflight output from $ProdHost" }
     $kv = @{}
     foreach ($line in $lines[0..($marker - 1)]) { if ($line -match '^(\w+)=(.*)$') { $kv[$Matches[1]] = $Matches[2] } }
-    $db = $kv.db -split ','
-    if ($db.Count -lt 5) { Fail "could not read production database counts: $($kv.db)" }
-    [pscustomobject]@{
-        Image = $kv.image; CoreIp = $kv.coreIp
-        Commit = ($kv.image -split ':')[-1]
-        Members = [long]$db[0]; Orders = [long]$db[1]; MaxConnections = [int]$db[2]
-        LargePerformances = [int]$db[3]; NextPerformance = $(if ($db[4]) { [long]$db[4] } else { 0 })
+    $info = [ordered]@{
+        Image = $kv.image; CoreIp = $kv.coreIp; Commit = ($kv.image -split ':')[-1]
+        MembersEstimate = $null; OrdersEstimate = $null; MaxConnections = $null; LargePerformances = $null; NextPerformance = 0
         Conditions = ($lines[($marker + 1)..($lines.Count - 1)] -join [Environment]::NewLine)
     }
+    if ($Full) {
+        $db = $kv.db -split ','
+        if ($db.Count -lt 4) { Fail "could not read production database size: $($kv.db)" }
+        $info.MembersEstimate = [long]$db[0]; $info.OrdersEstimate = [long]$db[1]; $info.MaxConnections = [int]$db[2]; $info.LargePerformances = [int]$db[3]
+    }
+    if ($FindPerformance -and $kv.next) { $info.NextPerformance = [long]$kv.next }
+    [pscustomobject]$info
 }
 
 # 부하 회원 ID를 실제 DB 순서대로 받는다. 파일이 없을 때만 부른다.
@@ -108,12 +132,12 @@ function Stop-ProdTunnel {
 }
 
 # 앞 실행의 부하가 빠질 때까지 기다린다. health UP, 연결 대기 0, 바쁜 요청 스레드 5개 이하를 5초 간격으로 최대 3분 본다.
-# (2026-10-17 운영 사다리에서 쓴 회복 확인과 같다.)
-function Wait-CoreRecovered([string]$url) {
+# (2026-10-17 운영 사다리에서 쓴 회복 확인과 같다.) 지표는 run-step의 Get-SampleUrl이 거른 주소로 읽는다.
+function Wait-CoreRecovered([string]$url, [string]$sampleUrl) {
     for ($i = 0; $i -lt 36; $i++) {
         try {
             $health = Get-Text "$url/actuator/health"
-            $metrics = Get-Text "$url/actuator/prometheus"
+            $metrics = Get-Text $sampleUrl
             $pending = [regex]::Match($metrics, '(?m)^hikaricp_connections_pending\{[^}]*\} ([0-9.eE+-]+)').Groups[1].Value
             $busy = [regex]::Match($metrics, '(?m)^tomcat_threads_busy_threads\{[^}]*\} ([0-9.eE+-]+)').Groups[1].Value
             if ($health -match '"status":"UP"' -and [double]$pending -eq 0 -and [double]$busy -le 5) { return }

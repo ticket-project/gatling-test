@@ -71,6 +71,19 @@ function Get-Text([string]$url, [hashtable]$headers = @{}) {
 function Write-Utf8([string]$path, [string]$value) {
     [IO.File]::WriteAllText($path, $value + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 }
+# 1초 수집·회복 대기·기동 시간은 이 지표만 쓴다. 전체 /actuator/prometheus(약 280KB)를 부하 중 1초마다 만들게 하면
+# 2 vCPU 운영 Core에 측정 자체가 짐이 된다(capacity-log P-020). 전체 원문은 실행 전후 한 번씩만 받는다.
+$SampleNames = "hikaricp_connections_active", "hikaricp_connections_pending", "tomcat_threads_busy_threads",
+    "process_cpu_usage", "system_cpu_usage", "process_uptime_seconds"
+# includedNames로 거른 주소를 돌려준다. 빠진 지표가 있으면(Core가 거르지 못하면) 전체 주소로 돌아간다.
+function Get-SampleUrl([string]$base) {
+    $url = "$base/actuator/prometheus?includedNames=" + ($SampleNames -join '%2C')
+    $text = Get-Text $url
+    $missing = @($SampleNames | Where-Object { $text -notmatch "(?m)^$_\{" })
+    if ($missing.Count -eq 0) { return $url }
+    Write-Host "warning: filtered metrics miss $($missing -join ', '); sampling the full /actuator/prometheus"
+    "$base/actuator/prometheus"
+}
 
 # --- 대상과 입력 확인 ----------------------------------------------------------------------------
 if ($Prod) {
@@ -101,36 +114,41 @@ $runId = [guid]::NewGuid().ToString()
 Write-Host "run dir: $runDir"
 
 # --- 운영 준비(-Prod) -------------------------------------------------------------------------------
-# 운영 호스트에서 commit·DB 규모·다음 회차·앞단 설정을 읽고, 지표 터널을 열고, JWT secret을 메모리로 받고,
-# 회원 ID 파일이 없으면 만들고, 앞 실행의 부하가 빠질 때까지 기다린다.
+# 운영 호스트에서 commit·컨테이너 IP를 읽고, 지표 터널을 열고, JWT secret을 메모리로 받고, 회원 ID 파일이 모자라면 받고,
+# 앞 실행의 부하가 빠질 때까지 기다린다. DB 규모·앞단 설정은 -CheckOnly에서만, 다음 회차는 -PerformanceId가 없을 때만 묻는다.
+# 사다리는 -CheckOnly가 알려 준 회차부터 -PerformanceId를 넘겨 실행마다 DB를 건드리지 않는다(prod-target.ps1 Get-ProdPreflight).
 # Core EC2는 측정할 때만 켜므로 JVM이 차가울 수 있다. 기동 시간(coreUptimeSeconds)이 짧으면 첫 실행은 예열로 쓴다.
 if ($Prod) {
     . (Join-Path $repo "scripts\distributed-common.ps1")
     . (Join-Path $PSScriptRoot "prod-target.ps1")
     $LocalProjectDir = $repo
     try { Initialize-SshSession -RunDir $runDir } catch { Fail "SSH setup failed: $($_.Exception.Message)" }
-    $prodInfo = Get-ProdPreflight
+    $prodInfo = Get-ProdPreflight -Full:$CheckOnly -FindPerformance:($PerformanceId -le 0)
     Write-Utf8 (Join-Path $runDir "server-conditions.txt") $prodInfo.Conditions
     $MetricsUrl = Start-ProdTunnel $prodInfo.CoreIp
+    $sampleUrl = Get-SampleUrl $MetricsUrl
     if (-not $PSBoundParameters.ContainsKey('JwtSecret')) { $JwtSecret = Get-ProdJwtSecret }
     if (-not $CoreCommit) { $CoreCommit = $prodInfo.Commit.Substring(0, [Math]::Min(8, $prodInfo.Commit.Length)) }
     if ($PerformanceId -le 0) {
-        if ($prodInfo.NextPerformance -le 0) { Fail "no large performance without orders is left; seed more large performances" }
+        if ($prodInfo.NextPerformance -le 0) { Fail "no large performance is left after the last load-test order; seed more large performances" }
         $PerformanceId = $prodInfo.NextPerformance
     }
     # 다른 PC나 예전(Oracle) 운영에서 남은 짧은 파일을 그대로 쓰면 회원이 겹쳐 비즈니스 거절로 회차를 버린다. 모자라면 다시 받는다.
     if (-not (Test-Path $MemberIdsFile) -or @(Get-Content $MemberIdsFile).Count -lt $users) {
         Save-ProdMemberIds $MemberIdsFile ([Math]::Max(10000, $users))
     }
-    Wait-CoreRecovered $MetricsUrl
-    $uptime = [regex]::Match((Get-Text "$MetricsUrl/actuator/prometheus"), '(?m)^process_uptime_seconds\{[^}]*\} ([0-9.eE+-]+)').Groups[1].Value
+    Wait-CoreRecovered $MetricsUrl $sampleUrl
+    $uptime = [regex]::Match((Get-Text $sampleUrl), '(?m)^process_uptime_seconds\{[^}]*\} ([0-9.eE+-]+)').Groups[1].Value
     $prodConditions = [ordered]@{ prodHost = $ProdHost; image = $prodInfo.Image; coreCommit = $CoreCommit
-        coreUptimeSeconds = [Math]::Round([double]$uptime); members = $prodInfo.Members; orders = $prodInfo.Orders
+        coreUptimeSeconds = [Math]::Round([double]$uptime); membersEstimate = $prodInfo.MembersEstimate; ordersEstimate = $prodInfo.OrdersEstimate
         maxConnections = $prodInfo.MaxConnections; largePerformances = $prodInfo.LargePerformances; performanceId = $PerformanceId
-        loadHost = $LoadHost; memberIdsFile = $MemberIdsFile }
+        loadHost = $LoadHost; memberIdsFile = $MemberIdsFile; sampleUrlFiltered = $sampleUrl -match 'includedNames' }
     Write-Utf8 (Join-Path $runDir "prod-conditions.json") ($prodConditions | ConvertTo-Json)
-    Write-Host ("prod: commit {0}, core up {1}s, members {2}, orders {3}, max_connections {4}, large performances {5}, next performance {6}" -f
-        $CoreCommit, $prodConditions.coreUptimeSeconds, $prodInfo.Members, $prodInfo.Orders, $prodInfo.MaxConnections, $prodInfo.LargePerformances, $PerformanceId)
+    $line = "prod: commit $CoreCommit, core up $($prodConditions.coreUptimeSeconds)s, performance $PerformanceId"
+    if ($CheckOnly) {
+        $line += ", members ~$($prodInfo.MembersEstimate), orders ~$($prodInfo.OrdersEstimate), max_connections $($prodInfo.MaxConnections), large performances $($prodInfo.LargePerformances)"
+    }
+    Write-Host $line
     if ($CheckOnly) { Stop-ProdTunnel; Write-Host "check: OK (no load sent)"; exit 0 }
 }
 # 부하 픽스처는 공연·회차·좌석이 모두 idBase + n이다(ticket seed LoadTestFixtureSeeder).
@@ -281,7 +299,8 @@ if ($ThreadDumps -gt 0) {
         $corePid = $coreInfo.pid
     }
 }
-$sampler = Start-Job -ArgumentList $MetricsUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container -ScriptBlock {
+if (-not $sampleUrl) { $sampleUrl = Get-SampleUrl $MetricsUrl }
+$sampler = Start-Job -ArgumentList $sampleUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container -ScriptBlock {
     param($url, $file, $stop, $dumps, $jcmd, $corePid, $dir, $container)
     Set-Content $file "time`thikari_active`thikari_pending`ttomcat_busy`tprocess_cpu`tsystem_cpu"
     $names = "hikaricp_connections_active", "hikaricp_connections_pending", "tomcat_threads_busy_threads", "process_cpu_usage", "system_cpu_usage"
@@ -289,7 +308,7 @@ $sampler = Start-Job -ArgumentList $MetricsUrl, $metricsFile, $stopFile, $Thread
     while (-not (Test-Path $stop)) {
         $t = Get-Date -Format "HH:mm:ss"
         try {
-            $response = Invoke-WebRequest -UseBasicParsing -Uri "$url/actuator/prometheus" -TimeoutSec 2
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2
             $text = [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
             $values = foreach ($n in $names) { $m = [regex]::Match($text, "(?m)^$n\{[^}]*\} ([0-9.eE+-]+)"); if ($m.Success) { $m.Groups[1].Value } else { "" } }
             Add-Content $file ($t + "`t" + ($values -join "`t"))

@@ -65,13 +65,16 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 `-Prod`는 운영 호스트(`-ProdHost`, 기본 `ubuntu@oneticket.site`)에 SSH로 들어가 아래를 스스로 한다(`prod-target.ps1`).
 운영 호스트와 부하 발생기는 같은 키(`ticket-test-key-01.pem`)를 쓴다. `-KeyPath`를 비우면 `~/.ssh/`부터 찾는다.
 
-1. Core 이미지 태그(commit), 컨테이너 IP, 회원·주문 수, `max_connections`, 대형 회차 수, 다음 회차를 읽는다.
-   nginx·compose·`free -m`·`docker stats`는 `server-conditions.txt`에 남긴다.
+1. Core 이미지 태그(commit), 컨테이너 IP, `free -m`을 읽어 `server-conditions.txt`에 남긴다. 실행마다는 DB에 묻지 않는다.
+   `-CheckOnly`일 때만 DB 규모(`pg_class.reltuples` 추정치), `max_connections`, 대형 회차 수, nginx·compose·`docker stats`를 더 남긴다.
+   운영 Core·DB는 사양이 낮아 점검이 측정을 흔들지 않게 한다(capacity-log P-020: 실행마다 주문 500만 건을 훑던 점검이 첫 10~20초 DB 지연과 겹쳤다).
 2. 빈 로컬 포트에서 `ticket-be:8080`으로 SSH 터널을 열어 `-MetricsUrl`로 쓰고, 지표를 다 읽으면 닫는다.
+   전체 `/actuator/prometheus`(약 280KB)는 실행 전후 한 번씩만 받는다. 1초 수집·회복 대기·기동 시간은 `includedNames`로 거른 지표만 받는다.
 3. `ticket-be`의 `JWT_SECRET`을 메모리로만 받아 토큰을 만든다. 환경 변수·파일에 남기지 않는다.
 4. `scripts/core-capacity/member-ids.txt`(git 미추적)가 없으면 운영 DB에서 부하 회원 ID를 받는다.
    DB 비밀번호는 운영 호스트 안에서 `ticket-be` 환경 변수 → `postgres:18-alpine` psql 컨테이너로만 넘긴다.
-5. `-PerformanceId`를 비우면 주문이 없는 가장 작은 대형 회차(`920000001~`)를 고른다.
+5. `-PerformanceId`를 비우면 마지막 부하 주문의 회차 + 1을 고른다(주문을 PK 역순으로 읽다 첫 부하 주문에서 멈춘다).
+   사다리는 `-CheckOnly`가 알려 준 회차부터 1씩 올려 `-PerformanceId`로 넘긴다. 그러면 실행마다 DB를 건드리지 않는다.
 6. 앞 실행의 부하가 빠질 때까지(health UP, Hikari pending 0, 바쁜 요청 스레드 5 이하) 5초 간격으로 최대 3분 기다린다.
 7. 조건(commit, Core 기동 시간, DB 규모, 회차)을 `prod-conditions.json`에 남긴다. Core EC2를 막 켰으면(기동 시간이 짧으면) 첫 실행은 예열로 쓴다.
 
