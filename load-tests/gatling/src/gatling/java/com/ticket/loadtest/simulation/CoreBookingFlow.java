@@ -88,9 +88,12 @@ final class CoreBookingFlow {
             final boolean verifyCreatedOrder,
             final boolean includeAdmissionToken
     ) {
+        // 점유 좌석 응답(occupied)에 회차 요약이 들어 있어(Core 2026-10-19) 그 흐름은 요약을 따로 부르지 않는다.
+        // 좌석 전체(status)를 받는 흐름만 지금처럼 요약을 부른다.
         ChainBuilder flow = recordCoreAdmission()
-                .exec(fetchPerformanceSummary())
-                .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))
+                .exec(doIf(CoreBookingFlow::isDynamicSeatSelection).then(
+                        exec(fetchPerformanceSummary())
+                                .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))))
                 .exec(refreshSeatStatus(includeAdmissionToken))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         exec(selectSeat(includeAdmissionToken, false))

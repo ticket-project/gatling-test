@@ -41,8 +41,9 @@ $gatlingProject = Join-Path $repo "load-tests\gatling"
 $localSecret = "0123456789abcdef0123456789abcdef"
 # 판정 기준값(core-capacity.md). 요청 이름은 CoreBookingFlow의 http(...) 이름이다. 값은 p95, p99 상한(ms).
 $TechnicalFailureLimitPercent = 0.1
+# 03은 점유 좌석 응답에 회차 요약이 들어 있어 요약 조회를, 주문 생성 응답이 상태를 담고 있어 주문 조회를 부르지 않는다(2026-10-19).
 $LatencyLimits = [ordered]@{
-    "performance summary" = @(500, 1000); "seat status" = @(500, 1000); "get order" = @(500, 1000)
+    "seat status" = @(500, 1000)
     "select seat" = @(1000, 2000); "create order" = @(1000, 2000)
 }
 # 밀림: 주입이 끝날 때 Core 안에 남은 사용자가 부하 x 이 초보다 많거나, 마지막 몇 초 입장 구간의 체류 중앙값이 상한을 넘으면 FAIL.

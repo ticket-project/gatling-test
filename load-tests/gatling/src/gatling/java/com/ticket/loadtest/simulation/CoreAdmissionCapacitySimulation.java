@@ -14,7 +14,8 @@ public class CoreAdmissionCapacitySimulation extends BookingProofSimulation {
         final ScenarioBuilder scenario = scenario("03 고정 조건 Core 수용량")
                 .feed(LoadTestConfig.bookingFeeder(LoadTestConfig.expectedUsers()))
                 .exec(CoreBookingFlow.initializeSession(SCENARIO))
-                .exec(CoreBookingFlow.successfulFlowWithoutAdmission(SCENARIO, true));
+                // 주문 생성 응답이 이미 상태(PENDING)·만료 시각을 담고 있어 바로 다시 묻지 않는다(2026-10-19 사용자 결정: 03은 FE 흐름에 맞추지 않는다).
+                .exec(CoreBookingFlow.successfulFlowWithoutAdmission(SCENARIO, false));
 
         run(scenario, LoadTestConfig.coreAdmissionCapacityInjection());
     }
