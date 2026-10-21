@@ -59,7 +59,7 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 .\scripts\capacity\run-step.ps1 -UsersPerSecond 50 -PerformanceId 920000001 -Label large
 # 운영: 준비는 스크립트가 하고, 사람이 줄 것은 부하 발생기 IP뿐이다
 .\scripts\capacity\run-step.ps1 -Prod -CheckOnly                                   # 부하 없이 준비·점검만
-.\scripts\capacity\run-step.ps1 -Prod -LoadHost ubuntu@<EC2 IP> -UsersPerSecond 5 -Label warmup
+.\scripts\capacity\run-step.ps1 -Prod -LoadHost ubuntu@<EC2 IP> -UsersPerSecond 20 -Label warmup
 ```
 
 `-Prod`는 운영 호스트(`-ProdHost`, 기본 `ubuntu@oneticket.site`)에 SSH로 들어가 아래를 스스로 한다(`prod-target.ps1`).
@@ -76,7 +76,7 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 5. `-PerformanceId`를 비우면 마지막 부하 주문의 회차 + 1을 고른다(주문을 PK 역순으로 읽다 첫 부하 주문에서 멈춘다).
    사다리는 `-CheckOnly`가 알려 준 회차부터 1씩 올려 `-PerformanceId`로 넘긴다. 그러면 실행마다 DB를 건드리지 않는다.
 6. 앞 실행의 부하가 빠질 때까지(health UP, Hikari pending 0, 바쁜 요청 스레드 5 이하) 5초 간격으로 최대 3분 기다린다.
-7. 조건(commit, Core 기동 시간, DB 규모, 회차)을 `prod-conditions.json`에 남긴다. Core EC2를 막 켰으면(기동 시간이 짧으면) 첫 실행은 예열로 쓴다.
+7. 조건(commit, Core 기동 시간, DB 규모, 회차)을 `prod-conditions.json`에 남긴다.
 
 `-Prod` 없이 각 값을 직접 줄 수도 있다. 이때 JWT secret은 `-JwtSecret`이나 환경 변수 `LOADTEST_JWT_SECRET`으로 준다.
 
@@ -154,7 +154,9 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 
 ## 측정 규칙
 
-- 기동 직후 첫 실행은 버린다. 예열 실행을 한 번 하고 잰다(P-005).
+- 판정할 실행 전에 JVM을 데운다. `-Label warmup`을 새 회차로 돌리고, 출력의 `jvm: jit`(실행 중 JIT 컴파일 시간)이 3초 아래가 될 때까지 반복한다.
+  운영(2 vCPU)은 20 u/s로 보통 2~3번 걸린다. 같은 Core 기동이라도 10분 넘게 쉬었으면 다시 데운다. 쉬는 동안 Core 메모리가 스왑으로 밀려나 첫 실행이 느리다(P-019).
+  capacity-log 10-22(P-005): Core 기동 4분 뒤 5 u/s 한 번만 데우고 사다리를 오르자 사다리 내내 JIT이 돌아, 사용자당 Core CPU가 데운 뒤의 1.7~1.8배였다.
 - 같은 단계를 2~3번 돌린다. 갈리면 숫자를 믿기 전에 원인부터 찾는다.
 - 한 번에 하나만 바꾼다. 풀, 코드, 데이터량 가운데 둘이 같이 바뀐 비교는 버린다.
 - 실행마다 새 회차를 쓴다. 스크립트가 다시 쓴 회차를 막는다.

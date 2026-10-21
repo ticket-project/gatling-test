@@ -423,6 +423,9 @@ $maxPending = ($samples | ForEach-Object { [double]$_.hikari_pending } | Measure
 $maxActiveConn = ($samples | ForEach-Object { [double]$_.hikari_active } | Measure-Object -Maximum).Maximum
 $maxBusy = ($samples | ForEach-Object { [double]$_.tomcat_busy } | Measure-Object -Maximum).Maximum
 $maxCpu = ($samples | ForEach-Object { [double]$_.process_cpu } | Measure-Object -Maximum).Maximum
+# 데워졌는지와 사용자 한 명의 Core CPU. 실행 중 JIT 컴파일이 3초를 넘으면 JIT이 아직 CPU를 써서 숫자가 부풀려진다(capacity-log 10-22, P-005).
+$jitSeconds = [Math]::Round(((Get-Gauge $after "jvm_compilation_time_ms_total") - (Get-Gauge $before "jvm_compilation_time_ms_total")) / 1000, 1)
+$cpuMsPerUser = [Math]::Round(((Get-Gauge $after "process_cpu_time_ns_total") - (Get-Gauge $before "process_cpu_time_ns_total")) / 1e6 / $users, 1)
 $timeouts = @(Get-Content $metricsFile | Select-String "TIMEOUT").Count
 $gcMax = 0
 if (Test-Path (Join-Path $runDir "gatling-jvm.log")) {
@@ -502,7 +505,8 @@ $summary = [ordered]@{
         overloaded = $evidence.overloadedUsers; residenceP95Ms = $evidence.p95CoreResidenceMillis; residenceP99Ms = $evidence.p99CoreResidenceMillis
         maxActiveUsers = $evidence.maxObservedActiveUsers; admissionsPerSecondMin = $minAdmit; admissionsPerSecondMax = $maxAdmit; gatlingGcMaxPauseMs = $gcMax
         requests = $requests; leftAtInjectionEnd = $leftAtEnd; tailResidenceMedianMs = $tailMedian }
-    server = [ordered]@{ hikariActiveMax = $maxActiveConn; hikariPendingMax = $maxPending; tomcatBusyMax = $maxBusy; processCpuMax = $maxCpu; metricTimeouts = $timeouts; postgresWal = $wal }
+    server = [ordered]@{ hikariActiveMax = $maxActiveConn; hikariPendingMax = $maxPending; tomcatBusyMax = $maxBusy; processCpuMax = $maxCpu; jitCompileSeconds = $jitSeconds; coreCpuMsPerUser = $cpuMsPerUser
+        metricTimeouts = $timeouts; postgresWal = $wal }
     coreRequests = $core
 }
 Write-Utf8 (Join-Path $runDir "summary.json") ($summary | ConvertTo-Json -Depth 6)
@@ -531,6 +535,8 @@ Write-Host ("client: {0}/{1} ok, residence p95 {2}ms p99 {3}ms, admissions/s {4}
 Write-Host ("backlog: {0} users left at injection end (limit {1}), last {2}s residence median {3}ms (limit {4})" -f $leftAtEnd, $backlogLimit, $TailWindowSeconds, $tailMedian, $TailMedianLimitMillis)
 foreach ($name in $requests.Keys) { Write-Host ("  gatling {0}: p95 {1} p99 {2} ms" -f $name, $requests[$name].p95Ms, $requests[$name].p99Ms) }
 Write-Host ("server: hikari {0}/{1} (pending max {2}), tomcat busy max {3}/{4}, cpu max {5}, orders before {6}" -f $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax, $maxCpu, $ordersBefore)
+Write-Host ("jvm: jit {0}s, core cpu {1}ms/user" -f $jitSeconds, $cpuMsPerUser)
+if ($jitSeconds -gt 3) { Write-Host "  note: JIT compiled ${jitSeconds}s during this run; the JVM is not warm yet (warm up again before judging)" -ForegroundColor Yellow }
 if ($wal) { Write-Host ("postgres wal: fsyncs {0} avg {1}ms, writes {2} avg {3}ms, {4}MB, full-page images {5}, commits {6} (timing {7})" -f $wal.fsyncs, $wal.fsyncAvgMs, $wal.writes, $wal.writeAvgMs, $wal.megabytes, $wal.fullPageImages, $wal.commits, $wal.timing) }
 foreach ($key in $core.Keys) { Write-Host ("  core {0}: n={1} p50<={2} p95<={3} p99<={4} ms" -f $key, $core[$key].count, $core[$key].p50Ms, $core[$key].p95Ms, $core[$key].p99Ms) }
 Write-Host $row
