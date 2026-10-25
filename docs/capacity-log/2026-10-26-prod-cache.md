@@ -206,6 +206,48 @@ Core 기동 약 19분 뒤 첫 부하에서 20 u/s 예열이 8번 걸렸다. JIT 
 10-22(쉰 뒤 다시 데움)는 세 번이었다. 처음 켠 JVM은 운영 2 vCPU에서 600명 × 8번(4,800명) 분량을 돌려야 데워진다. 데운 뒤에도 사다리 실행마다 JIT이 4.6~8.7초 돈다.
 예열 규칙("JIT 3초 아래까지 반복")은 그대로 맞았다. 다만 처음 켠 날은 회차가 8개 더 든다.
 
+## 프로파일로 본 Core CPU 분해 (측정 뒤 추가)
+
+사용자 요청으로 Datadog 프로파일러(`ProfilingApi`, cpu-time)를 읽었다. 구간은 50·60 u/s 실행이 든 07:55~07:57 KST, Core CPU 27.6초/분이 100%다.
+"포함"은 스택 어딘가에 그 프레임이 있는 샘플의 몫, "스레드"는 그 스레드가 쓴 몫이다. 겹치는 몫이 있어 합이 정확히 100은 아니다.
+
+| 묶음 | 항목 | Core CPU 중 | 근거 |
+| --- | --- | --- | --- |
+| **관측 도구 약 25~30%** | Datadog 프로파일러의 JFR 스택 기록(할당·live heap 표본) | **11.7%** | 포함 `Jfr*`. self 1·2위가 `JfrVframeStream::next_vframe` 4.0%, `JfrStackTraceRepository::record_for_leak_profiler` 3.0% |
+| | Datadog 트레이서 span 만들기·끝내기 | 6.4% | 포함 `CoreTracer`·`DDSpan`·`PendingTrace` |
+| | Datadog 백그라운드 스레드(`dd-*`, StatsD) | 3.2% | 스레드 |
+| | Micrometer 관측(타이머 찾기·태그 만들기) | 4.5% | 포함 `getOrCreateMeter`·`KeyValues`·`ObservationHandler` |
+| | Modulith insight의 모듈 경계 계측. 호출마다 ArchUnit으로 클래스가 어느 모듈인지 찾는다 | 3.6% | 포함 `DefaultObservedModule`·`Classes.contains`·`archunit`. `build.gradle:74` `spring-modulith-starter-insight` |
+| **JVM 자체 약 19%** | C2 JIT 컴파일러 | 10.8% | 스레드 `C2 CompilerThread` |
+| | G1 동시 마킹 | 6.6% | 스레드 `G1 Conc#0`. 힙 최대 약 478MB(Old 501MB) |
+| | GC 스레드 | 1.4% | 스레드 |
+| **Redis 통신** | Redisson netty 스레드 | 12.5% | 스레드 `redisson-netty-*` |
+| **테스트가 남긴 뒷일** | 10분 전 실행 주문의 선점 만료 → 주문 만료 처리 | **4.6%** | 스레드 `redis-expiration-*`. `HoldKeyExpirationHandler.handle` → `ExpireOrderUseCase.expireByHoldKey` |
+| **작은 것** | 응답 gzip | 3.9% | 포함 `GzipOutputFilter`·`Deflater` |
+| | 이벤트 저장(Modulith 등록부) | 2.2% | 포함 `DefaultEventPublicationRegistry.store` |
+| | 이벤트마다 새 스레드(P-015) | 1.9% | 포함 `SimpleAsyncTaskExecutor`·`munmap` |
+| | Hibernate가 컬렉션 파라미터를 바인딩할 때 예외를 던지고 받는다 | 1.1% | `CoercionException` 분당 1,702건. `BookingPreflightReader.requireAvailableSeats:85`, `SeatLookupService.findSeats:33` |
+| | nginx가 연결을 끊어 Tomcat이 받는 `EOFException` | 0.6% | 분당 2,581건. upstream keepalive 없음(P-017 선택지) |
+| **나머지** | Tomcat·Spring·Hibernate·JDBC·업무 코드 | 약 25% | 위를 뺀 몫 |
+
+뜻:
+
+- 사용자당 Core CPU 22.2ms 중 **관측 도구가 약 6ms**, JVM 자체(JIT·GC)가 약 4ms다. 업무 처리는 약 6ms뿐이다.
+- 10-22 추정의 "Datadog 줄이기 −5~8%"는 작게 잡았다. 프로파일러 JFR 기록 하나가 11.7%다.
+- 10-22 추정의 "리스너·이벤트 정리"는 이벤트 저장 2.2% + 새 스레드 1.9%라 −6~8%보다 작다.
+- 주문 만료 처리는 03 시나리오가 결제하지 않아 모든 주문이 10분 뒤 만료되기 때문에 생긴다. 사다리를 1분 간격으로 오르면 10분 전 실행의 만료가 지금 실행과 겹친다. 실제 서비스에서는 결제하지 않은 주문만 만료된다.
+- 모형에 넣으면(미확인): 프로파일러 끄기(−11.7%) + insight 빼기(−3.6%) + keepalive(−3%)로 사용자당 약 18.2ms, C ≈ (1.7 − 0.3) ÷ 0.0182 ≈ 77. 트레이서까지 끄면 약 16ms, C ≈ 87.
+
+**어떻게 발견했나**: Datadog MCP의 `ProfilingApi`로 cpu-time 프로파일을 스레드 묶음별로 나눴다. `JVM Threads` 20%와 `redisson-netty` 12.5%, `redis-expiration` 4.6%가 눈에 띄었다. 메서드 self 상위를 보니 1·2위가 JFR 네이티브 함수였고, ArchUnit이 운영 요청 경로에 있었다. 이어서 프레임 정규식별 포함 몫, 예외 표본(`exception-samples`)을 셌다.
+
+**직접 보려면**
+
+1. Datadog **APM → Profiles → Explorer**(us5), 검색 `service:ticket-be env:prod`, 2026-10-26 07:55~07:57 KST, 프로필 종류 **CPU Time**, 보기 **Flame Graph**.
+2. 오른쪽 그룹 기준을 **Thread Group**으로 바꾼다 → `JVM Threads` 약 20%, `redisson-netty` 약 12.5%, `redis-expiration` 약 4.6%.
+3. 검색창(프레임 필터)에 `Jfr`를 넣는다 → 전체의 약 12%. Datadog 프로파일러가 할당·live heap 표본을 남기려고 스택을 걷는 비용이다.
+4. `ModuleEntryInterceptor`를 찾는다 → 컨트롤러·use case 호출마다 감싸고, 그 안 `DefaultObservedModule.getUserType` → `Classes.contains` → `JavaClass.isEquivalentTo`(ArchUnit)가 보인다.
+5. 프로필 종류를 **Exceptions**로 바꾼다 → `EOFException`(Tomcat 읽기), `CoercionException`(Hibernate 파라미터 바인딩)이 상위다.
+
 ## 측정 도구
 
 - **Git Bash에서 `run-step.ps1`을 띄우면 원격 부하 발생기 준비가 실패한다.** `scripts/distributed-common.ps1`의 `Resolve-CommandPath`가 PATH를 먼저 보므로, Git Bash가 넘긴 PATH의 GNU `tar`(`/usr/bin/tar`)를 잡는다.
@@ -222,5 +264,6 @@ Core 기동 약 19분 뒤 첫 부하에서 20 u/s 예열이 8번 걸렸다. JIT 
 1. **C 좁히기**(5단계): 60 PASS·80 FAIL 사이 70 u/s부터. 같은 Core 기동이면 바로, 10분 넘게 쉬었으면 20 u/s 예열부터. 남은 대형 회차 `920000089`~`100`(12개).
 2. **15초 주기 멈춤 확인**: 부하 중 운영 호스트에서 `top -b -d 1`로 튀는 프로세스를 본다. Core 밖이 유력해졌다.
 3. **P-022 nginx FD**: 워커 한도 확인 후 `worker_rlimit_nofile`·컨테이너 `nofile` 올리기, upstream keepalive.
-4. 한계를 더 올리려면 P-017 선택지(사양, 옆 컨테이너 옮기기, Datadog 줄이기, 리스너·이벤트 정리).
+4. 한계를 더 올리려면 P-017 선택지. 프로파일 기준 효과 순서: Datadog 프로파일러 끄기(11.7%) → Datadog 트레이서 줄이기(6.4% + 스레드 3.2%) → insight 빼기(3.6%) → keepalive(약 3%). 하나씩 바꾸고 잰다.
+6. 03 시나리오의 주문 만료 뒷일(4.6%): 사다리 간격을 10분 넘게 두거나, 만료 처리를 측정 조건으로 적어 둘지 정한다.
 5. 측정 도구: `Resolve-WindowsCommandPath`가 System32를 먼저 보게 고칠지.
