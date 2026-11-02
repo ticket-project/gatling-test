@@ -131,10 +131,72 @@ JIT은 실행 중 JIT 컴파일 시간(초), CPU는 사용자당 Core CPU(ms)다
 
 **다음 실행**: 사용자가 고른 하나를 바꾼 뒤 같은 조건(예열 8번, 40 u/s부터)으로 60·70·80 u/s. 좁히기를 고르면 같은 Core 기동에서 70 u/s(`920000103`)부터.
 
+## 프로파일로 본 메서드별 시간 (측정 뒤 추가)
+
+사용자 요청으로 Datadog 프로파일러(`ProfilingApi`)를 읽었다. 구간은 50·60 u/s(07:25:30~07:27:30 KST)와 80 u/s 세 번(07:28:30~07:31:40)이다.
+10-26 구간 프로파일은 보관 기간이 지나 비어 있어 10-26 일지의 숫자와 비교한다. "포함"은 스택 어딘가에 그 클래스가 있는 표본의 몫이다.
+사용자당 ms는 프로파일 합(50·60 구간 65.9초 ÷ 3,300명 = 20.0ms)에 몫을 곱한 값이다. prometheus의 25.3~25.5ms보다 작은데, 이유는 확인하지 못했다.
+
+### CPU 시간 (cpu-time, Core CPU 중 몫)
+
+| 묶음 | 50·60 u/s | 80 u/s | 사용자당(50·60) | 10-26 |
+| --- | --- | --- | --- | --- |
+| 요청 처리 전체(`AccessTokenAuthenticationFilter` 아래) | 44.7% | 55.8% | 8.9ms | - |
+| ├ `CreateOrderUseCase` | 21.0% | 28.0% | 4.2ms | - |
+| │ ├ `BookingPreflightReader`(주문 전 읽기) | 9.6% | 12.8% | 1.9ms | - |
+| │ └ `PendingOrderCreator`(주문 저장) | 6.9% | 9.0% | 1.4ms | - |
+| ├ `SelectSeatUseCase` | 3.0% | 4.1% | 0.6ms | - |
+| ├ `GetOccupiedSeatsUseCase`(1초 캐시) | 0.4% | 0.5% | 0.1ms | - |
+| └ `JwtAccessTokenCodec`(토큰 읽기) | 1.7% | 2.0% | 0.3ms | - |
+| JVM 스레드(JIT·GC) | 26.6% | 15.3% | 5.3ms | 약 19% |
+| Datadog 프로파일러 JFR 스택 기록(`Jfr*`) | 12.1% | **24.1%** | 2.4ms | 11.7% |
+| Redisson netty 스레드 | **4.5%** | 4.5% | 0.9ms | **12.5%** |
+| keyspace 만료 처리(`redis-expiration-*`) | **없음** | 없음 | - | **4.6%** |
+| 주문 청소(`ExpirePendingOrdersUseCase`·`ExpireOrderUseCase`) | 2.6% | 2.8% | 0.5ms | (만료 처리 4.6%에 포함) |
+| 좌석 상태 relay(`seat-status-relay-*`) | 1.3% | 0.9% | 0.3ms | 없음 |
+| WebSocket 브로커(`MessageBroker-*`) | 3.3% | 3.4% | 0.7ms | - |
+| Micrometer 관측 | 8.4% | 11.3% | 1.7ms | 4.5% |
+| Hibernate(포함) / JDBC(포함) | 25.3% / 8.9% | 34.2% / 13.6% | - | - |
+| 응답 gzip | 3.4% | 4.8% | 0.7ms | 3.9% |
+| Modulith insight ArchUnit(`DefaultObservedModule`) | 2.1% | 1.9% | 0.4ms | 3.6% |
+| Datadog 트레이서 span | 2.6% | 3.6% | 0.5ms | 6.4% |
+
+- 좌석 락을 걷어낸 효과는 Redis 쪽에서 보인다. Redisson netty 12.5 → 4.5%, keyspace 만료 4.6% → 0(대신 주문 청소 2.6%, relay 1.3%). 합치면 Core CPU의 약 9%p가 줄었다.
+- 그런데 사용자당 CPU는 줄지 않았다(22.2 → 25.3ms). 같은 구간의 JVM 스레드가 약 19 → 26.6%로 늘었고(이 구간 JIT 11.6·26.4초, 10-26 4.6·8.7초), Micrometer가 4.5 → 8.4%로 늘었다. 줄어든 Redis 몫을 JIT·관측이 채웠다고 본다(추정, 같은 데움 상태로 다시 재야 판정).
+- 80 u/s에서 JFR이 24.1%로 두 배가 된다. 요청 스레드가 많을수록 표본마다 걷는 스택이 늘어난다(추정). 막힌 뒤의 CPU 4분의 1을 프로파일러가 쓴다.
+- Tomcat `NamesEnumerator.nextElement`(헤더 이름 순회)가 self 2.2%로 상위 3위다. 누가 부르는지 스택을 받지 못했다(미확인).
+
+### 경과 시간 (wall-time, 요청 스레드 `http-nio-*-exec-*`만)
+
+wall-time은 기다림을 포함한 시간이다. 표본이라 절대값보다 비율을 본다(단위는 분당 표본 초).
+
+| 묶음 | 50·60 u/s | 80 u/s |
+| --- | --- | --- |
+| 요청 처리 전체 | 90.4 | 333.3 |
+| **DB 연결 대기(`HikariPool`)** | 29.4 (33%) | **244.2 (73%)** |
+| DB 응답 대기(PG 소켓 읽기) | 22.5 (25%) | 7.5 (2%) |
+| Redis 응답 대기(Redisson) | 9.7 (11%) | 9.0 (3%) |
+| `CreateOrderUseCase` | 52.6 | 164.2 |
+| `SelectSeatUseCase` | 17.0 | 92.7 |
+| `GetOccupiedSeatsUseCase` | 7.6 | 70.8 |
+
+- 80 u/s에서 요청 스레드 시간의 73%가 DB 연결을 기다리는 시간이다. 세 요청 모두 연결을 기다린다. 점유 좌석도 `findReservedSeatIds`로 연결을 빌린다.
+- DB가 실제로 답하는 시간은 2%뿐이다. DB가 느린 게 아니라, 연결을 쥔 스레드가 CPU를 못 받아 연결을 늦게 돌려준다(P-017 근거와 같다).
+
+**어떻게 발견했나**: Datadog MCP의 `ProfilingApi`로 cpu-time을 스레드 묶음(`threadGroup`)별로 나눴고, `redis-expiration` 묶음이 사라지고 `seat-status-relay`가 새로 생긴 것을 봤다. 이어서 클래스 이름별 포함 몫(`frameRegexFilter`)을 셌고, wall-time을 요청 스레드로 좁혀 기다림을 나눴다.
+
+**직접 보려면**
+
+1. Datadog **APM → Profiles → Explorer**(us5), 검색 `service:ticket-be env:prod`, 2026-11-03 07:25:30~07:27:30 KST, 프로필 종류 **CPU Time**, 보기 **Flame Graph**.
+2. 그룹 기준을 **Thread Group**으로 바꾼다 → `http-nio-X-exec-X` 약 57%, `JVM Threads` 약 27%, `redisson-netty` 약 4.5%. `redis-expiration`이 없다.
+3. 프레임 검색에 `CreateOrderUseCase`를 넣는다 → 전체의 약 21%. 그 아래 `BookingPreflightReader`·`PendingOrderCreator`가 보인다.
+4. 프로필 종류를 **Wall Time**으로, 시간을 07:28:30~07:31:40으로 바꾸고 Thread Group `http-nio-X-exec-X`만 고른다 → `HikariPool.getConnection` 아래가 대부분이다.
+
 ## 측정 도구
 
 - 80 u/s 실행의 1초 지표 표본이 20개(30초 중)다. Core가 막힌 동안 `/actuator/prometheus` 응답이 1초를 넘었다(P-009와 같음). 판정은 전후 히스토그램이라 영향 없다.
-- 운영 진단의 스레드 덤프(`kill -3`)와 Datadog 프로파일은 이번에 보지 않았다. 사용자당 숫자가 10-26과 같아 10-26 프로파일 분해를 그대로 쓴다.
+- 운영 진단의 스레드 덤프(`kill -3`)는 하지 않았다. 기다리는 위치는 위 wall-time 프로파일로 갈음했다.
+- Datadog 프로파일 API의 `frameRegexFilter`는 `클래스.메서드`(점 포함) 꼴로는 맞는 게 없고, 클래스 이름만 넣어야 맞는다.
 
 ## 다음에 할 일
 
@@ -142,4 +204,5 @@ JIT은 실행 중 JIT 컴파일 시간(초), CPU는 사용자당 Core CPU(ms)다
 
 1. P-017 선택지 중 하나를 고르거나, 지금 코드를 한계로 보고 70 u/s부터 좁히기.
 2. 15초 주기 멈춤의 프로세스 확인(`top -b -d 1`, 운영 호스트).
-3. 좌석 락 삭제가 Redis 쪽 CPU(10-26 Redisson netty 12.5%, keyspace 만료 4.6%)를 줄였는지 보려면 Datadog 프로파일을 07:24~07:27 KST로 다시 나눈다.
+3. 좌석 락 삭제는 Redis 쪽 CPU를 약 9%p 줄였다(위 프로파일). 사용자당 CPU에 나타나는지는 JIT이 덜 섞인 상태(예열 더, 또는 같은 부하 반복)로 다시 재야 판정된다.
+4. `NamesEnumerator`(Tomcat 헤더 순회, self 2.2%)를 누가 부르는지: Datadog Flame Graph에서 그 프레임을 눌러 호출자를 본다.
