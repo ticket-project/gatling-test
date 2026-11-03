@@ -108,7 +108,8 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 | `thread-dump-<n>.txt` | `-ThreadDumps N`일 때만. Core가 막히기 시작한 순간(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상)부터 3초 간격 |
 | `booking-*.csv`, `booking-evidence.json` | 사용자별 결과, 초당 입장·완료, 체류 시간 |
 | `gatling.log`, `gatling-jvm.log` | Gatling 출력, 부하 발생기 GC 로그 |
-| `coreadmissioncapacitysimulation-*/` | Gatling HTML 리포트 |
+| `request-minutes.csv` | 요청별 1분 구간 응답 시간(건수, p95, p99) |
+| `coreadmissioncapacitysimulation-*/`, `corerealisticusermixsimulation-*/` | Gatling HTML 리포트(03, 03-3) |
 
 모든 실행의 한 줄 요약은 `distributed-results-join/capacity/steps.md`에도 쌓인다.
 
@@ -151,6 +152,38 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 - `summary.json`의 `client.requests`(요청별 p95/p99), `client.leftAtInjectionEnd`, `client.tailResidenceMedianMs`에 판정에 쓴 값이 남는다.
 
 종료 코드는 PASS 0, FAIL 1, 중단 2, INVALID 3이다.
+
+### 03-3 인기 공연 오픈(`-Scenario 03-3`)
+
+내세울 수용량("초당 N명을 견딘다")은 03-3으로 잰다(2026-11-04 사용자 결정). 03-3은 `CoreRealisticUserMixSimulation`이다.
+인기석(10%)에 80%가 몰리고, 이선좌면 최대 3번 다시 고르고, 고르기 전 1~3초·주문 전 2~6초 고민하고, 10%는 주문 전에 나가고(전체 해제),
+10%는 주문 뒤 취소한다. 좌석 알림 WebSocket을 열어 두고 배치도·좌석 전체(`seats/status`)를 받는다. 매진 뒤에도 사람이 계속 들어온다.
+결제 단계가 없어 취소하지 않은 주문은 선점 시간(부하 회차 600초) 뒤 만료되고 좌석이 다시 풀린다. 실제보다 재경합이 크다.
+
+```powershell
+.\scripts\capacity\run-step.ps1 -Scenario 03-3 -UsersPerSecond 60 -DurationSeconds 900 -PerformanceId 920000106 -Label hold
+```
+
+N을 찾는 순서는 30초 사다리로 후보 → 후보를 15분(`-DurationSeconds 900`) → 대기 20만 명이 다 들어올 때까지(`-DurationSeconds` = 200000 ÷ N)
+한 번으로 확정한다. 15분이 FAIL이면 N을 10% 낮춰 다시 잰다. 03과 판정이 다른 곳은 아래와 같다. 나머지(기술 실패, 유효성)는 같다.
+
+| 항목 | 03-3 |
+| --- | --- |
+| 비즈니스 거절 | 이선좌(`E4001`, `E6000`)와 매진(`NO_AVAILABLE_SEAT`)은 정상 응답이다. 그 밖의 거절(`E5004` 진행 중 주문 등)이 있으면 회원·데이터 문제라 INVALID |
+| 응답 시간 | 화면이 부르는 요청 전부. 조회(`performance summary`, `venue layout`, `show seat map`, `seat status`, `get order`)는 p95 500 / p99 1,000ms, 쓰기(`select seat`, `create order`, `release all selections`, `cancel order`)는 p95 1,000 / p99 2,000ms. 빠진 요청은 무효로 보지 않는다(이탈·취소는 확률이라 짧은 실행에 없을 수 있다) |
+| 밀림 | 보지 않는다. 사람이 일부러 머물러 남은 사용자 수가 기준이 되지 않는다. 대신 1분 구간 응답 시간을 본다 |
+| 중복 판매 | 실행 뒤 그 회차에서 같은 좌석을 같은 시간에 잡은 주문 쌍이 1개 이상이면 FAIL. 주문의 끝은 확정이면 없음, 취소면 취소 시각, 그 밖은 만료 시각이다. 주문 테이블에 회차 인덱스가 없어 실행 직전 `orders`·`order_seats` ID 최댓값보다 큰 행만 읽는다. 로컬은 compose PostgreSQL, 운영은 `-Prod`의 psql로 묻고, 물을 수 없으면 INVALID |
+
+**1분 구간 응답 시간**(03·03-3 공통, 2분 이상 실행): Gatling이 요청별 응답 시간을 1분 구간마다 모아 `request-minutes.csv`
+(`epochMinute,request,count,p95Ms,p99Ms`)로 남긴다. 위 응답 시간 기준을 넘은 구간이 하나라도 있으면 FAIL이다. 100건 미만 구간은 뺀다.
+실행 전체로만 보면 15분 중 마지막 2분의 무너짐이 앞부분에 묻힌다.
+
+**자동 중단**(2분 넘는 실행): 1초 지표에서 요청 스레드가 전부 바쁘거나 지표 수집이 시간 초과인 상태가 30초 이어지면 결과 폴더에 `.abort`를 만들고
+Gatling을 멈춘다(원격은 `pkill -f /tmp/capacity-<폴더>`). 증거 파일 없이 FAIL(aborted)로 `summary.json`·`steps.md`에 남는다.
+무너진 채 수십 분 운영에 부하를 주지 않기 위해서다. 30초 사다리에는 걸지 않는다.
+
+긴 실행을 위해 토큰 수명은 실행 길이 + 30분(최소 1시간), 원격 실행 제한은 실행 길이 + 15분이다. 결과 폴더 이름에 `-03-3`이 붙고,
+`steps.md`의 용도 칸에 시나리오가 들어간다. `summary.json`의 `client.rejections`·`minuteFailures`·`duplicateSales`에 판정에 쓴 값이 남는다.
 
 ## 측정 규칙
 

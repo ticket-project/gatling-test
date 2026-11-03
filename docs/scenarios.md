@@ -198,6 +198,12 @@ feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 �
 
 이탈·취소 비율은 실측이 아니라 가정값이다. 실제 서비스 로그로 비율을 정하기 전에는 이 값에 기대어 용량을 확정하지 않는다.
 
+2026-11-04부터 내세울 Core 수용량은 03-3으로 잰다. `scripts/capacity/run-step.ps1 -Scenario 03-3`이 이 시뮬레이션을 돌리고
+이선좌·매진을 정상 응답으로, 응답 시간을 1분 구간마다, 실행 뒤 중복 판매를 판정한다([판정](../scripts/capacity/README.md#03-3-인기-공연-오픈-scenario-03-3)).
+03-3에는 결제가 없어 취소하지 않은 주문이 선점 시간 뒤 모두 만료되고 좌석이 다시 풀린다. 실제보다 재경합이 크다.
+
+Core 직접 호출 시뮬레이션은 요청별 응답 시간을 1분 구간으로 모아 실행이 끝날 때 결과 파일 옆에 `request-minutes.csv`로 쓴다(`RequestLatencyRecorder`).
+
 Core 직접 호출 테스트(03·03-2·04·05)의 Gatling 요청 통계에는 실제 HTTP API만 표시한다. 외부 유입과 Core 진입을 구분해야 하는 `QueueProtectsCoreSimulation`에서만 `external arrival` 지표를 유지하며, 실제 Core 진입률은 `booking-admissions.csv`로 판정한다.
 
 ### Core 동시 사용자 상한
