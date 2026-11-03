@@ -5,6 +5,10 @@ param(
     [int]$DurationSeconds = 30,
     [string]$CoreUrl = "http://localhost:8080",
     [string]$Label = "step",
+    # 03: 고정 좌석 하나를 바로 주문하는 단순 예매. 03-3: 인기 공연 오픈(인기석 쏠림, 이선좌 재시도, 고민, 이탈·취소, 매진).
+    # 내세울 수용량은 03-3으로 잰다(2026-11-04 사용자 결정, ticket docs/core-capacity.md).
+    [ValidateSet("03", "03-3")]
+    [string]$Scenario = "03",
     [string]$MemberIdsFile = "",
     [string]$JwtSecret = $env:LOADTEST_JWT_SECRET,
     [double]$AdmissionTolerancePercent = 15,
@@ -42,14 +46,35 @@ $localSecret = "0123456789abcdef0123456789abcdef"
 # 판정 기준값(core-capacity.md). 요청 이름은 CoreBookingFlow의 http(...) 이름이다. 값은 p95, p99 상한(ms).
 $TechnicalFailureLimitPercent = 0.1
 # 03은 점유 좌석 응답에 회차 요약이 들어 있어 요약 조회를, 주문 생성 응답이 상태를 담고 있어 주문 조회를 부르지 않는다(2026-10-19).
-$LatencyLimits = [ordered]@{
-    "seat status" = @(500, 1000)
-    "select seat" = @(1000, 2000); "create order" = @(1000, 2000)
+$isRealistic = $Scenario -eq "03-3"
+$LatencyLimits = if ($isRealistic) {
+    # 03-3은 화면이 부르는 조회·쓰기를 모두 본다. 조회는 0.5/1초, 쓰기(선택·주문·해제·취소)는 1/2초.
+    [ordered]@{
+        "performance summary" = @(500, 1000); "venue layout" = @(500, 1000); "show seat map" = @(500, 1000)
+        "seat status" = @(500, 1000); "get order" = @(500, 1000)
+        "select seat" = @(1000, 2000); "create order" = @(1000, 2000)
+        "release all selections" = @(1000, 2000); "cancel order" = @(1000, 2000)
+    }
+} else {
+    [ordered]@{
+        "seat status" = @(500, 1000)
+        "select seat" = @(1000, 2000); "create order" = @(1000, 2000)
+    }
 }
-# 밀림: 주입이 끝날 때 Core 안에 남은 사용자가 부하 x 이 초보다 많거나, 마지막 몇 초 입장 구간의 체류 중앙값이 상한을 넘으면 FAIL.
+# 밀림(03만): 주입이 끝날 때 Core 안에 남은 사용자가 부하 x 이 초보다 많거나, 마지막 몇 초 입장 구간의 체류 중앙값이 상한을 넘으면 FAIL.
+# 03-3은 사람이 일부러 1~6초 고민하며 머물러 이 기준이 맞지 않는다. 대신 응답 시간을 1분 구간마다 본다.
 $BacklogSeconds = 1
 $TailWindowSeconds = 5
 $TailMedianLimitMillis = 1000
+# 1분 구간 판정은 2분 이상 실행에서만 한다. 표본이 적은 구간(첫·끝 부분 분, 드문 요청)은 p99가 최댓값과 같아 흔들리므로 뺀다.
+# ponytail: 고정 100건. 드문 요청(취소 등)의 1분 판정이 필요해지면 구간을 넓힌다.
+$MinuteMinCount = 100
+# 03-3에서 정상으로 보는 비즈니스 거절: 이선좌(E4001 다른 사람이 선택, E6000 이미 선점)와 매진(빈 좌석 없음).
+# 그 밖의 거절(진행 중 주문 E5004, 선점 한도 E6001 등)은 회원·데이터 준비 문제라 측정을 무효로 본다.
+$ExpectedRejections = "BUSINESS_REJECTED_E4001", "BUSINESS_REJECTED_E6000", "BUSINESS_REJECTED_NO_AVAILABLE_SEAT"
+# 긴 실행 자동 중단: 요청 스레드가 이 초 동안 연달아 전부 바쁘거나 지표 수집이 막히면 Gatling을 멈추고 FAIL로 끝낸다.
+# 무너진 채 수십 분 부하를 주지 않기 위해서다. 30초 사다리에는 걸지 않는다(무너진 모습까지 기록해야 진단한다).
+$AbortAfterSeconds = if ($DurationSeconds -gt 120) { 30 } else { 0 }
 
 # -Prod면 prod-target.ps1이 진짜 Stop-ProdTunnel로 덮어쓴다.
 function Stop-ProdTunnel {}
@@ -58,9 +83,18 @@ function Fail([string]$message) { Stop-ProdTunnel; Write-Host "ABORT: $message" 
 trap { Fail "unexpected error: $($_.Exception.Message) (line $($_.InvocationInfo.ScriptLineNumber))" }
 # Start-Process -Wait는 자식 프로세스까지 기다린다. gradlew가 새로 띄운 Gradle 데몬은 계속 살아 있으므로 끝나지 않는다.
 # 띄운 프로세스만 기다린다. Handle을 먼저 읽어야 Windows PowerShell 5.1에서 ExitCode가 남는다.
-function Invoke-Process([string]$file, [string[]]$arguments, [string]$out, [string]$err) {
+# $abortFile이 생기면 $onAbort(원격 Gatling 정리 등)를 부르고 띄운 프로세스 트리를 끝낸다.
+function Invoke-Process([string]$file, [string[]]$arguments, [string]$out, [string]$err, [string]$abortFile = "", [scriptblock]$onAbort = $null) {
     $p = Start-Process -FilePath $file -ArgumentList $arguments -WorkingDirectory $repo -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
     $null = $p.Handle
+    while (-not $p.WaitForExit(1000)) {
+        if ($abortFile -and (Test-Path $abortFile)) {
+            if ($onAbort) { & $onAbort }
+            # $onAbort가 이미 끝낸 하위 프로세스는 taskkill이 오류를 낸다. PowerShell 5.1은 그 stderr를 예외로 바꾸므로 cmd 안에서 버린다.
+            & cmd /c "taskkill /T /F /PID $($p.Id) >nul 2>&1"
+            break
+        }
+    }
     $p.WaitForExit()
     $p.ExitCode
 }
@@ -107,9 +141,12 @@ $isLocal = @("localhost", "127.0.0.1", "::1") -contains $coreUri.Host
 if (-not $isLocal -and -not $OperationalConfirmation) { Fail "non-local target requires -OperationalConfirmation" }
 if (-not $isLocal -and -not $MemberIdsFile) { Fail "non-local target requires -MemberIdsFile (real ACTIVE member ids)" }
 $users = [int][Math]::Ceiling($UsersPerSecond * $DurationSeconds)
+$simulation = if ($isRealistic) { "CoreRealisticUserMixSimulation" } else { "CoreAdmissionCapacitySimulation" }
+$bookingScenario = if ($isRealistic) { "CORE_REALISTIC_USER_MIX" } else { "CORE_ADMISSION_CAPACITY" }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$runDir = Join-Path $repo ("distributed-results-join\capacity\{0}-{1}-{2}ups-{3}s" -f $stamp, $Label, $UsersPerSecond, $DurationSeconds)
+$scenarioTag = if ($isRealistic) { "-03-3" } else { "" }
+$runDir = Join-Path $repo ("distributed-results-join\capacity\{0}-{1}{2}-{3}ups-{4}s" -f $stamp, $Label, $scenarioTag, $UsersPerSecond, $DurationSeconds)
 New-Item -ItemType Directory -Force $runDir | Out-Null
 $runId = [guid]::NewGuid().ToString()
 Write-Host "run dir: $runDir"
@@ -153,8 +190,9 @@ if ($Prod) {
     if ($CheckOnly) { Stop-ProdTunnel; Write-Host "check: OK (no load sent)"; exit 0 }
 }
 # 부하 픽스처는 공연·회차·좌석이 모두 idBase + n이다(ticket seed LoadTestFixtureSeeder).
-# 표준 910000001~(2,000석), 대형 920000001~(15,000석). 좌석은 idBase + 1부터 연속이다.
+# 표준 910000001~(2,000석), 대형 920000001~(15,000석). 좌석은 idBase + 1부터 연속이다. 공연(show) ID도 idBase + 1이다(03-3 배치도 조회).
 $seatStartId = [long]([Math]::Floor($PerformanceId / 10000000) * 10000000 + 1)
+$showId = $seatStartId
 
 $health = Get-Text "$MetricsUrl/actuator/health"
 if ($health -notmatch '"status":"UP"') { Fail "Core health is not UP: $health" }
@@ -218,7 +256,8 @@ $tokensFile = Join-Path $runDir "access-tokens.txt"
 $feederFile = Join-Path $runDir "feeder.csv"
 $genArgs = @("-p", $gatlingProject, "generateAccessTokens", "-q",
     "-Doutput=$tokensFile", "-DtokenCount=$users", "-DjwtIssuer=ticket",
-    "-DsyntheticMemberStartId=1", "-DsyntheticJwtRole=MEMBER", "-DsyntheticTokenTtlSeconds=3600",
+    # 토큰은 실행 전에 한꺼번에 만든다. 긴 실행(03-3 확정 실행은 1시간 가까이)의 마지막 사용자 토큰이 만료되지 않게 실행 길이 + 30분을 준다.
+    "-DsyntheticMemberStartId=1", "-DsyntheticJwtRole=MEMBER", "-DsyntheticTokenTtlSeconds=$([Math]::Max(3600, $DurationSeconds + 1800))",
     "-DbookingFeederOutput=$feederFile", "-DbookingSeatStartId=$seatStartId")
 if ($MemberIdsFile) { $genArgs += "-DmemberIdsFile=$((Resolve-Path $MemberIdsFile).Path)" }
 $genExit = Invoke-Process $gradlew $genArgs (Join-Path $runDir "token-generation.log") (Join-Path $runDir "token-generation.err")
@@ -228,7 +267,8 @@ if ($genExit -ne 0) { Fail "token generation failed (see token-generation.err)" 
 $firstToken = (Get-Content $tokensFile -TotalCount 1).Trim()
 $seats = (ConvertFrom-Json (Get-Text "$CoreUrl/api/v1/performances/$PerformanceId/seats/status" @{ Authorization = "Bearer $firstToken" })).data.seats
 $available = @($seats | Where-Object { $_.status -eq "AVAILABLE" }).Count
-if ($available -ne $seats.Count -or $available -lt $users) {
+# 03은 사용자마다 고유 좌석이 있어야 한다. 03-3은 빈 좌석을 응답에서 고르고 매진되면 거절받으므로 좌석 수와 상관없다.
+if ($available -ne $seats.Count -or (-not $isRealistic -and $available -lt $users)) {
     Fail "performance $PerformanceId is not clean or too small: available=$available of $($seats.Count), need $users. Use a fresh or larger performance."
 }
 # 피더는 seatStartId부터 연속 좌석을 쓴다. 그 가정이 이 회차에서 맞는지 응답으로 확인한다.
@@ -281,6 +321,20 @@ $walSql = "select (select sum(writes) from pg_stat_io where object = 'wal'), (se
 function Get-Wal { if ($pgContainer) { "$(& docker exec $pgContainer psql -U ticket -d ticket -At -F ',' -c $walSql)".Trim() } }
 $walBefore = Get-Wal
 
+# 중복 판매 확인(03-3): 한 좌석에 살아 있던 기간이 겹치는 주문이 둘 이상이면 같은 좌석을 두 사람에게 판 것이다.
+# 주문 테이블에는 회차 인덱스가 없어 회차로 거르면 운영 주문 500만 건을 다 읽는다(운영 점검 최소, P-020).
+# 실행 직전 주문·주문좌석 ID 최댓값(PK라 바로 읽힌다)을 기억해 두고, 실행 뒤에는 그보다 큰 ID(이번 실행이 만든 행)만 읽는다.
+function Invoke-BookingSql([string]$sql) {
+    if ($Prod) { return ((Invoke-ProdBash ($prodPsqlPrelude + "`npsqlq ""$sql""")) -join "").Trim() }
+    if ($pgContainer) { return "$(& docker exec $pgContainer psql -U ticket -d ticket -At -F ',' -c $sql)".Trim() }
+    $null
+}
+$orderBaseline = $null
+if ($isRealistic) {
+    $line = Invoke-BookingSql "select (select coalesce(max(id), 0) from orders), (select coalesce(max(id), 0) from order_seats)"
+    if ($line -match '^(\d+),(\d+)$') { $orderBaseline = @([long]$Matches[1], [long]$Matches[2]) }
+}
+
 $ordersBefore = if ($databaseInfo) { [long]$databaseInfo.orders } else { $null }
 
 # --- 1초 단위 Core 지표 수집과 Gatling 실행 ----------------------------------------------------------
@@ -301,18 +355,22 @@ if ($ThreadDumps -gt 0) {
     }
 }
 if (-not $sampleUrl) { $sampleUrl = Get-SampleUrl $MetricsUrl }
-$sampler = Start-Job -ArgumentList $sampleUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container -ScriptBlock {
-    param($url, $file, $stop, $dumps, $jcmd, $corePid, $dir, $container)
+$abortFile = Join-Path $runDir ".abort"
+$sampler = Start-Job -ArgumentList $sampleUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container, $abortFile, $tomcatMax, $AbortAfterSeconds -ScriptBlock {
+    param($url, $file, $stop, $dumps, $jcmd, $corePid, $dir, $container, $abortFile, $busyLimit, $abortAfter)
     Set-Content $file "time`thikari_active`thikari_pending`ttomcat_busy`tprocess_cpu`tsystem_cpu"
     $names = "hikaricp_connections_active", "hikaricp_connections_pending", "tomcat_threads_busy_threads", "process_cpu_usage", "system_cpu_usage"
-    $taken = 0; $lastDump = [datetime]::MinValue
+    $taken = 0; $lastDump = [datetime]::MinValue; $stuckSince = $null
     while (-not (Test-Path $stop)) {
         $t = Get-Date -Format "HH:mm:ss"
+        # 자동 중단: 요청 스레드가 전부 바쁘거나 지표 수집이 시간 초과인 상태가 $abortAfter초 이어지면 .abort를 만든다.
+        $stuck = $true
         try {
             $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2
             $text = [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
             $values = foreach ($n in $names) { $m = [regex]::Match($text, "(?m)^$n\{[^}]*\} ([0-9.eE+-]+)"); if ($m.Success) { $m.Groups[1].Value } else { "" } }
             Add-Content $file ($t + "`t" + ($values -join "`t"))
+            $stuck = $busyLimit -and [double]$values[2] -ge $busyLimit
             # ponytail: 고정 문턱(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상). 문턱 아래에서 FAIL하면 덤프가 안 남으니 그때 매개변수로 뺀다.
             if ($taken -lt $dumps -and ([double]$values[1] -gt 0 -or [double]$values[2] -ge 20) -and ((Get-Date) - $lastDump).TotalSeconds -ge 3) {
                 $taken++; $lastDump = Get-Date
@@ -329,15 +387,19 @@ $sampler = Start-Job -ArgumentList $sampleUrl, $metricsFile, $stopFile, $ThreadD
                 [IO.File]::WriteAllText((Join-Path $dir "thread-dump-$taken.txt"), $dump, [Text.UTF8Encoding]::new($false))
             }
         } catch { Add-Content $file "$t`tTIMEOUT" }
+        if (-not $stuck) { $stuckSince = $null } elseif (-not $stuckSince) { $stuckSince = Get-Date }
+        if ($abortAfter -gt 0 -and $stuckSince -and ((Get-Date) - $stuckSince).TotalSeconds -ge $abortAfter -and -not (Test-Path $abortFile)) {
+            Set-Content $abortFile "request threads all busy ($busyLimit) or metrics timing out for ${abortAfter}s since $($stuckSince.ToString('HH:mm:ss'))"
+        }
         Start-Sleep -Milliseconds 1000
     }
 }
 
 function Get-GatlingArgs([string]$project, [string]$dir, [string]$feeder, [string]$tokens, [string]$result) {
     @("-p", $project, "gatlingRun", "-DgatlingReportDir=$dir",
-        "--simulation", "com.ticket.loadtest.simulation.CoreAdmissionCapacitySimulation",
+        "--simulation", "com.ticket.loadtest.simulation.$simulation", "-DshowId=$showId",
         "-DcoreBaseUrl=$CoreUrl", "-DbookingFeederFile=$feeder", "-DbookingFeederOffset=0",
-        "-DbookingScenario=CORE_ADMISSION_CAPACITY", "-DresultFile=$result",
+        "-DbookingScenario=$bookingScenario", "-DresultFile=$result",
         "-DtechnicalFailureThresholdPercent=$TechnicalFailureLimitPercent", "-DpollingTimeoutSeconds=300", "-DqueueTimeoutThresholdPercent=0",
         "-DmaxCoreAdmissionsPerSecond=0", "-DadmissionRateTolerancePercent=0",
         "-DperformanceId=$PerformanceId", "-Dusers=1", "-DdurationSeconds=$DurationSeconds",
@@ -349,13 +411,20 @@ if ($LoadHost) {
     # 원격 명령은 공백이 있어 큰따옴표로 한 인수로 묶는다(Start-Process는 인수를 따옴표 없이 공백으로 잇는다).
     # core.autocrlf로 받은 작업 트리는 gradlew가 CRLF라서 Linux에서 실행되지 않는다(/bin/sh^M). 실행 전에 LF로 바꾼다.
     # 원격 명령은 큰따옴표로 묶여 전달되므로 안에 따옴표를 쓰지 않는다. 안쪽 bash가 \\r을 \r로 풀어 sed에 넘긴다.
-    $remoteRun = "timeout 900s bash -lc 'cd $RemoteProjectDir && sed -i s/\\r`$// gradlew && ./gradlew " + ((Get-GatlingArgs "load-tests/gatling" $remoteDir "$remoteDir/feeder.csv" "$remoteDir/access-tokens.txt" "$remoteDir/booking-results.csv") -join " ") +
+    $remoteRun = "timeout $($DurationSeconds + 900)s bash -lc 'cd $RemoteProjectDir && sed -i s/\\r`$// gradlew && ./gradlew " + ((Get-GatlingArgs "load-tests/gatling" $remoteDir "$remoteDir/feeder.csv" "$remoteDir/access-tokens.txt" "$remoteDir/booking-results.csv") -join " ") +
         "; code=`$?; cp load-tests/gatling/build/gatling-jvm.log $remoteDir/ 2>/dev/null; exit `$code'"
     $sshArgs = @($SshOptions | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) + $LoadHost + ('"' + $remoteRun + '"')
-    $gatlingExit = Invoke-Process $SshCommand $sshArgs (Join-Path $runDir "gatling.log") (Join-Path $runDir "gatling.err")
+    # 중단하면 SSH 클라이언트만 끊어서는 원격 Gatling이 남는다. 실행 폴더 경로가 든 원격 프로세스(gradle, Gatling JVM)를 끝낸다.
+    $stopRemote = { & $SshCommand @SshOptions $LoadHost "pkill -f $remoteDir" | Out-Null }
+    $gatlingExit = Invoke-Process $SshCommand $sshArgs (Join-Path $runDir "gatling.log") (Join-Path $runDir "gatling.err") $abortFile $stopRemote
 } else {
     $runArgs = Get-GatlingArgs $gatlingProject $runDir $feederFile $tokensFile (Join-Path $runDir 'booking-results.csv')
-    $gatlingExit = Invoke-Process $gradlew $runArgs (Join-Path $runDir "gatling.log") (Join-Path $runDir "gatling.err")
+    # Gatling JVM은 Gradle 데몬의 자식이라 띄운 프로세스 트리 밖에 있다. 명령행에 실행 폴더가 든 java를 끝낸다.
+    $stopLocal = {
+        Get-CimInstance Win32_Process -Filter "Name = 'java.exe'" | Where-Object { $_.CommandLine -like "*$runDir*" } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    }
+    $gatlingExit = Invoke-Process $gradlew $runArgs (Join-Path $runDir "gatling.log") (Join-Path $runDir "gatling.err") $abortFile $stopLocal
 }
 New-Item -ItemType File $stopFile | Out-Null
 Wait-Job $sampler -Timeout 10 | Out-Null; Remove-Job $sampler -Force
@@ -382,6 +451,24 @@ if ($LoadHost) {
 } else {
     $gcLog = Join-Path $gatlingProject "build\gatling-jvm.log"
     if (Test-Path $gcLog) { Copy-Item $gcLog (Join-Path $runDir "gatling-jvm.log") }
+}
+
+# 자동 중단한 실행은 Gatling이 증거 파일을 쓰기 전에 끝났다. 중단(2)이 아니라 FAIL(1)로 남긴다.
+$commitLabel = if ($coreInfo) { "@$($coreInfo.commit)" } elseif ($CoreCommit) { "@$CoreCommit" } else { "@unknown" }
+$stepLabel = if ($isRealistic) { "$Label $Scenario $commitLabel" } else { "$Label $commitLabel" }
+if (Test-Path $abortFile) {
+    $reason = "aborted: " + (Get-Content $abortFile -Raw).Trim()
+    $summary = [ordered]@{ runId = $runId; label = $Label; scenario = $Scenario; startedAt = $startedAt.ToString("s"); coreUrl = $CoreUrl
+        performanceId = $PerformanceId; usersPerSecond = $UsersPerSecond; durationSeconds = $DurationSeconds; users = $users
+        verdict = "FAIL"; invalidReasons = @(); failReasons = @($reason) }
+    Write-Utf8 (Join-Path $runDir "summary.json") ($summary | ConvertTo-Json -Depth 4)
+    $row = "| {0} | {1} | {2} x {3}s | {4} | - | - | - | - | valid | FAIL (aborted) |" -f $startedAt.ToString("MM-dd HH:mm"), $stepLabel, $UsersPerSecond, $DurationSeconds, $PerformanceId
+    Write-Utf8 (Join-Path $runDir "summary.md") $row
+    [IO.File]::AppendAllText((Join-Path $repo "distributed-results-join\capacity\steps.md"), $row + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Write-Host ""
+    Write-Host "verdict: FAIL"
+    Write-Host "  fail: $reason" -ForegroundColor Red
+    exit 1
 }
 
 # --- 분석 ------------------------------------------------------------------------------------
@@ -434,7 +521,7 @@ if (Test-Path (Join-Path $runDir "gatling-jvm.log")) {
 
 # Gatling 쪽 요청별 p95/p99: HTML 리포트 통계 표에서 읽는다(col-10 = 95th, col-11 = 99th pct). 사용자가 실제로 기다린 시간이다.
 $requests = [ordered]@{}
-$report = Get-ChildItem (Join-Path $runDir "coreadmissioncapacitysimulation-*\index.html") -ErrorAction SilentlyContinue | Select-Object -First 1
+$report = Get-ChildItem (Join-Path $runDir "$($simulation.ToLower())-*\index.html") -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($report) {
     $html = [IO.File]::ReadAllText($report.FullName, [Text.Encoding]::UTF8)
     foreach ($row in [regex]::Matches($html, '<tr[^>]*>(?:(?!</tr>).)*?</tr>', 'Singleline')) {
@@ -465,11 +552,20 @@ if ($gcMax -gt 200) { $invalid += "load generator GC pause ${gcMax}ms" }
 if ($evidence.startedUsers -ne $users) { $invalid += "started $($evidence.startedUsers) of $users users" }
 if ($coreWarnings.Count -gt 0) { $invalid += $coreWarnings }
 # 비즈니스 거절은 회차를 다시 썼거나 좌석·회원 준비가 덜 됐다는 뜻이다. Core 용량과 상관이 없어 숫자를 쓰지 않는다.
-if ($evidence.businessRejectedUsers -gt 0) { $invalid += "business rejected $($evidence.businessRejectedUsers) users (data not clean, use a fresh performance)" }
+$rejections = [ordered]@{}
+foreach ($g in @($results | Where-Object { $_.result -like "BUSINESS_REJECTED_*" -or $_.result -like "USER_DROPPED_*" } | Group-Object result | Sort-Object Count -Descending)) { $rejections[$g.Name] = $g.Count }
+if ($isRealistic) {
+    # 이선좌·매진은 인기 공연 오픈에서 정상이다. 그 밖의 거절만 무효로 본다.
+    $unexpected = @($rejections.Keys | Where-Object { $_ -like "BUSINESS_REJECTED_*" -and $ExpectedRejections -notcontains $_ })
+    if ($unexpected.Count -gt 0) { $invalid += "unexpected business rejections: " + (($unexpected | ForEach-Object { "$_ $($rejections[$_])" }) -join ", ") + " (member or data problem)" }
+} elseif ($evidence.businessRejectedUsers -gt 0) { $invalid += "business rejected $($evidence.businessRejectedUsers) users (data not clean, use a fresh performance)" }
 # 기술 실패가 기준을 넘으면 Gatling assertion이 리포트를 만들기 전에 실패로 끝난다. 그때는 리포트가 없어도 기술 실패로 FAIL이다.
 $technicalFailed = $evidence.technicalFailurePercent -ge $TechnicalFailureLimitPercent
 if (-not $report -and -not $technicalFailed) { $invalid += "Gatling HTML report not found, per-request latency unknown" }
-foreach ($name in $LatencyLimits.Keys) { if ($report -and -not $requests.Contains($name) -and -not $technicalFailed) { $invalid += "request '$name' missing from Gatling report" } }
+# 03-3의 이탈·취소는 확률로 일어나 짧은 실행에는 없을 수 있다. 03만 요청이 빠지면 무효로 본다.
+if (-not $isRealistic) {
+    foreach ($name in $LatencyLimits.Keys) { if ($report -and -not $requests.Contains($name) -and -not $technicalFailed) { $invalid += "request '$name' missing from Gatling report" } }
+}
 
 $reasons = @()
 if ($gatlingExit -ne 0) { $reasons += "gatling exit $($gatlingExit)" }
@@ -481,8 +577,44 @@ foreach ($name in $LatencyLimits.Keys) {
     if ($r.p95Ms -gt $limit[0] -or $r.p99Ms -gt $limit[1]) { $reasons += "$name p95 $($r.p95Ms)ms / p99 $($r.p99Ms)ms > $($limit[0]) / $($limit[1])" }
 }
 $backlogLimit = $UsersPerSecond * $BacklogSeconds
-if ($leftAtEnd -gt $backlogLimit) { $reasons += "backlog: $leftAtEnd users still in Core when injection ended > $backlogLimit" }
-if ($null -ne $tailMedian -and $tailMedian -gt $TailMedianLimitMillis) { $reasons += "backlog: last ${TailWindowSeconds}s residence median ${tailMedian}ms > $TailMedianLimitMillis" }
+if (-not $isRealistic) {
+    if ($leftAtEnd -gt $backlogLimit) { $reasons += "backlog: $leftAtEnd users still in Core when injection ended > $backlogLimit" }
+    if ($null -ne $tailMedian -and $tailMedian -gt $TailMedianLimitMillis) { $reasons += "backlog: last ${TailWindowSeconds}s residence median ${tailMedian}ms > $TailMedianLimitMillis" }
+}
+
+# 1분 구간 응답 시간(Gatling RequestLatencyRecorder). 실행 전체로만 보면 끝 몇 분의 무너짐이 앞부분에 묻힌다.
+$minuteFailures = @()
+$minutesFile = Join-Path $runDir "request-minutes.csv"
+if ($DurationSeconds -ge 120 -and (Test-Path $minutesFile)) {
+    foreach ($m in Import-Csv $minutesFile) {
+        if (-not $LatencyLimits.Contains($m.request) -or [int]$m.count -lt $MinuteMinCount) { continue }
+        $limit = $LatencyLimits[$m.request]
+        if ([int]$m.p95Ms -gt $limit[0] -or [int]$m.p99Ms -gt $limit[1]) {
+            $minute = [DateTimeOffset]::FromUnixTimeSeconds([long]$m.epochMinute * 60).LocalDateTime.ToString("HH:mm")
+            $minuteFailures += "$minute $($m.request) p95 $($m.p95Ms)ms / p99 $($m.p99Ms)ms (n=$($m.count))"
+        }
+    }
+}
+if ($minuteFailures.Count -gt 0) { $reasons += "per-minute latency over limit in $($minuteFailures.Count) minute(s), first: $($minuteFailures[0])" }
+
+# 중복 판매(03-3). 주문의 끝 시각: 확정은 끝이 없고, 취소는 취소 시각, 그 밖(대기·만료)은 만료 시각이다.
+$duplicateSales = $null
+if ($isRealistic) {
+    $line = if ($orderBaseline) {
+        Invoke-BookingSql ("with s as (select os.seat_id, o.id, o.created_at, case when o.status = 'CONFIRMED' then 'infinity'::timestamp " +
+            "when o.status = 'CANCELED' then least(o.canceled_at, o.expires_at) else o.expires_at end as ends_at " +
+            "from order_seats os join orders o on o.id = os.order_id " +
+            "where os.id > $($orderBaseline[1]) and o.id > $($orderBaseline[0]) and o.performance_id = $PerformanceId) " +
+            "select (select count(*) from s a join s b on a.seat_id = b.seat_id and a.id < b.id and b.created_at < a.ends_at and a.created_at < b.ends_at), " +
+            "(select count(distinct id) from s), (select count(distinct seat_id) from s)")
+    }
+    if ($line -match '^(\d+),(\d+),(\d+)$') {
+        $duplicateSales = [ordered]@{ overlappingOrderPairs = [long]$Matches[1]; orders = [long]$Matches[2]; seats = [long]$Matches[3] }
+        if ($duplicateSales.overlappingOrderPairs -gt 0) { $reasons += "duplicate sale: $($duplicateSales.overlappingOrderPairs) order pairs held the same seat at the same time" }
+    } else {
+        $invalid += "duplicate sale check unavailable (needs compose PostgreSQL or -Prod)"
+    }
+}
 $verdict = if ($invalid.Count -gt 0) { "INVALID" } elseif ($reasons.Count -gt 0) { "FAIL" } else { "PASS" }
 
 $wal = $null
@@ -495,7 +627,7 @@ if ($walBefore -and $walAfter) {
 }
 
 $summary = [ordered]@{
-    runId = $runId; label = $Label; startedAt = $startedAt.ToString("s"); coreUrl = $CoreUrl; performanceId = $PerformanceId
+    runId = $runId; label = $Label; scenario = $Scenario; startedAt = $startedAt.ToString("s"); coreUrl = $CoreUrl; performanceId = $PerformanceId
     usersPerSecond = $UsersPerSecond; durationSeconds = $DurationSeconds; users = $users
     conditions = [ordered]@{ hikariMax = $hikariMax; tomcatMaxThreads = $tomcatMax; ordersBefore = $ordersBefore; seats = $seats.Count
         core = $coreInfo; coreCommit = $CoreCommit; coreWarnings = $coreWarnings; database = $databaseInfo
@@ -504,7 +636,8 @@ $summary = [ordered]@{
     client = [ordered]@{ successful = $evidence.successfulUsers; started = $evidence.startedUsers; technicalFailurePercent = $evidence.technicalFailurePercent
         overloaded = $evidence.overloadedUsers; residenceP95Ms = $evidence.p95CoreResidenceMillis; residenceP99Ms = $evidence.p99CoreResidenceMillis
         maxActiveUsers = $evidence.maxObservedActiveUsers; admissionsPerSecondMin = $minAdmit; admissionsPerSecondMax = $maxAdmit; gatlingGcMaxPauseMs = $gcMax
-        requests = $requests; leftAtInjectionEnd = $leftAtEnd; tailResidenceMedianMs = $tailMedian }
+        requests = $requests; leftAtInjectionEnd = $leftAtEnd; tailResidenceMedianMs = $tailMedian
+        rejections = $rejections; minuteFailures = @($minuteFailures | Select-Object -First 20); duplicateSales = $duplicateSales }
     server = [ordered]@{ hikariActiveMax = $maxActiveConn; hikariPendingMax = $maxPending; tomcatBusyMax = $maxBusy; processCpuMax = $maxCpu; jitCompileSeconds = $jitSeconds; coreCpuMsPerUser = $cpuMsPerUser
         metricTimeouts = $timeouts; postgresWal = $wal }
     coreRequests = $core
@@ -519,9 +652,8 @@ $shortNames = [ordered]@{
     "GET /api/v1/orders/{orderKey}/status" = "orderStatus"
 }
 $coreLine = ($shortNames.Keys | Where-Object { $core.Contains($_) } | ForEach-Object { "$($shortNames[$_]) $($core[$_].p95Ms)" }) -join ", "
-$commitLabel = if ($coreInfo) { "@$($coreInfo.commit)" } elseif ($CoreCommit) { "@$CoreCommit" } else { "@unknown" }
 $row = "| {0} | {1} | {2} x {3}s | {4} | {5}/{6} | {7} / {8} | {9} | {10}/{11} pend {12}, busy {13}/{14} | {15} | {16} |" -f `
-    $startedAt.ToString("MM-dd HH:mm"), "$Label $commitLabel", $UsersPerSecond, $DurationSeconds, $PerformanceId, $evidence.successfulUsers, $evidence.startedUsers,
+    $startedAt.ToString("MM-dd HH:mm"), $stepLabel, $UsersPerSecond, $DurationSeconds, $PerformanceId, $evidence.successfulUsers, $evidence.startedUsers,
     $evidence.p95CoreResidenceMillis, $evidence.p99CoreResidenceMillis, $coreLine, $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax,
     $(if ($invalid.Count -gt 0) { "invalid" } else { "valid" }), $verdict
 Write-Utf8 (Join-Path $runDir "summary.md") $row
@@ -532,7 +664,10 @@ Write-Host "verdict: $verdict"
 foreach ($r in $invalid) { Write-Host "  invalid: $r" -ForegroundColor Yellow }
 foreach ($r in $reasons) { Write-Host "  fail: $r" -ForegroundColor Red }
 Write-Host ("client: {0}/{1} ok, residence p95 {2}ms p99 {3}ms, admissions/s {4}..{5}, gatling GC max {6}ms" -f $evidence.successfulUsers, $evidence.startedUsers, $evidence.p95CoreResidenceMillis, $evidence.p99CoreResidenceMillis, $minAdmit, $maxAdmit, $gcMax)
-Write-Host ("backlog: {0} users left at injection end (limit {1}), last {2}s residence median {3}ms (limit {4})" -f $leftAtEnd, $backlogLimit, $TailWindowSeconds, $tailMedian, $TailMedianLimitMillis)
+if (-not $isRealistic) { Write-Host ("backlog: {0} users left at injection end (limit {1}), last {2}s residence median {3}ms (limit {4})" -f $leftAtEnd, $backlogLimit, $TailWindowSeconds, $tailMedian, $TailMedianLimitMillis) }
+if ($rejections.Count -gt 0) { Write-Host ("rejections: " + (($rejections.Keys | ForEach-Object { "$_ $($rejections[$_])" }) -join ", ")) }
+if ($duplicateSales) { Write-Host ("duplicate sale: {0} overlapping order pairs, {1} orders on {2} seats" -f $duplicateSales.overlappingOrderPairs, $duplicateSales.orders, $duplicateSales.seats) }
+if ($minuteFailures.Count -gt 0) { Write-Host ("per-minute: " + (($minuteFailures | Select-Object -First 5) -join "; ")) }
 foreach ($name in $requests.Keys) { Write-Host ("  gatling {0}: p95 {1} p99 {2} ms" -f $name, $requests[$name].p95Ms, $requests[$name].p99Ms) }
 Write-Host ("server: hikari {0}/{1} (pending max {2}), tomcat busy max {3}/{4}, cpu max {5}, orders before {6}" -f $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax, $maxCpu, $ordersBefore)
 Write-Host ("jvm: jit {0}s, core cpu {1}ms/user" -f $jitSeconds, $cpuMsPerUser)
