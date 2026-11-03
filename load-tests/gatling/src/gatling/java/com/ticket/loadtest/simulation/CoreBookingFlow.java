@@ -5,6 +5,7 @@ import com.ticket.loadtest.BookingResultRecorder;
 import com.ticket.loadtest.CoreRejections;
 import com.ticket.loadtest.LoadTestConfig;
 import com.ticket.loadtest.RealisticSeatSelection;
+import com.ticket.loadtest.RequestLatencyRecorder;
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.Session;
 import io.gatling.javaapi.http.HttpRequestActionBuilder;
@@ -26,6 +27,7 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.core.CoreDsl.pause;
 import static io.gatling.javaapi.core.CoreDsl.regex;
+import static io.gatling.javaapi.core.CoreDsl.responseTimeInMillis;
 import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
@@ -38,7 +40,23 @@ final class CoreBookingFlow {
             "CONNECT\naccept-version:1.2\nheart-beat:0,0\nAuthorization:Bearer #{accessToken}\n\n\u0000";
     private static final String STOMP_SUBSCRIBE_SEATS =
             "SUBSCRIBE\nid:seats-0\ndestination:/topic/performance/#{performanceId}/seats\n\n\u0000";
+    private static final String RESPONSE_MILLIS = "lastResponseMillis";
     private CoreBookingFlow() {
+    }
+
+    /** 응답 시간을 첫 check로 저장한다. 뒤 check(상태 코드 등)가 실패해도 응답 시간은 남는다. */
+    private static HttpRequestActionBuilder measured(final HttpRequestActionBuilder request) {
+        return request.check(responseTimeInMillis().saveAs(RESPONSE_MILLIS));
+    }
+
+    /** measured로 저장한 응답 시간을 1분 구간 기록기에 더한다. 이름은 Gatling 리포트의 요청 이름과 같게 둔다. */
+    private static ChainBuilder recordResponse(final String request) {
+        return exec(session -> {
+            if (session.contains(RESPONSE_MILLIS)) {
+                RequestLatencyRecorder.record(request, System.currentTimeMillis(), session.getInt(RESPONSE_MILLIS));
+            }
+            return session.remove(RESPONSE_MILLIS);
+        });
     }
 
     static ChainBuilder initializeSession(final String scenario) {
@@ -264,18 +282,20 @@ final class CoreBookingFlow {
         return exec(session -> session
                         .removeAll("venueLayoutHttpStatus", "showSeatsHttpStatus")
                         .set("lastStep", "SEAT_LAYOUT"))
-                .exec(http("venue layout")
+                .exec(measured(http("venue layout")
                         .get("/api/v1/shows/#{showId}/venue-layout")
-                        .headers(LoadTestConfig.bookingCorrelationHeaders())
+                        .headers(LoadTestConfig.bookingCorrelationHeaders()))
                         .check(status().saveAs("venueLayoutHttpStatus"))
                         .check(status().is(200)))
+                .exec(recordResponse("venue layout"))
                 .exec(captureExpectedStatus("VENUE_LAYOUT", "venueLayoutHttpStatus", 200))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(http("show seat map")
+                        exec(measured(http("show seat map")
                                 .get("/api/v1/shows/#{showId}/seats")
-                                .headers(LoadTestConfig.bookingCorrelationHeaders())
+                                .headers(LoadTestConfig.bookingCorrelationHeaders()))
                                 .check(status().saveAs("showSeatsHttpStatus"))
                                 .check(status().is(200)))
+                                .exec(recordResponse("show seat map"))
                                 .exec(captureExpectedStatus("SHOW_SEAT_MAP", "showSeatsHttpStatus", 200))
                 ));
     }
@@ -283,22 +303,24 @@ final class CoreBookingFlow {
     /** 주문 전에 화면을 떠나는 사용자는 선택한 좌석을 전부 해제한다. */
     private static ChainBuilder releaseAllSelections() {
         return exec(session -> session.remove("releaseAllHttpStatus").set("lastStep", "RELEASE_ALL_SELECTIONS"))
-                .exec(http("release all selections")
+                .exec(measured(http("release all selections")
                         .delete("/api/v1/performances/#{performanceId}/seats/select")
-                        .headers(bookingHeaders(false))
+                        .headers(bookingHeaders(false)))
                         .check(status().saveAs("releaseAllHttpStatus"))
                         .check(status().is(200)))
+                .exec(recordResponse("release all selections"))
                 .exec(captureExpectedStatus("RELEASE_ALL_SELECTIONS", "releaseAllHttpStatus", 200));
     }
 
     /** 결제 전에 주문을 취소한다. 취소는 좌석 선점 해제를 뒤따르게 한다. */
     private static ChainBuilder cancelOrder() {
         return exec(session -> session.remove("cancelOrderHttpStatus").set("lastStep", "CANCEL_ORDER"))
-                .exec(http("cancel order")
+                .exec(measured(http("cancel order")
                         .delete("/api/v1/orders/#{orderKey}")
-                        .headers(bookingHeaders(false))
+                        .headers(bookingHeaders(false)))
                         .check(status().saveAs("cancelOrderHttpStatus"))
                         .check(status().is(200)))
+                .exec(recordResponse("cancel order"))
                 .exec(captureExpectedStatus("CANCEL_ORDER", "cancelOrderHttpStatus", 200))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         exec(session -> session
@@ -335,29 +357,31 @@ final class CoreBookingFlow {
 
     private static ChainBuilder fetchPerformanceSummary() {
         return exec(session -> session.remove("performanceSummaryHttpStatus").set("lastStep", "PERFORMANCE_SUMMARY"))
-                .exec(http("performance summary")
+                .exec(measured(http("performance summary")
                         .get("/api/v1/performances/#{performanceId}/summary")
-                        .headers(bookingHeaders(false))
+                        .headers(bookingHeaders(false)))
                         .check(status().saveAs("performanceSummaryHttpStatus"))
-                        .check(status().is(200)));
+                        .check(status().is(200)))
+                .exec(recordResponse("performance summary"));
     }
 
     static ChainBuilder fetchSeatStatus(final boolean includeAdmissionToken) {
         return exec(session -> session.removeAll("seatStatusHttpStatus", "availableSeatIds")
                         .set("lastStep", "SEAT_STATUS"))
-                .exec(http("seat status")
+                .exec(measured(http("seat status")
                         // 좌석을 응답에서 고르는 시나리오만 빈 좌석 목록이 필요해 좌석 전체(status)를 부른다.
                         // 좌석을 피더에서 정하는 시나리오는 FE처럼 점유 좌석 번호만(occupied) 받는다.
                         .get(session -> "/api/v1/performances/" + session.get("performanceId")
                                 + (isDynamicSeatSelection(session) ? "/seats/status" : "/seats/occupied"))
-                        .headers(bookingHeaders(includeAdmissionToken))
+                        .headers(bookingHeaders(includeAdmissionToken)))
                         .check(status().saveAs("seatStatusHttpStatus"))
                         .check(status().is(200))
                         // 좌석을 응답에서 고르는 시나리오만 목록을 뽑는다. 좌석을 피더에서 정하는 시나리오에는
                         // 2,000석 필터가 필요 없는 부하 발생기 작업이다.
                         .checkIf(session -> Boolean.TRUE.equals(session.get("dynamicSeatSelection")))
                         .then(jsonPath("$.data.seats[?(@.status == 'AVAILABLE')].seatId")
-                                .ofLong().findAll().optional().saveAs("availableSeatIds")));
+                                .ofLong().findAll().optional().saveAs("availableSeatIds")))
+                .exec(recordResponse("seat status"));
     }
 
     private static ChainBuilder chooseAvailableSeat() {
@@ -390,9 +414,9 @@ final class CoreBookingFlow {
 
     /** allowConflict면 분류된 409를 요청 성공으로 받고 시도 횟수를 센다. 아니면 200만 받는다. */
     static ChainBuilder selectSeat(final boolean includeAdmissionToken, final boolean allowConflict) {
-        HttpRequestActionBuilder request = http("select seat")
+        HttpRequestActionBuilder request = measured(http("select seat")
                 .post("/api/v1/performances/#{performanceId}/seats/#{seatId}/select")
-                .headers(bookingHeaders(includeAdmissionToken))
+                .headers(bookingHeaders(includeAdmissionToken)))
                 .check(status().saveAs("selectHttpStatus"))
                 .check(jsonPath("$.error.code").optional().saveAs("selectErrorCode"))
                 .check(allowConflict ? status().in(200, 409) : status().is(200));
@@ -406,7 +430,7 @@ final class CoreBookingFlow {
             return allowConflict
                     ? cleared.set("selectAttemptCount", optionalInt(session, "selectAttemptCount") + 1)
                     : cleared;
-        }).exec(request);
+        }).exec(request).exec(recordResponse("select seat"));
     }
 
     private static ChainBuilder classifySelectAttempt() {
@@ -438,7 +462,7 @@ final class CoreBookingFlow {
 
     /** allowConflict면 분류된 409를 요청 성공으로 받는다. 아니면 201만 받는다. */
     static ChainBuilder createOrder(final boolean includeAdmissionToken, final boolean allowConflict) {
-        HttpRequestActionBuilder request = http("create order")
+        HttpRequestActionBuilder request = measured(http("create order")
                 .post("/api/v1/orders")
                 .headers(bookingHeaders(includeAdmissionToken))
                 .body(StringBody("""
@@ -446,7 +470,7 @@ final class CoreBookingFlow {
                           "performanceId": #{performanceId},
                           "seatIds": #{seatIdsJson}
                         }
-                        """))
+                        """)))
                 .check(status().saveAs("createOrderHttpStatus"))
                 .check(allowConflict ? status().in(201, 409) : status().is(201))
                 .check(header("X-Order-Key").optional().saveAs("orderKeyHeader"))
@@ -460,7 +484,8 @@ final class CoreBookingFlow {
         return exec(session -> session
                 .removeAll("createOrderHttpStatus", "orderKeyHeader", "orderKeyBody", "orderErrorCode")
                 .set("lastStep", "CREATE_ORDER"))
-                .exec(request);
+                .exec(request)
+                .exec(recordResponse("create order"));
     }
 
     private static ChainBuilder classifyOrderAttempt() {
@@ -513,12 +538,13 @@ final class CoreBookingFlow {
         return exec(session -> session
                 .removeAll("orderHttpStatus", "orderState")
                 .set("lastStep", "GET_ORDER"))
-                .exec(http("get order")
+                .exec(measured(http("get order")
                         .get("/api/v1/orders/#{orderKey}/status")
-                        .headers(bookingHeaders(false))
+                        .headers(bookingHeaders(false)))
                         .check(status().saveAs("orderHttpStatus"))
                         .check(status().is(200))
-                        .check(jsonPath("$.data.status").optional().saveAs("orderState")));
+                        .check(jsonPath("$.data.status").optional().saveAs("orderState")))
+                .exec(recordResponse("get order"));
     }
 
     private static ChainBuilder validateOrderState() {

@@ -2,6 +2,7 @@ package com.ticket.loadtest.simulation;
 
 import com.ticket.loadtest.BookingEvidenceRecorder;
 import com.ticket.loadtest.LoadTestConfig;
+import com.ticket.loadtest.RequestLatencyRecorder;
 import io.gatling.javaapi.core.OpenInjectionStep;
 import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
@@ -30,6 +31,7 @@ abstract class BookingProofSimulation extends Simulation {
     @Override
     public void after() {
         final Path resultFile = Path.of(LoadTestConfig.resultFile());
+        RequestLatencyRecorder.write(resultFile.resolveSibling("request-minutes.csv"));
         RuntimeException failure = null;
         BookingEvidenceRecorder.EvidenceSummary summary = null;
         try {
