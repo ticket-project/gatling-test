@@ -19,6 +19,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
@@ -41,6 +42,11 @@ final class CoreBookingFlow {
     private static final String STOMP_SUBSCRIBE_SEATS =
             "SUBSCRIBE\nid:seats-0\ndestination:/topic/performance/#{performanceId}/seats\n\n\u0000";
     private static final String RESPONSE_MILLIS = "lastResponseMillis";
+    /**
+     * 공연별 좌석 목록(배치도 응답의 seatId, 오름차순). 03-3은 점유 좌석만 받고 빈 좌석을 "배치도 좌석 - 점유 좌석"으로 고른다.
+     * 배치도는 모든 사용자에게 같아서 부하 발생기 JVM에서 처음 받은 응답 하나만 읽는다(사용자마다 15,000개를 세션에 두지 않는다).
+     */
+    private static final Map<String, List<Long>> SEAT_CATALOGS = new ConcurrentHashMap<>();
     private CoreBookingFlow() {
     }
 
@@ -162,19 +168,16 @@ final class CoreBookingFlow {
      *
      * <ul>
      *   <li>좌석 알림 WebSocket: 예매 화면이 열려 있는 동안 STOMP로 회차 좌석 topic을 구독한 채 연결을 유지한다.
-     *   <li>좌석 배치도: 화면이 처음 불러오는 venue-layout과 공연 좌석 목록을 조회한다.
+     *   <li>좌석 배치도: 화면이 처음 불러오는 venue-layout과 공연 좌석 목록을 조회한다. 빈 좌석은 이 목록에서 점유 좌석(occupied)을 빼서 고른다.
      *   <li>전체 해제: 주문 전에 이탈하는 사용자는 화면을 떠나며 선택을 전부 해제한다(FE leave guard).
      *   <li>주문 취소: 주문을 만든 사용자 일부가 결제 전에 취소한다.
      * </ul>
      */
     static ChainBuilder realisticUserMixFlow(final String scenario) {
-        return exec(session -> session.set("showId", LoadTestConfig.showId()))
+        // 좌석은 점유 좌석(occupied)으로 받는다. 그 응답에 회차 요약이 들어 있어(Core 2026-10-19) 요약을 따로 부르지 않는다.
+        return exec(session -> session.set("showId", LoadTestConfig.showId()).set("useSeatCatalog", true))
                 .exec(recordCoreAdmission())
                 .exec(openSeatSocket())
-                .exec(doIf(CoreBookingFlow::canContinue).then(
-                        exec(fetchPerformanceSummary())
-                                .exec(captureExpectedStatus("PERFORMANCE_SUMMARY", "performanceSummaryHttpStatus", 200))
-                ))
                 .exec(doIf(CoreBookingFlow::canContinue).then(fetchSeatLayout()))
                 .exec(doIf(CoreBookingFlow::canContinue).then(refreshSeatStatus(false)))
                 .exec(selectSeatWithRetry(false))
@@ -294,7 +297,16 @@ final class CoreBookingFlow {
                                 .get("/api/v1/shows/#{showId}/seats")
                                 .headers(LoadTestConfig.bookingCorrelationHeaders()))
                                 .check(status().saveAs("showSeatsHttpStatus"))
-                                .check(status().is(200)))
+                                .check(status().is(200))
+                                .checkIf(session -> !SEAT_CATALOGS.containsKey(session.getString("showId")))
+                                .then(jsonPath("$.data.seats[*].seatId").ofLong().findAll().saveAs("showSeatIds")))
+                                .exec(session -> {
+                                    if (session.contains("showSeatIds")) {
+                                        SEAT_CATALOGS.putIfAbsent(session.getString("showId"),
+                                                List.copyOf(session.<Long>getList("showSeatIds")));
+                                    }
+                                    return session.remove("showSeatIds");
+                                })
                                 .exec(recordResponse("show seat map"))
                                 .exec(captureExpectedStatus("SHOW_SEAT_MAP", "showSeatsHttpStatus", 200))
                 ));
@@ -366,29 +378,38 @@ final class CoreBookingFlow {
     }
 
     static ChainBuilder fetchSeatStatus(final boolean includeAdmissionToken) {
-        return exec(session -> session.removeAll("seatStatusHttpStatus", "availableSeatIds")
+        return exec(session -> session.removeAll("seatStatusHttpStatus", "availableSeatIds", "occupiedSeatIds")
                         .set("lastStep", "SEAT_STATUS"))
                 .exec(measured(http("seat status")
-                        // 좌석을 응답에서 고르는 시나리오만 빈 좌석 목록이 필요해 좌석 전체(status)를 부른다.
-                        // 좌석을 피더에서 정하는 시나리오는 FE처럼 점유 좌석 번호만(occupied) 받는다.
+                        // 좌석 전체(status)는 좌석 목록이 따로 없는 03-2만 부른다. 03은 좌석을 피더에서 정하고,
+                        // 03-3은 배치도 좌석에서 점유 좌석을 빼서 고르므로 둘 다 점유 좌석 번호만(occupied) 받는다.
                         .get(session -> "/api/v1/performances/" + session.get("performanceId")
-                                + (isDynamicSeatSelection(session) ? "/seats/status" : "/seats/occupied"))
+                                + (isDynamicSeatSelection(session) && !usesSeatCatalog(session)
+                                        ? "/seats/status" : "/seats/occupied"))
                         .headers(bookingHeaders(includeAdmissionToken)))
                         .check(status().saveAs("seatStatusHttpStatus"))
                         .check(status().is(200))
-                        // 좌석을 응답에서 고르는 시나리오만 목록을 뽑는다. 좌석을 피더에서 정하는 시나리오에는
-                        // 2,000석 필터가 필요 없는 부하 발생기 작업이다.
-                        .checkIf(session -> Boolean.TRUE.equals(session.get("dynamicSeatSelection")))
+                        .checkIf(session -> isDynamicSeatSelection(session) && !usesSeatCatalog(session))
                         .then(jsonPath("$.data.seats[?(@.status == 'AVAILABLE')].seatId")
-                                .ofLong().findAll().optional().saveAs("availableSeatIds")))
+                                .ofLong().findAll().optional().saveAs("availableSeatIds"))
+                        .checkIf(CoreBookingFlow::usesSeatCatalog)
+                        .then(jsonPath("$.data.occupiedSeatIds[*]")
+                                .ofLong().findAll().optional().saveAs("occupiedSeatIds")))
                 .exec(recordResponse("seat status"));
     }
 
     private static ChainBuilder chooseAvailableSeat() {
         return exec(session -> {
-            final List<Long> available = session.contains("availableSeatIds")
-                    ? session.<Long>getList("availableSeatIds")
-                    : List.of();
+            final List<Long> available;
+            if (usesSeatCatalog(session)) {
+                available = RealisticSeatSelection.withoutOccupied(
+                        SEAT_CATALOGS.getOrDefault(session.getString("showId"), List.of()),
+                        session.contains("occupiedSeatIds") ? session.<Long>getList("occupiedSeatIds") : List.of());
+            } else {
+                available = session.contains("availableSeatIds")
+                        ? session.<Long>getList("availableSeatIds")
+                        : List.of();
+            }
             final Set<Long> attempted = session.contains("attemptedSeatIds")
                     ? session.<Long>getSet("attemptedSeatIds")
                     : Set.of();
@@ -633,6 +654,10 @@ final class CoreBookingFlow {
 
     private static boolean isDynamicSeatSelection(final Session session) {
         return session.contains("dynamicSeatSelection") && session.getBoolean("dynamicSeatSelection");
+    }
+
+    private static boolean usesSeatCatalog(final Session session) {
+        return session.contains("useSeatCatalog") && session.getBoolean("useSeatCatalog");
     }
 
     private static Map<CharSequence, String> bookingHeaders(final boolean includeAdmissionToken) {

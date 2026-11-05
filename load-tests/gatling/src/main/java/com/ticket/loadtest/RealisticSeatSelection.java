@@ -1,6 +1,8 @@
 package com.ticket.loadtest;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
@@ -11,6 +13,18 @@ public final class RealisticSeatSelection {
     private static final double POPULAR_SEAT_SELECTION_PERCENT = 80.0;
 
     private RealisticSeatSelection() {
+    }
+
+    /** 배치도의 좌석 목록(seatId 오름차순)에서 점유 좌석을 뺀다. 순서는 배치도 순서를 지켜 인기 좌석 구간이 좌석 전체 응답과 같게 잡힌다. */
+    public static List<Long> withoutOccupied(final List<Long> catalog, final Collection<Long> occupied) {
+        final Set<Long> occupiedSet = new HashSet<>(occupied);
+        final List<Long> available = new ArrayList<>(catalog.size());
+        for (Long seatId : catalog) {
+            if (!occupiedSet.contains(seatId)) {
+                available.add(seatId);
+            }
+        }
+        return available;
     }
 
     public static List<Long> availableCandidates(final List<Long> available, final Set<Long> attempted) {

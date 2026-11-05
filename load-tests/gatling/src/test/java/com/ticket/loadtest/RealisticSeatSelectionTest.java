@@ -10,6 +10,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class RealisticSeatSelectionTest {
 
     @Test
+    void removesOccupiedSeatsFromTheSeatMapInSeatMapOrder() {
+        final List<Long> available = RealisticSeatSelection.withoutOccupied(
+                List.of(1L, 2L, 3L, 4L, 5L),
+                List.of(4L, 2L, 99L)
+        );
+
+        assertEquals(List.of(1L, 3L, 5L), available);
+    }
+
+    @Test
     void excludesPreviouslyAttemptedSeatsWhilePreservingServerOrder() {
         final List<Long> candidates = RealisticSeatSelection.availableCandidates(
                 List.of(10L, 20L, 30L, 40L),
