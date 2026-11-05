@@ -172,7 +172,7 @@ N을 찾는 순서는 30초 사다리로 후보 → 후보를 15분(`-DurationSe
 | 비즈니스 거절 | 이선좌(`E4001`, `E6000`)와 매진(`NO_AVAILABLE_SEAT`)은 정상 응답이다. 그 밖의 거절(`E5004` 진행 중 주문 등)이 있으면 회원·데이터 문제라 INVALID |
 | 응답 시간 | 화면이 부르는 요청 전부. 조회(`performance summary`, `venue layout`, `show seat map`, `seat status`, `get order`)는 p95 500 / p99 1,000ms, 쓰기(`select seat`, `create order`, `release all selections`, `cancel order`)는 p95 1,000 / p99 2,000ms. 빠진 요청은 무효로 보지 않는다(이탈·취소는 확률이라 짧은 실행에 없을 수 있다) |
 | 밀림 | 보지 않는다. 사람이 일부러 머물러 남은 사용자 수가 기준이 되지 않는다. 대신 1분 구간 응답 시간을 본다 |
-| 중복 판매 | 실행 뒤 그 회차에서 같은 좌석을 같은 시간에 잡은 주문 쌍이 1개 이상이면 FAIL. 주문의 끝은 확정이면 없음, 취소면 취소 시각, 그 밖은 만료 시각이다. 주문 테이블에 회차 인덱스가 없어 실행 직전 `orders`·`order_seats` ID 최댓값보다 큰 행만 읽는다. 로컬은 compose PostgreSQL, 운영은 `-Prod`의 psql로 묻고, 물을 수 없으면 INVALID |
+| 중복 판매 | 실행 뒤 그 회차에서 같은 좌석을 같은 시간에 잡은 주문 쌍이 1개 이상이면 FAIL. 주문의 끝은 확정이면 없음, 취소면 취소 시각, 그 밖은 만료 시각이다. Core가 `created_at`만 JVM 시간대(운영 UTC)로 쓰므로 만료 시각과의 시간 단위 차이만큼 옮겨 비교한다. 주문 테이블에 회차 인덱스가 없어 실행 직전 `orders`·`order_seats` ID 최댓값보다 큰 행만 읽는다. 로컬은 compose PostgreSQL, 운영은 `-Prod`의 psql로 묻고, 물을 수 없으면 INVALID |
 
 **1분 구간 응답 시간**(03·03-3 공통, 2분 이상 실행): Gatling이 요청별 응답 시간을 1분 구간마다 모아 `request-minutes.csv`
 (`epochMinute,request,count,p95Ms,p99Ms`)로 남긴다. 위 응답 시간 기준을 넘은 구간이 하나라도 있으면 FAIL이다. 100건 미만 구간은 뺀다.

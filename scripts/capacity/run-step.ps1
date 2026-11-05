@@ -598,10 +598,13 @@ if ($DurationSeconds -ge 120 -and (Test-Path $minutesFile)) {
 if ($minuteFailures.Count -gt 0) { $reasons += "per-minute latency over limit in $($minuteFailures.Count) minute(s), first: $($minuteFailures[0])" }
 
 # 중복 판매(03-3). 주문의 끝 시각: 확정은 끝이 없고, 취소는 취소 시각, 그 밖(대기·만료)은 만료 시각이다.
+# Core는 created_at을 JVM 시간대(운영 컨테이너 UTC)로, expires_at·canceled_at을 서울 시계로 쓴다(2026-11-05 확인).
+# 선점 시간은 1시간보다 짧으므로 expires_at - created_at의 시간 단위 차이를 created_at에 더해 같은 시계로 맞춘다.
 $duplicateSales = $null
 if ($isRealistic) {
     $line = if ($orderBaseline) {
-        Invoke-BookingSql ("with s as (select os.seat_id, o.id, o.created_at, case when o.status = 'CONFIRMED' then 'infinity'::timestamp " +
+        Invoke-BookingSql ("with s as (select os.seat_id, o.id, o.created_at + floor(extract(epoch from o.expires_at - o.created_at) / 3600) * interval '1 hour' as created_at, " +
+            "case when o.status = 'CONFIRMED' then 'infinity'::timestamp " +
             "when o.status = 'CANCELED' then least(o.canceled_at, o.expires_at) else o.expires_at end as ends_at " +
             "from order_seats os join orders o on o.id = os.order_id " +
             "where os.id > $($orderBaseline[1]) and o.id > $($orderBaseline[0]) and o.performance_id = $PerformanceId) " +
