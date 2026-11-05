@@ -49,10 +49,10 @@ $TechnicalFailureLimitPercent = 0.1
 $isRealistic = $Scenario -eq "03-3"
 $LatencyLimits = if ($isRealistic) {
     # 03-3은 화면이 부르는 조회·쓰기를 모두 본다. 조회는 0.5/1초, 쓰기(선택·주문·해제·취소)는 1/2초.
-    # 03-3도 점유 좌석(occupied)을 받고 그 응답의 회차 요약을 쓰므로 요약을 따로 부르지 않는다(2026-11-05).
+    # 03-3도 03처럼 요약과 생성한 주문을 따로 부르지 않는다(2026-11-05). 요약은 점유 좌석 응답에, 주문 상태는 주문 생성 응답에 있다.
     [ordered]@{
         "venue layout" = @(500, 1000); "show seat map" = @(500, 1000)
-        "seat status" = @(500, 1000); "get order" = @(500, 1000)
+        "seat status" = @(500, 1000)
         "select seat" = @(1000, 2000); "create order" = @(1000, 2000)
         "release all selections" = @(1000, 2000); "cancel order" = @(1000, 2000)
     }

@@ -172,6 +172,8 @@ final class CoreBookingFlow {
      *   <li>전체 해제: 주문 전에 이탈하는 사용자는 화면을 떠나며 선택을 전부 해제한다(FE leave guard).
      *   <li>주문 취소: 주문을 만든 사용자 일부가 결제 전에 취소한다.
      * </ul>
+     *
+     * <p>03처럼 회차 요약과 생성한 주문을 따로 조회하지 않는다. 요약은 점유 좌석 응답에, 주문 상태는 주문 생성 응답에 있다.
      */
     static ChainBuilder realisticUserMixFlow(final String scenario) {
         // 좌석은 점유 좌석(occupied)으로 받는다. 그 응답에 회차 요약이 들어 있어(Core 2026-10-19) 요약을 따로 부르지 않는다.
@@ -193,9 +195,9 @@ final class CoreBookingFlow {
                         pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
                 ))
                 .exec(doIf(session -> canContinue(session) && shouldCancelOrder()).then(cancelOrder()))
-                .exec(doIf(CoreBookingFlow::canContinue).then(verifyOrder()))
+                // 주문 생성 응답이 상태(PENDING)·만료 시각을 담고 있어 바로 다시 묻지 않는다(03과 같음, 2026-11-05).
                 .exec(closeSeatSocket())
-                .exec(recordTerminal(scenario, true));
+                .exec(recordTerminal(scenario, false));
     }
 
     private static ChainBuilder selectSeatWithRetry(final boolean includeAdmissionToken) {
