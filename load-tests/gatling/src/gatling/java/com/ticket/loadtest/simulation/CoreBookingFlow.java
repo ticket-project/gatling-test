@@ -191,6 +191,9 @@ final class CoreBookingFlow {
                                 .exec(doIf(CoreBookingFlow::canContinue).then(markUserDropout()))
                 ))
                 .exec(doIf(CoreBookingFlow::canContinue).then(orderAttempt(false)))
+                // 주문을 만들면 좌석 화면을 떠나 결제로 간다. 좌석 알림이 필요 없으니 연결을 끊는다(2-1, 2026-11-06).
+                // 주문이 실패하면 좌석 화면에 남으므로 아래 마지막 closeSeatSocket이 닫는다.
+                .exec(doIf(CoreBookingFlow::canContinue).then(closeSeatSocket()))
                 .exec(doIf(CoreBookingFlow::canContinue).then(
                         pause(LoadTestConfig.bookingRetryThinkMin(), LoadTestConfig.bookingRetryThinkMax())
                 ))
