@@ -504,7 +504,9 @@ foreach ($key in ($b1.Keys | Sort-Object)) {
 if (-not (Test-Path (Join-Path $runDir "booking-evidence.json"))) { Fail "Gatling produced no booking-evidence.json (exit $gatlingExit, see gatling.log and gatling.err)" }
 $evidence = Get-Content (Join-Path $runDir "booking-evidence.json") -Raw | ConvertFrom-Json
 $admissions = @(Import-Csv (Join-Path $runDir "booking-admissions.csv") -Header epochSecond, count | Select-Object -Skip 1 | ForEach-Object { [int]$_.count })
-$inner = if ($admissions.Count -gt 2) { $admissions[1..($admissions.Count - 2)] } else { $admissions }
+# 처음 두 초는 따로 본다. 원격 Gatling이 첫 초에 늦게 시작하면 그 초의 사용자가 둘째 초로 밀려 몰린다(2026-11-09 운영 40 u/s: 8+69, 18+58, 나머지 28초는 정확히 40).
+# 두 초의 합이 2초 분량을 넘지 않으면 시작 지연이고, 넘으면 아래에서 과다 주입으로 INVALID다.
+$inner = if ($admissions.Count -gt 3) { $admissions[2..($admissions.Count - 2)] } else { $admissions }
 $minAdmit = ($inner | Measure-Object -Minimum).Minimum; $maxAdmit = ($inner | Measure-Object -Maximum).Maximum
 $samples = @(Import-Csv $metricsFile -Delimiter "`t" | Where-Object { $_.hikari_active -ne "TIMEOUT" -and $_.hikari_active })
 $maxPending = ($samples | ForEach-Object { [double]$_.hikari_pending } | Measure-Object -Maximum).Maximum
@@ -548,6 +550,9 @@ $invalid = @()
 $tolerance = [Math]::Max($UsersPerSecond * $AdmissionTolerancePercent / 100, 2)
 if ($minAdmit -lt $UsersPerSecond - $tolerance -or $maxAdmit -gt $UsersPerSecond + $tolerance) {
     $invalid += "admissions/s ranged $minAdmit..$maxAdmit (target $UsersPerSecond +-$tolerance): load generator did not inject steadily"
+}
+if ($admissions.Count -gt 3 -and ($admissions[0] + $admissions[1]) -gt 2 * $UsersPerSecond + $tolerance) {
+    $invalid += "first 2 seconds admitted $($admissions[0])+$($admissions[1]) (more than 2 x $UsersPerSecond +-$tolerance): load generator over-injected at start"
 }
 if ($gcMax -gt 200) { $invalid += "load generator GC pause ${gcMax}ms" }
 if ($evidence.startedUsers -ne $users) { $invalid += "started $($evidence.startedUsers) of $users users" }
