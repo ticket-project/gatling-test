@@ -81,6 +81,12 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 `-Prod` 없이 각 값을 직접 줄 수도 있다. 이때 JWT secret은 `-JwtSecret`이나 환경 변수 `LOADTEST_JWT_SECRET`으로 준다.
 
 - `-MetricsUrl`: health와 `/actuator/prometheus`를 읽을 주소다. 비우면 `-CoreUrl`이다. 운영 Core는 actuator를 밖에 열지 않는다.
+  Core가 여러 대면 인스턴스마다 주소를 쉼표로 잇는다(`-MetricsUrl "http://10.0.1.11:8080,http://10.0.1.12:8080"`). LB 주소
+  하나로 읽으면 요청마다 다른 인스턴스가 답해 숫자가 섞인다. 요청 분포는 모든 인스턴스를 더하고, 연결·스레드·CPU 최대는
+  가장 바쁜 인스턴스 값으로 판정하며, 인스턴스별 값은 `summary.json`의 `server.instances`에 남는다. 사용자당 Core CPU는
+  모든 인스턴스 CPU의 합이고 JIT은 가장 덜 데워진 인스턴스 값이다. 이 PC가 각 Core의 8080에 닿아야 한다(보안 그룹 또는 터널).
+  `-Prod`와 함께 주면 운영 호스트 터널 대신 이 주소들을 쓴다. 운영 준비(commit·이미지 확인 등)는 아직 Core가 운영 호스트
+  한 대에 있다고 본다. Core 전용 호스트로 옮기면 `prod-target.ps1`을 함께 고친다.
 - `-LoadHost`: Gatling만 그 EC2에서 SSH로 돌린다. 토큰·피더 생성, 회차 검사, 1초 지표 수집, 판정은 이 PC에서 한다.
   실행마다 이 작업 트리를 EC2의 `-RemoteProjectDir`(기본 `~/gatling-test`)에 풀고, 토큰·피더를 `/tmp/capacity-<결과 폴더 이름>`에 올린다.
   끝나면 결과를 받아 오고 EC2의 그 폴더(토큰 포함)를 지운다. EC2에는 JWT secret이 가지 않는다. `-KeyPath`를 비우면 `ticket-test-key-01.pem`을 찾는다.
@@ -102,9 +108,9 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
 | --- | --- |
 | `summary.json` | 조건, 유효성, 판정, Gatling 쪽·Core 쪽 숫자 |
 | `summary.md` | 일지에 붙일 표 한 줄 |
-| `core-metrics.tsv` | 1초 단위 Hikari 사용·대기, Tomcat 바쁜 스레드, CPU |
+| `core-metrics.tsv` | 1초 단위 Hikari 사용·대기, Tomcat 바쁜 스레드, CPU. `instance`는 `-MetricsUrl` 순서(1부터)이고 한 줄이 한 인스턴스의 한 초다 |
 | `database.properties` | 로컬 PostgreSQL의 DB 이름·버전·실제 회원 수·주문 수 |
-| `prometheus-before.txt`, `prometheus-after.txt` | 실행 전후 `/actuator/prometheus` 원문. 연결 점유 시간, 저장소 메서드별 호출, Core GC를 전후 차이로 본다 |
+| `prometheus-before.txt`, `prometheus-after.txt` | 실행 전후 `/actuator/prometheus` 원문(여러 대면 `prometheus-before-1.txt`처럼 인스턴스 순서를 붙인다). 연결 점유 시간, 저장소 메서드별 호출, Core GC를 전후 차이로 본다 |
 | `thread-dump-<n>.txt` | `-ThreadDumps N`일 때만. Core가 막히기 시작한 순간(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상)부터 3초 간격 |
 | `booking-*.csv`, `booking-evidence.json` | 사용자별 결과, 초당 입장·완료, 체류 시간 |
 | `gatling.log`, `gatling-jvm.log` | Gatling 출력, 부하 발생기 GC 로그 |

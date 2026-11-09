@@ -15,6 +15,8 @@ param(
     [int]$ThreadDumps = 0,
     [switch]$OperationalConfirmation,
     # 운영 Core는 actuator를 밖에 열지 않는다. health·prometheus는 SSH 터널 같은 다른 주소로 읽는다. 비우면 CoreUrl.
+    # Core가 여러 대면 인스턴스마다 주소를 쉼표로 잇는다("http://a:8080,http://b:8080"). LB 주소 하나로 읽으면 요청마다
+    # 다른 인스턴스가 답해 숫자가 섞인다(ticket 스케일 아웃 결정 D4-2). -Prod에서 주면 터널 대신 이 주소들을 쓴다.
     [string]$MetricsUrl = "",
     # 원격 부하 발생기(ubuntu@IP). 준비·지표 수집·판정은 이 PC에서 하고 Gatling만 그 EC2에서 SSH로 돌린다.
     [string]$LoadHost = "",
@@ -135,8 +137,12 @@ if (-not $Prod -and $PerformanceId -le 0) { Fail "-PerformanceId is required" }
 # compose가 127.0.0.1에만 연 포트는 ::1(IPv6 localhost)로는 닿지 않고, Windows는 거절된 연결을 약 2초 재시도한다.
 # localhost를 쓰면 1초 지표 수집(타임아웃 2초)이 매번 실패하므로 주소를 127.0.0.1로 고정한다.
 $CoreUrl = $CoreUrl -replace '^(https?://)localhost(?=[:/]|$)', '${1}127.0.0.1'
+$metricsGiven = [bool]$MetricsUrl
 if (-not $MetricsUrl) { $MetricsUrl = $CoreUrl }
-$MetricsUrl = $MetricsUrl -replace '^(https?://)localhost(?=[:/]|$)', '${1}127.0.0.1'
+function Split-MetricsUrls([string]$value) {
+    @($value -split ',' | ForEach-Object { $_.Trim() -replace '^(https?://)localhost(?=[:/]|$)', '${1}127.0.0.1' } | Where-Object { $_ })
+}
+$MetricsUrls = Split-MetricsUrls $MetricsUrl
 $coreUri = [Uri]$CoreUrl
 $isLocal = @("localhost", "127.0.0.1", "::1") -contains $coreUri.Host
 if (-not $isLocal -and -not $OperationalConfirmation) { Fail "non-local target requires -OperationalConfirmation" }
@@ -164,8 +170,8 @@ if ($Prod) {
     try { Initialize-SshSession -RunDir $runDir } catch { Fail "SSH setup failed: $($_.Exception.Message)" }
     $prodInfo = Get-ProdPreflight -Full:$CheckOnly -FindPerformance:($PerformanceId -le 0)
     Write-Utf8 (Join-Path $runDir "server-conditions.txt") $prodInfo.Conditions
-    $MetricsUrl = Start-ProdTunnel $prodInfo.CoreIp
-    $sampleUrl = Get-SampleUrl $MetricsUrl
+    if (-not $metricsGiven) { $MetricsUrls = @(Start-ProdTunnel $prodInfo.CoreIp) }
+    $sampleUrls = @($MetricsUrls | ForEach-Object { Get-SampleUrl $_ })
     if (-not $PSBoundParameters.ContainsKey('JwtSecret')) { $JwtSecret = Get-ProdJwtSecret }
     if (-not $CoreCommit) { $CoreCommit = $prodInfo.Commit.Substring(0, [Math]::Min(8, $prodInfo.Commit.Length)) }
     if ($PerformanceId -le 0) {
@@ -176,12 +182,13 @@ if ($Prod) {
     if (-not (Test-Path $MemberIdsFile) -or @(Get-Content $MemberIdsFile).Count -lt $users) {
         Save-ProdMemberIds $MemberIdsFile ([Math]::Max(10000, $users))
     }
-    Wait-CoreRecovered $MetricsUrl $sampleUrl
-    $uptime = [regex]::Match((Get-Text $sampleUrl), '(?m)^process_uptime_seconds\{[^}]*\} ([0-9.eE+-]+)').Groups[1].Value
+    for ($i = 0; $i -lt $MetricsUrls.Count; $i++) { Wait-CoreRecovered $MetricsUrls[$i] $sampleUrls[$i] }
+    # 여러 대면 가장 늦게 뜬 인스턴스 기준이다(첫 실행을 예열로 쓸지 정하는 값).
+    $uptime = ($sampleUrls | ForEach-Object { [double][regex]::Match((Get-Text $_), '(?m)^process_uptime_seconds\{[^}]*\} ([0-9.eE+-]+)').Groups[1].Value } | Measure-Object -Minimum).Minimum
     $prodConditions = [ordered]@{ prodHost = $ProdHost; image = $prodInfo.Image; coreCommit = $CoreCommit
         coreUptimeSeconds = [Math]::Round([double]$uptime); membersEstimate = $prodInfo.MembersEstimate; ordersEstimate = $prodInfo.OrdersEstimate
         maxConnections = $prodInfo.MaxConnections; largePerformances = $prodInfo.LargePerformances; performanceId = $PerformanceId
-        loadHost = $LoadHost; memberIdsFile = $MemberIdsFile; sampleUrlFiltered = $sampleUrl -match 'includedNames' }
+        loadHost = $LoadHost; memberIdsFile = $MemberIdsFile; sampleUrlFiltered = @($sampleUrls | Where-Object { $_ -notmatch 'includedNames' }).Count -eq 0; metricsUrls = $MetricsUrls }
     Write-Utf8 (Join-Path $runDir "prod-conditions.json") ($prodConditions | ConvertTo-Json)
     $line = "prod: commit $CoreCommit, core up $($prodConditions.coreUptimeSeconds)s, performance $PerformanceId"
     if ($CheckOnly) {
@@ -195,8 +202,10 @@ if ($Prod) {
 $seatStartId = [long]([Math]::Floor($PerformanceId / 10000000) * 10000000 + 1)
 $showId = $seatStartId
 
-$health = Get-Text "$MetricsUrl/actuator/health"
-if ($health -notmatch '"status":"UP"') { Fail "Core health is not UP: $health" }
+foreach ($url in $MetricsUrls) {
+    $health = Get-Text "$url/actuator/health"
+    if ($health -notmatch '"status":"UP"') { Fail "Core health is not UP at ${url}: $health" }
+}
 try { Get-Text "$CoreUrl/api/v1/performances/$PerformanceId/summary" | Out-Null } catch { Fail "performance $PerformanceId not found: $($_.Exception.Message)" }
 
 # 로컬 Core가 측정에 맞지 않게 떠 있으면 알린다(capacity-log P-006).
@@ -303,16 +312,23 @@ if ($LoadHost) {
 }
 
 # --- 실행 전 상태 ------------------------------------------------------------------------------
-function Get-Metrics { Get-Text "$MetricsUrl/actuator/prometheus" }
+# 인스턴스마다 원문 하나. 요청 분포(버킷)는 인스턴스 원문을 이어 붙여 더하고, 누적 카운터는 인스턴스별 차이를 따로 본다.
+function Get-Metrics { @($MetricsUrls | ForEach-Object { Get-Text "$_/actuator/prometheus" }) }
 function Get-Gauge([string]$text, [string]$name) {
     $m = [regex]::Match($text, "(?m)^$name\{[^}]*\} ([0-9.eE+-]+)")
     if ($m.Success) { [double]$m.Groups[1].Value } else { $null }
 }
-$before = Get-Metrics
 # 원문을 남겨 두면 연결 점유 시간, 저장소 메서드별 호출, Core GC 같은 다른 지표도 실행 뒤에 전후 차이로 볼 수 있다.
-Write-Utf8 (Join-Path $runDir "prometheus-before.txt") $before
-$hikariMax = Get-Gauge $before "hikaricp_connections_max"
-$tomcatMax = Get-Gauge $before "tomcat_threads_config_max_threads"
+# 한 대면 예전 이름(prometheus-before.txt), 여러 대면 prometheus-before-1.txt처럼 -MetricsUrl 순서를 붙인다.
+function Save-Metrics([string[]]$texts, [string]$name) {
+    if ($texts.Count -eq 1) { Write-Utf8 (Join-Path $runDir "$name.txt") $texts[0]; return }
+    for ($i = 0; $i -lt $texts.Count; $i++) { Write-Utf8 (Join-Path $runDir "$name-$($i + 1).txt") $texts[$i] }
+}
+$before = Get-Metrics
+Save-Metrics $before "prometheus-before"
+# 풀·스레드 상한은 인스턴스 하나의 값이다(모든 인스턴스가 같은 설정). 연결·스레드 최대도 인스턴스별 최댓값과 비교한다.
+$hikariMax = Get-Gauge $before[0] "hikaricp_connections_max"
+$tomcatMax = Get-Gauge $before[0] "tomcat_threads_config_max_threads"
 # compose PostgreSQL의 WAL 누적값(capacity-log P-016). 커밋이 WAL을 디스크에 내리는 횟수와 시간을 전후 차이로 본다.
 # fsync·write 시간은 PostgreSQL의 track_wal_io_timing이 켜져 있을 때만 쌓인다(마지막 열).
 $pgContainer = if ($coreInfo -and $coreInfo.container) { "ticket-postgres" } else { "" }
@@ -355,40 +371,46 @@ if ($ThreadDumps -gt 0) {
         $corePid = $coreInfo.pid
     }
 }
-if (-not $sampleUrl) { $sampleUrl = Get-SampleUrl $MetricsUrl }
+if (-not $sampleUrls) { $sampleUrls = @($MetricsUrls | ForEach-Object { Get-SampleUrl $_ }) }
 $abortFile = Join-Path $runDir ".abort"
-$sampler = Start-Job -ArgumentList $sampleUrl, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container, $abortFile, $tomcatMax, $AbortAfterSeconds -ScriptBlock {
-    param($url, $file, $stop, $dumps, $jcmd, $corePid, $dir, $container, $abortFile, $busyLimit, $abortAfter)
-    Set-Content $file "time`thikari_active`thikari_pending`ttomcat_busy`tprocess_cpu`tsystem_cpu"
+$sampler = Start-Job -ArgumentList $sampleUrls, $metricsFile, $stopFile, $ThreadDumps, $jcmd, $corePid, $runDir, $container, $abortFile, $tomcatMax, $AbortAfterSeconds -ScriptBlock {
+    param($urls, $file, $stop, $dumps, $jcmd, $corePid, $dir, $container, $abortFile, $busyLimit, $abortAfter)
+    # instance는 -MetricsUrl 순서(1부터)다. 한 줄이 한 인스턴스의 한 초다.
+    Set-Content $file "time`tinstance`thikari_active`thikari_pending`ttomcat_busy`tprocess_cpu`tsystem_cpu"
     $names = "hikaricp_connections_active", "hikaricp_connections_pending", "tomcat_threads_busy_threads", "process_cpu_usage", "system_cpu_usage"
     $taken = 0; $lastDump = [datetime]::MinValue; $stuckSince = $null
     while (-not (Test-Path $stop)) {
         $t = Get-Date -Format "HH:mm:ss"
-        # 자동 중단: 요청 스레드가 전부 바쁘거나 지표 수집이 시간 초과인 상태가 $abortAfter초 이어지면 .abort를 만든다.
-        $stuck = $true
-        try {
-            $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2
-            $text = [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
-            $values = foreach ($n in $names) { $m = [regex]::Match($text, "(?m)^$n\{[^}]*\} ([0-9.eE+-]+)"); if ($m.Success) { $m.Groups[1].Value } else { "" } }
-            Add-Content $file ($t + "`t" + ($values -join "`t"))
-            $stuck = $busyLimit -and [double]$values[2] -ge $busyLimit
-            # ponytail: 고정 문턱(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상). 문턱 아래에서 FAIL하면 덤프가 안 남으니 그때 매개변수로 뺀다.
-            if ($taken -lt $dumps -and ([double]$values[1] -gt 0 -or [double]$values[2] -ge 20) -and ((Get-Date) - $lastDump).TotalSeconds -ge 3) {
-                $taken++; $lastDump = Get-Date
-                if ($container) {
-                    $since = (Get-Date).ToUniversalTime().AddSeconds(-2).ToString("yyyy-MM-ddTHH:mm:ssZ")
-                    & docker exec $container kill -3 1
-                    Start-Sleep -Milliseconds 1500
-                    $log = @(& docker logs --since $since $container 2>&1 | ForEach-Object { "$_" })
-                    $start = [Array]::FindLastIndex($log, [Predicate[string]] { param($line) $line -like "Full thread dump*" })
-                    $dump = if ($start -ge 0) { $log[$start..($log.Count - 1)] -join [Environment]::NewLine } else { "no thread dump found in docker logs" }
-                } else {
-                    $dump = (& $jcmd $corePid Thread.print -l) -join [Environment]::NewLine
+        # 자동 중단: 어느 인스턴스든 요청 스레드가 전부 바쁘거나 지표 수집이 시간 초과인 상태가 $abortAfter초 이어지면 .abort를 만든다.
+        $anyStuck = $false
+        for ($index = 1; $index -le $urls.Count; $index++) {
+            $url = $urls[$index - 1]
+            $stuck = $true
+            try {
+                $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2
+                $text = [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
+                $values = foreach ($n in $names) { $m = [regex]::Match($text, "(?m)^$n\{[^}]*\} ([0-9.eE+-]+)"); if ($m.Success) { $m.Groups[1].Value } else { "" } }
+                Add-Content $file ($t + "`t" + $index + "`t" + ($values -join "`t"))
+                $stuck = $busyLimit -and [double]$values[2] -ge $busyLimit
+                # ponytail: 고정 문턱(연결 대기 > 0 또는 바쁜 요청 스레드 20개 이상). 문턱 아래에서 FAIL하면 덤프가 안 남으니 그때 매개변수로 뺀다.
+                if ($taken -lt $dumps -and ([double]$values[1] -gt 0 -or [double]$values[2] -ge 20) -and ((Get-Date) - $lastDump).TotalSeconds -ge 3) {
+                    $taken++; $lastDump = Get-Date
+                    if ($container) {
+                        $since = (Get-Date).ToUniversalTime().AddSeconds(-2).ToString("yyyy-MM-ddTHH:mm:ssZ")
+                        & docker exec $container kill -3 1
+                        Start-Sleep -Milliseconds 1500
+                        $log = @(& docker logs --since $since $container 2>&1 | ForEach-Object { "$_" })
+                        $start = [Array]::FindLastIndex($log, [Predicate[string]] { param($line) $line -like "Full thread dump*" })
+                        $dump = if ($start -ge 0) { $log[$start..($log.Count - 1)] -join [Environment]::NewLine } else { "no thread dump found in docker logs" }
+                    } else {
+                        $dump = (& $jcmd $corePid Thread.print -l) -join [Environment]::NewLine
+                    }
+                    [IO.File]::WriteAllText((Join-Path $dir "thread-dump-$taken.txt"), $dump, [Text.UTF8Encoding]::new($false))
                 }
-                [IO.File]::WriteAllText((Join-Path $dir "thread-dump-$taken.txt"), $dump, [Text.UTF8Encoding]::new($false))
-            }
-        } catch { Add-Content $file "$t`tTIMEOUT" }
-        if (-not $stuck) { $stuckSince = $null } elseif (-not $stuckSince) { $stuckSince = Get-Date }
+            } catch { Add-Content $file "$t`t$index`tTIMEOUT" }
+            if ($stuck) { $anyStuck = $true }
+        }
+        if (-not $anyStuck) { $stuckSince = $null } elseif (-not $stuckSince) { $stuckSince = Get-Date }
         if ($abortAfter -gt 0 -and $stuckSince -and ((Get-Date) - $stuckSince).TotalSeconds -ge $abortAfter -and -not (Test-Path $abortFile)) {
             Set-Content $abortFile "request threads all busy ($busyLimit) or metrics timing out for ${abortAfter}s since $($stuckSince.ToString('HH:mm:ss'))"
         }
@@ -431,7 +453,7 @@ New-Item -ItemType File $stopFile | Out-Null
 Wait-Job $sampler -Timeout 10 | Out-Null; Remove-Job $sampler -Force
 Remove-Item $stopFile -ErrorAction SilentlyContinue
 $after = Get-Metrics
-Write-Utf8 (Join-Path $runDir "prometheus-after.txt") $after
+Save-Metrics $after "prometheus-after"
 # 운영 지표는 여기까지 읽는다. 이후는 결과 받아 오기와 이 PC의 분석뿐이다.
 Stop-ProdTunnel
 $walAfter = Get-Wal
@@ -489,7 +511,8 @@ function Get-Buckets([string]$text) {
     }
     $map
 }
-$b0 = Get-Buckets $before; $b1 = Get-Buckets $after
+# Get-Buckets는 같은 요청·경계의 값을 더하므로 인스턴스 원문을 이어 붙이면 모든 인스턴스의 분포가 된다.
+$b0 = Get-Buckets ($before -join "`n"); $b1 = Get-Buckets ($after -join "`n")
 $core = [ordered]@{}
 foreach ($key in ($b1.Keys | Sort-Object)) {
     $bounds = $b1[$key].Keys | Sort-Object
@@ -509,13 +532,25 @@ $admissions = @(Import-Csv (Join-Path $runDir "booking-admissions.csv") -Header 
 $inner = if ($admissions.Count -gt 3) { $admissions[2..($admissions.Count - 2)] } else { $admissions }
 $minAdmit = ($inner | Measure-Object -Minimum).Minimum; $maxAdmit = ($inner | Measure-Object -Maximum).Maximum
 $samples = @(Import-Csv $metricsFile -Delimiter "`t" | Where-Object { $_.hikari_active -ne "TIMEOUT" -and $_.hikari_active })
-$maxPending = ($samples | ForEach-Object { [double]$_.hikari_pending } | Measure-Object -Maximum).Maximum
-$maxActiveConn = ($samples | ForEach-Object { [double]$_.hikari_active } | Measure-Object -Maximum).Maximum
-$maxBusy = ($samples | ForEach-Object { [double]$_.tomcat_busy } | Measure-Object -Maximum).Maximum
-$maxCpu = ($samples | ForEach-Object { [double]$_.process_cpu } | Measure-Object -Maximum).Maximum
+# 판정과 표에는 가장 바쁜 인스턴스 값을 쓴다(모든 샘플 줄의 최댓값). 인스턴스별 값은 summary.json server.instances에 남긴다.
+function Get-SampleMax($rows, [string]$column) { ($rows | ForEach-Object { [double]$_.$column } | Measure-Object -Maximum).Maximum }
+$maxPending = Get-SampleMax $samples "hikari_pending"
+$maxActiveConn = Get-SampleMax $samples "hikari_active"
+$maxBusy = Get-SampleMax $samples "tomcat_busy"
+$maxCpu = Get-SampleMax $samples "process_cpu"
+# 누적 카운터의 인스턴스별 실행 전후 차이.
+function Get-CounterDelta([int]$index, [string]$name) { (Get-Gauge $after[$index] $name) - (Get-Gauge $before[$index] $name) }
+$instances = @(for ($i = 0; $i -lt $MetricsUrls.Count; $i++) {
+    $rows = @($samples | Where-Object { [int]$_.instance -eq $i + 1 })
+    [ordered]@{ metricsUrl = $MetricsUrls[$i]; hikariActiveMax = Get-SampleMax $rows "hikari_active"; hikariPendingMax = Get-SampleMax $rows "hikari_pending"
+        tomcatBusyMax = Get-SampleMax $rows "tomcat_busy"; processCpuMax = Get-SampleMax $rows "process_cpu"
+        jitCompileSeconds = [Math]::Round((Get-CounterDelta $i "jvm_compilation_time_ms_total") / 1000, 1)
+        coreCpuSeconds = [Math]::Round((Get-CounterDelta $i "process_cpu_time_ns_total") / 1e9, 3) }
+})
 # 데워졌는지와 사용자 한 명의 Core CPU. 실행 중 JIT 컴파일이 3초를 넘으면 JIT이 아직 CPU를 써서 숫자가 부풀려진다(capacity-log 10-22, P-005).
-$jitSeconds = [Math]::Round(((Get-Gauge $after "jvm_compilation_time_ms_total") - (Get-Gauge $before "jvm_compilation_time_ms_total")) / 1000, 1)
-$cpuMsPerUser = [Math]::Round(((Get-Gauge $after "process_cpu_time_ns_total") - (Get-Gauge $before "process_cpu_time_ns_total")) / 1e6 / $users, 1)
+# JIT은 가장 덜 데워진 인스턴스 값, 사용자당 CPU는 모든 인스턴스 CPU의 합을 사용자 수로 나눈 값이다.
+$jitSeconds = ($instances | ForEach-Object { $_.jitCompileSeconds } | Measure-Object -Maximum).Maximum
+$cpuMsPerUser = [Math]::Round(($instances | ForEach-Object { $_.coreCpuSeconds * 1000 } | Measure-Object -Sum).Sum / $users, 1)
 $timeouts = @(Get-Content $metricsFile | Select-String "TIMEOUT").Count
 $gcMax = 0
 if (Test-Path (Join-Path $runDir "gatling-jvm.log")) {
@@ -640,7 +675,7 @@ $summary = [ordered]@{
     usersPerSecond = $UsersPerSecond; durationSeconds = $DurationSeconds; users = $users
     conditions = [ordered]@{ hikariMax = $hikariMax; tomcatMaxThreads = $tomcatMax; ordersBefore = $ordersBefore; seats = $seats.Count
         core = $coreInfo; coreCommit = $CoreCommit; coreWarnings = $coreWarnings; database = $databaseInfo
-        metricsUrl = $MetricsUrl; loadGenerator = $(if ($LoadHost) { $LoadHost } else { "local" }) }
+        metricsUrls = $MetricsUrls; loadGenerator = $(if ($LoadHost) { $LoadHost } else { "local" }) }
     verdict = $verdict; invalidReasons = $invalid; failReasons = $reasons
     client = [ordered]@{ successful = $evidence.successfulUsers; started = $evidence.startedUsers; technicalFailurePercent = $evidence.technicalFailurePercent
         overloaded = $evidence.overloadedUsers; residenceP95Ms = $evidence.p95CoreResidenceMillis; residenceP99Ms = $evidence.p99CoreResidenceMillis
@@ -648,7 +683,7 @@ $summary = [ordered]@{
         requests = $requests; leftAtInjectionEnd = $leftAtEnd; tailResidenceMedianMs = $tailMedian
         rejections = $rejections; minuteFailures = @($minuteFailures | Select-Object -First 20); duplicateSales = $duplicateSales }
     server = [ordered]@{ hikariActiveMax = $maxActiveConn; hikariPendingMax = $maxPending; tomcatBusyMax = $maxBusy; processCpuMax = $maxCpu; jitCompileSeconds = $jitSeconds; coreCpuMsPerUser = $cpuMsPerUser
-        metricTimeouts = $timeouts; postgresWal = $wal }
+        metricTimeouts = $timeouts; postgresWal = $wal; instances = $instances }
     coreRequests = $core
 }
 Write-Utf8 (Join-Path $runDir "summary.json") ($summary | ConvertTo-Json -Depth 6)
@@ -680,6 +715,9 @@ if ($minuteFailures.Count -gt 0) { Write-Host ("per-minute: " + (($minuteFailure
 foreach ($name in $requests.Keys) { Write-Host ("  gatling {0}: p95 {1} p99 {2} ms" -f $name, $requests[$name].p95Ms, $requests[$name].p99Ms) }
 Write-Host ("server: hikari {0}/{1} (pending max {2}), tomcat busy max {3}/{4}, cpu max {5}, orders before {6}" -f $maxActiveConn, $hikariMax, $maxPending, $maxBusy, $tomcatMax, $maxCpu, $ordersBefore)
 Write-Host ("jvm: jit {0}s, core cpu {1}ms/user" -f $jitSeconds, $cpuMsPerUser)
+if ($instances.Count -gt 1) {
+    foreach ($x in $instances) { Write-Host ("  instance {0}: hikari max {1} (pending {2}), tomcat busy max {3}, cpu max {4}, jit {5}s, cpu {6}s" -f $x.metricsUrl, $x.hikariActiveMax, $x.hikariPendingMax, $x.tomcatBusyMax, $x.processCpuMax, $x.jitCompileSeconds, $x.coreCpuSeconds) }
+}
 if ($jitSeconds -gt 3) { Write-Host "  note: JIT compiled ${jitSeconds}s during this run; the JVM is not warm yet (warm up again before judging)" -ForegroundColor Yellow }
 if ($wal) { Write-Host ("postgres wal: fsyncs {0} avg {1}ms, writes {2} avg {3}ms, {4}MB, full-page images {5}, commits {6} (timing {7})" -f $wal.fsyncs, $wal.fsyncAvgMs, $wal.writes, $wal.writeAvgMs, $wal.megabytes, $wal.fullPageImages, $wal.commits, $wal.timing) }
 foreach ($key in $core.Keys) { Write-Host ("  core {0}: n={1} p50<={2} p95<={3} p99<={4} ms" -f $key, $core[$key].count, $core[$key].p50Ms, $core[$key].p95Ms, $core[$key].p99Ms) }
