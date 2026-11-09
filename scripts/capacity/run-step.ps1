@@ -329,7 +329,8 @@ function Save-Metrics([string[]]$texts, [string]$name) {
     if ($texts.Count -eq 1) { Write-Utf8 (Join-Path $runDir "$name.txt") $texts[0]; return }
     for ($i = 0; $i -lt $texts.Count; $i++) { Write-Utf8 (Join-Path $runDir "$name-$($i + 1).txt") $texts[$i] }
 }
-$before = Get-Metrics
+# 한 대면 함수가 돌려준 배열이 문자열 하나로 풀려 $before[0]이 첫 글자가 된다(2026-11-10 운영 사용자당 CPU 0). @()로 배열을 지킨다.
+$before = @(Get-Metrics)
 Save-Metrics $before "prometheus-before"
 # 풀·스레드 상한은 인스턴스 하나의 값이다(모든 인스턴스가 같은 설정). 연결·스레드 최대도 인스턴스별 최댓값과 비교한다.
 $hikariMax = Get-Gauge $before[0] "hikaricp_connections_max"
@@ -458,7 +459,7 @@ if ($LoadHost) {
 New-Item -ItemType File $stopFile | Out-Null
 Wait-Job $sampler -Timeout 10 | Out-Null; Remove-Job $sampler -Force
 Remove-Item $stopFile -ErrorAction SilentlyContinue
-$after = Get-Metrics
+$after = @(Get-Metrics)
 Save-Metrics $after "prometheus-after"
 # 운영 지표는 여기까지 읽는다. 이후는 결과 받아 오기와 이 PC의 분석뿐이다.
 Stop-ProdTunnel
