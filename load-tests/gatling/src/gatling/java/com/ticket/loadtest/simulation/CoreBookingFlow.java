@@ -39,11 +39,10 @@ final class CoreBookingFlow {
     private static final Duration SEAT_SOCKET_TIMEOUT = Duration.ofSeconds(5);
     private static final String STOMP_CONNECT =
             "CONNECT\naccept-version:1.2\nheart-beat:0,0\nAuthorization:Bearer #{accessToken}\n\n\u0000";
-    private static final String STOMP_SUBSCRIBE_SEATS =
-            "SUBSCRIBE\nid:seats-0\ndestination:/topic/performance/#{performanceId}/seats\n\n\u0000";
     private static final String RESPONSE_MILLIS = "lastResponseMillis";
     /**
-     * 공연별 좌석 목록(배치도 응답의 seatId, 오름차순). 03-3은 점유 좌석만 받고 빈 좌석을 "배치도 좌석 - 점유 좌석"으로 고른다.
+     * 공연별 좌석 목록(배치도 응답의 seatId, 오름차순). 03-3은 좌석 상태를 occupancy 비트(또는 옛 Core면 점유 좌석)로 받아
+     * 이 목록에 맞춰 선택 가능 좌석을 고른다.
      * 배치도는 모든 사용자에게 같아서 부하 발생기 JVM에서 처음 받은 응답 하나만 읽는다(사용자마다 15,000개를 세션에 두지 않는다).
      */
     private static final Map<String, List<Long>> SEAT_CATALOGS = new ConcurrentHashMap<>();
@@ -168,7 +167,7 @@ final class CoreBookingFlow {
      *
      * <ul>
      *   <li>좌석 알림 WebSocket: 예매 화면이 열려 있는 동안 STOMP로 회차 좌석 topic을 구독한 채 연결을 유지한다.
-     *   <li>좌석 배치도: 화면이 처음 불러오는 venue-layout과 공연 좌석 목록을 조회한다. 빈 좌석은 이 목록에서 점유 좌석(occupied)을 빼서 고른다.
+     *   <li>좌석 배치도: 화면이 처음 불러오는 venue-layout과 공연 좌석 목록을 조회한다. 빈 좌석은 이 목록을 좌석 상태(occupancy 비트 또는 점유 좌석)에 맞춰 고른다.
      *   <li>전체 해제: 주문 전에 이탈하는 사용자는 화면을 떠나며 선택을 전부 해제한다(FE leave guard).
      *   <li>주문 취소: 주문을 만든 사용자 일부가 결제 전에 취소한다.
      * </ul>
@@ -176,7 +175,7 @@ final class CoreBookingFlow {
      * <p>03처럼 회차 요약과 생성한 주문을 따로 조회하지 않는다. 요약은 점유 좌석 응답에, 주문 상태는 주문 생성 응답에 있다.
      */
     static ChainBuilder realisticUserMixFlow(final String scenario) {
-        // 좌석은 점유 좌석(occupied)으로 받는다. 그 응답에 회차 요약이 들어 있어(Core 2026-10-19) 요약을 따로 부르지 않는다.
+        // 좌석은 -DseatStatusSource(occupancy 기본, 옛 Core는 occupied)로 받는다. 두 응답 모두 회차 요약을 담아 요약을 따로 부르지 않는다.
         return exec(session -> session.set("showId", LoadTestConfig.showId()).set("useSeatCatalog", true))
                 .exec(recordCoreAdmission())
                 .exec(openSeatSocket())
@@ -271,11 +270,23 @@ final class CoreBookingFlow {
                                 ))
                 ))
                 .exec(doIf(session -> !session.isFailed()).then(
-                        exec(ws("stomp subscribe seats", SEAT_SOCKET).sendText(STOMP_SUBSCRIBE_SEATS))
+                        exec(ws("stomp subscribe seats", SEAT_SOCKET).sendText(CoreBookingFlow::stompSubscribeSeats))
                 ))
                 .exec(session -> session.isFailed()
                         ? terminalFailure(session, "TECHNICAL_SEAT_SOCKET_CONNECT", "SEAT_SOCKET", 0)
                         : session.set("seatSocketOpen", true));
+    }
+
+    /**
+     * batch(기본)는 묶음 알림 주소(/seats/batch)를 구독한다. Core가 구독을 입장 검사하므로 입장 토큰이 있으면 X-Admission-Token으로 보낸다.
+     * legacy는 옛 Core의 /seats를 구독한다(새 Core에서는 FE용 좌석별 알림 주소).
+     */
+    private static String stompSubscribeSeats(final Session session) {
+        final String destination = "/topic/performance/" + session.getString("performanceId")
+                + ("batch".equals(LoadTestConfig.seatTopic()) ? "/seats/batch" : "/seats");
+        final String admission = "batch".equals(LoadTestConfig.seatTopic()) && session.contains("admissionToken")
+                ? "X-Admission-Token:" + session.getString("admissionToken") + "\n" : "";
+        return "SUBSCRIBE\nid:seats-0\ndestination:" + destination + "\n" + admission + "\n\u0000";
     }
 
     private static ChainBuilder closeSeatSocket() {
@@ -307,8 +318,9 @@ final class CoreBookingFlow {
                                 .then(jsonPath("$.data.seats[*].seatId").ofLong().findAll().saveAs("showSeatIds")))
                                 .exec(session -> {
                                     if (session.contains("showSeatIds")) {
+                                        // occupancy 비트가 seatId 오름차순이라 응답 순서와 무관하게 정렬해 둔다.
                                         SEAT_CATALOGS.putIfAbsent(session.getString("showId"),
-                                                List.copyOf(session.<Long>getList("showSeatIds")));
+                                                session.<Long>getList("showSeatIds").stream().sorted().toList());
                                     }
                                     return session.remove("showSeatIds");
                                 })
@@ -383,30 +395,45 @@ final class CoreBookingFlow {
     }
 
     static ChainBuilder fetchSeatStatus(final boolean includeAdmissionToken) {
-        return exec(session -> session.removeAll("seatStatusHttpStatus", "availableSeatIds", "occupiedSeatIds")
+        return exec(session -> session.removeAll("seatStatusHttpStatus", "availableSeatIds", "occupiedSeatIds",
+                                "occupancySeatCount", "occupancyBits")
                         .set("lastStep", "SEAT_STATUS"))
                 .exec(measured(http("seat status")
-                        // 좌석 전체(status)는 좌석 목록이 따로 없는 03-2만 부른다. 03은 좌석을 피더에서 정하고,
-                        // 03-3은 배치도 좌석에서 점유 좌석을 빼서 고르므로 둘 다 점유 좌석 번호만(occupied) 받는다.
+                        // 좌석 전체(status)는 좌석 목록이 따로 없는 03-2만 부른다. 03은 좌석을 피더에서 정해 점유 좌석 번호만(occupied) 받는다.
+                        // 03-3은 배치도 좌석에 맞춰 고르므로 seatStatusSource에 따라 좌석당 1비트(occupancy) 또는 점유 좌석(occupied)을 받는다.
                         .get(session -> "/api/v1/performances/" + session.get("performanceId")
-                                + (isDynamicSeatSelection(session) && !usesSeatCatalog(session)
-                                        ? "/seats/status" : "/seats/occupied"))
+                                + (isDynamicSeatSelection(session) && !usesSeatCatalog(session) ? "/seats/status"
+                                        : usesOccupancy(session) ? "/seats/occupancy" : "/seats/occupied"))
                         .headers(bookingHeaders(includeAdmissionToken)))
                         .check(status().saveAs("seatStatusHttpStatus"))
                         .check(status().is(200))
                         .checkIf(session -> isDynamicSeatSelection(session) && !usesSeatCatalog(session))
                         .then(jsonPath("$.data.seats[?(@.status == 'AVAILABLE')].seatId")
                                 .ofLong().findAll().optional().saveAs("availableSeatIds"))
-                        .checkIf(CoreBookingFlow::usesSeatCatalog)
+                        .checkIf(session -> usesSeatCatalog(session) && !usesOccupancy(session))
                         .then(jsonPath("$.data.occupiedSeatIds[*]")
-                                .ofLong().findAll().optional().saveAs("occupiedSeatIds")))
+                                .ofLong().findAll().optional().saveAs("occupiedSeatIds"))
+                        .checkIf(CoreBookingFlow::usesOccupancy)
+                        .then(jsonPath("$.data.seatCount").ofInt().optional().saveAs("occupancySeatCount"),
+                                jsonPath("$.data.available").optional().saveAs("occupancyBits")))
                 .exec(recordResponse("seat status"));
     }
 
     private static ChainBuilder chooseAvailableSeat() {
         return exec(session -> {
             final List<Long> available;
-            if (usesSeatCatalog(session)) {
+            if (usesOccupancy(session)) {
+                try {
+                    available = RealisticSeatSelection.selectableFromOccupancy(
+                            SEAT_CATALOGS.getOrDefault(session.getString("showId"), List.of()),
+                            optionalInt(session, "occupancySeatCount"),
+                            optionalString(session, "occupancyBits"));
+                } catch (IllegalArgumentException mismatch) {
+                    // 좌석 수·비트 길이가 배치도와 다르면 고를 좌석을 믿을 수 없다. 그 사용자의 기술 실패로 센다.
+                    return terminalFailure(session, "TECHNICAL_SEAT_OCCUPANCY_MISMATCH", "SEAT_STATUS",
+                            optionalInt(session, "seatStatusHttpStatus"));
+                }
+            } else if (usesSeatCatalog(session)) {
                 available = RealisticSeatSelection.withoutOccupied(
                         SEAT_CATALOGS.getOrDefault(session.getString("showId"), List.of()),
                         session.contains("occupiedSeatIds") ? session.<Long>getList("occupiedSeatIds") : List.of());
@@ -663,6 +690,10 @@ final class CoreBookingFlow {
 
     private static boolean usesSeatCatalog(final Session session) {
         return session.contains("useSeatCatalog") && session.getBoolean("useSeatCatalog");
+    }
+
+    private static boolean usesOccupancy(final Session session) {
+        return usesSeatCatalog(session) && "occupancy".equals(LoadTestConfig.seatStatusSource());
     }
 
     private static Map<CharSequence, String> bookingHeaders(final boolean includeAdmissionToken) {

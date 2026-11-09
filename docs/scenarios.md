@@ -191,9 +191,11 @@ feeder는 `memberId,accessToken,seatId,admissionToken` 형식이며 사용자 �
 
 03-3 `CoreRealisticUserMixSimulation`은 03-2 흐름에 실제 예매 화면이 하는 일을 더한다. 03-2와 결과를 섞지 않도록 별도 시나리오로 둔다.
 
-- 좌석 알림 WebSocket: 흐름이 끝날 때까지 `/ws/websocket`에 STOMP로 연결해 `/topic/performance/{performanceId}/seats`를 구독한다. FE는 SockJS로 붙지만 부하 발생기는 SockJS가 함께 여는 순수 WebSocket 경로를 쓴다. Core CORS 허용 목록을 거치게 하려면 `-DwsOrigin`에 허용 Origin을 준다(비우면 Origin 헤더를 보내지 않는다).
+- 좌석 알림 WebSocket: 흐름이 끝날 때까지 `/ws/websocket`에 STOMP로 연결해 묶음 알림 주소 `/topic/performance/{performanceId}/seats/batch`를 구독한다. Core가 이 구독을 입장 검사하므로 세션에 입장 토큰이 있으면 STOMP 헤더 `X-Admission-Token`으로 보낸다(03-3은 입장 토큰이 없어 보내지 않는다). 옛 Core와 비교할 때는 `-DseatTopic=legacy`로 `/seats`를 구독한다(기본 `batch`, 새 Core에서 `/seats`는 FE용 좌석별 알림이다). FE는 SockJS로 붙지만 부하 발생기는 SockJS가 함께 여는 순수 WebSocket 경로를 쓴다. Core CORS 허용 목록을 거치게 하려면 `-DwsOrigin`에 허용 Origin을 준다(비우면 Origin 헤더를 보내지 않는다).
 - 배치도: 화면이 처음 부르는 `GET /api/v1/shows/{showId}/venue-layout`과 `GET /api/v1/shows/{showId}/seats`를 조회한다. `-DshowId` 기본값은 부하 전용 공연 `910000001`이고, `run-step.ps1`은 회차 ID에서 공연 ID를 계산해 넘긴다.
 - 좌석 상태: 03-2와 달리 좌석 전체(`/seats/status`) 대신 점유 좌석(`/seats/occupied`)을 받고, 빈 좌석은 "배치도 좌석 − 점유 좌석"으로 고른다. 인기 좌석 구간(앞쪽 10%)은 배치도 순서(seatId 오름차순)로 잡혀 03-2와 같다. 배치도 좌석 목록은 부하 발생기 JVM이 처음 받은 응답 하나만 읽는다. 점유 좌석 응답이 회차 요약을 담아 요약(`/summary`)을 따로 부르지 않는다. 03처럼 주문 생성 응답이 상태(PENDING)·만료 시각을 담아 생성한 주문도 다시 조회하지 않는다. 2026-11-05 오후부터이며, 그 전 03-3 결과(좌석 전체·요약 조회)와 섞지 않는다. FE는 측정의 제약이 아니다(사용자 결정 2026-11-05).
+  - 2026-11-09부터 기본은 좌석당 1비트 `GET /api/v1/performances/{performanceId}/seats/occupancy`다(`-DseatStatusSource=occupancy`). `data.available`(base64)을 풀어 배치도 좌석(seatId 오름차순)의 i번째 비트가 1이면 선택 가능으로 본다(한 바이트 안에서 앞 좌석이 최상위 비트). 고르는 규칙은 그대로이고 출처만 바뀐다. `data.seatCount`나 비트 길이가 배치도 좌석 수와 다르면 그 사용자를 기술 실패 `TECHNICAL_SEAT_OCCUPANCY_MISMATCH`로 센다.
+  - occupancy가 없는 옛 Core는 `-DseatStatusSource=occupied -DseatTopic=legacy`로 같은 Gatling 빌드에서 돌려 전후를 비교한다. `run-step.ps1`은 `-SeatStatusSource occupied -SeatTopic legacy`로 넘긴다. 쓴 값은 `booking-run-config.json`의 `behavior.seatStatusSource`·`behavior.seatTopic`에 남는다.
 - 좌석 알림 연결 끊기: 주문을 만든 사용자는 결제로 넘어가므로 그 자리에서 WebSocket을 닫는다(2026-11-06). 주문이 실패하거나 이탈한 사용자는 흐름 끝에서 닫는다.
 - 전체 해제: 주문 전에 이탈하는 사용자(`bookingDropoutPercent`, 기본 10%)는 `DELETE /api/v1/performances/{performanceId}/seats/select`로 선택을 모두 푼다. 결과는 `USER_DROPPED_BEFORE_ORDER`다.
 - 주문 취소: 주문을 만든 사용자 중 `bookingOrderCancelPercent`(기본 10%)가 `DELETE /api/v1/orders/{orderKey}`로 취소한다. 결과는 `USER_DROPPED_ORDER_CANCELED`다.

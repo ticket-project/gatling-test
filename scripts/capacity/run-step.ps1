@@ -9,6 +9,11 @@ param(
     # 내세울 수용량은 03-3으로 잰다(2026-11-04 사용자 결정, ticket docs/core-capacity.md).
     [ValidateSet("03", "03-3")]
     [string]$Scenario = "03",
+    # 03-3 좌석 상태 출처와 좌석 알림 구독 주소. 옛 Core(occupancy·묶음 주소 전)와 비교할 때 occupied, legacy를 준다.
+    [ValidateSet("occupancy", "occupied")]
+    [string]$SeatStatusSource = "occupancy",
+    [ValidateSet("batch", "legacy")]
+    [string]$SeatTopic = "batch",
     [string]$MemberIdsFile = "",
     [string]$JwtSecret = $env:LOADTEST_JWT_SECRET,
     [double]$AdmissionTolerancePercent = 15,
@@ -427,7 +432,8 @@ function Get-GatlingArgs([string]$project, [string]$dir, [string]$feeder, [strin
         "-DmaxCoreAdmissionsPerSecond=0", "-DadmissionRateTolerancePercent=0",
         "-DperformanceId=$PerformanceId", "-Dusers=1", "-DdurationSeconds=$DurationSeconds",
         "-DinjectionMode=constant-users-per-sec", "-DusersPerSecond=$UsersPerSecond", "-DtargetUsersPerSecond=$UsersPerSecond",
-        "-DaccessTokenMode=tokens", "-DaccessTokensFile=$tokens", "-DconsoleRunId=$runId")
+        "-DaccessTokenMode=tokens", "-DaccessTokensFile=$tokens", "-DconsoleRunId=$runId",
+        "-DseatStatusSource=$SeatStatusSource", "-DseatTopic=$SeatTopic")
 }
 $startedAt = Get-Date
 if ($LoadHost) {

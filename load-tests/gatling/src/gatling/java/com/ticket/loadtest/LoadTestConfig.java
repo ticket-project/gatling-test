@@ -91,6 +91,24 @@ public final class LoadTestConfig {
         return property(ConfigKey.WS_ORIGIN);
     }
 
+    /** 03-3 좌석 상태 출처. occupancy(좌석당 1비트, 기본) 또는 occupied(점유 좌석 번호, occupancy가 없는 옛 Core). */
+    public static String seatStatusSource() {
+        return oneOf(ConfigKey.SEAT_STATUS_SOURCE, "occupancy", "occupied");
+    }
+
+    /** 03-3 좌석 알림 구독 주소. batch(/seats/batch, 기본) 또는 legacy(/seats, 묶음 주소가 없는 옛 Core). */
+    public static String seatTopic() {
+        return oneOf(ConfigKey.SEAT_TOPIC, "batch", "legacy");
+    }
+
+    private static String oneOf(final ConfigKey key, final String... allowed) {
+        final String value = property(key).toLowerCase(Locale.ROOT);
+        if (!List.of(allowed).contains(value)) {
+            throw new IllegalStateException("-D" + key.propertyName() + " must be one of " + List.of(allowed) + ": " + value);
+        }
+        return value;
+    }
+
     public static int statusPolls() {
         return intProperty(ConfigKey.STATUS_POLLS);
     }
@@ -734,6 +752,8 @@ public final class LoadTestConfig {
         BOOKING_ORDER_CANCEL_PERCENT("bookingOrderCancelPercent", "10.0"),
         SHOW_ID("showId", "910000001"),
         WS_ORIGIN("wsOrigin", ""),
+        SEAT_STATUS_SOURCE("seatStatusSource", "occupancy"),
+        SEAT_TOPIC("seatTopic", "batch"),
         TECHNICAL_FAILURE_THRESHOLD_PERCENT("technicalFailureThresholdPercent", "1.0"),
         QUEUE_TIMEOUT_THRESHOLD_PERCENT("queueTimeoutThresholdPercent", "0.0"),
         MAX_CORE_ADMISSIONS_PER_SECOND("maxCoreAdmissionsPerSecond", "0"),

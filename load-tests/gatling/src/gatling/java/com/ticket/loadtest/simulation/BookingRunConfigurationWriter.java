@@ -79,6 +79,8 @@ final class BookingRunConfigurationWriter {
                 .put("seatRefreshPercent", LoadTestConfig.bookingSeatRefreshPercent())
                 .put("dropoutPercent", LoadTestConfig.bookingDropoutPercent())
                 .put("orderCancelPercent", LoadTestConfig.bookingOrderCancelPercent())
+                .put("seatStatusSource", LoadTestConfig.seatStatusSource())
+                .put("seatTopic", LoadTestConfig.seatTopic())
                 .put("popularSeatPoolPercent", RealisticSeatSelection.popularSeatPoolPercent())
                 .put("popularSeatSelectionPercent", RealisticSeatSelection.popularSeatSelectionPercent())
                 .put("maxSeatSelectionAttempts", RealisticSeatSelection.maxDynamicAttempts());

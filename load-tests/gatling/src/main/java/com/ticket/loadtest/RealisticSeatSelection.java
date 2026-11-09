@@ -1,6 +1,7 @@
 package com.ticket.loadtest;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -22,6 +23,27 @@ public final class RealisticSeatSelection {
         for (Long seatId : catalog) {
             if (!occupiedSet.contains(seatId)) {
                 available.add(seatId);
+            }
+        }
+        return available;
+    }
+
+    /**
+     * occupancy 응답(좌석당 1비트, base64)을 배치도 좌석(seatId 오름차순)에 맞춰 선택 가능 좌석으로 푼다.
+     * 비트 1이 선택 가능이고 한 바이트 안에서는 앞 좌석이 최상위 비트다. 결과 순서는 withoutOccupied와 같다.
+     *
+     * @throws IllegalArgumentException 좌석 수나 비트 길이가 배치도와 맞지 않거나 base64가 깨졌을 때
+     */
+    public static List<Long> selectableFromOccupancy(final List<Long> catalog, final int seatCount, final String base64) {
+        final byte[] bits = Base64.getDecoder().decode(base64);
+        if (seatCount != catalog.size() || bits.length != (catalog.size() + 7) / 8) {
+            throw new IllegalArgumentException("occupancy seatCount=" + seatCount + " bytes=" + bits.length
+                    + " does not match seat map size " + catalog.size());
+        }
+        final List<Long> available = new ArrayList<>(catalog.size());
+        for (int i = 0; i < catalog.size(); i++) {
+            if ((bits[i >>> 3] & (0x80 >>> (i & 7))) != 0) {
+                available.add(catalog.get(i));
             }
         }
         return available;
