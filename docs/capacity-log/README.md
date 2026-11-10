@@ -41,7 +41,8 @@ ticket-core [Core 수용량](https://github.com/ticket-project/ticket-core/blob/
 | P-025 | 중복 판매 판정이 Core 생성 시각(UTC)과 만료·취소 시각(KST)의 시간대 차이로 좌석 재사용을 겹침으로 셌다 | 측정 도구·Core | [11-05](2026-11-05-prod-03-3-warmup.md#p-025-중복-판매-판정이-core의-생성-시각-시간대-차이로-좌석-재사용을-겹침으로-셌다) | 판정 해결(gatling `e07dcc0`), Core 시간대 결정 대기 | 920000136·140 각 2쌍 → 고친 SQL 0쌍 |
 | P-026 | 입장 속도 판정이 원격 Gatling 시작 지연(첫 초 사용자가 둘째 초로 밀림)을 과다 주입으로 셌다 | 측정 도구 | [11-09](2026-11-09-prod-03-3-fanout.md#p-026-입장-속도-판정이-원격-gatling-시작-지연을-과다-주입으로-셌다) | 해결(gatling `b23094d`) | 운영 40 u/s INVALID 2번(첫 두 초 18+58·8+69, 나머지 40). 셋째 초부터 판정, 첫 두 초 합이 2초 분량+허용치를 넘을 때만 INVALID |
 | P-027 | 사용자당 CPU 줄이기 변경 뒤 로컬 주문·취소 응답이 약 3ms 늘었다 | Core | [11-09 로컬](2026-11-09-local-03-3-cpu-per-user.md#p-027-변경-후-주문취소-응답이-약-3ms-늘었다원인-미확인) | 원인 미확인 | 주문 평균 7.2~7.6 → 10.1~10.6ms, 저장소 시간은 줄어듦 |
-| P-028 | 사용자당 CPU 줄이기 배포 뒤 운영 03-3 110 u/s FAIL은 CPU가 아니라 DB 연결 대기와 응답 없음이다 | Core | [11-10](2026-11-10-prod-03-3-cpu-per-user.md#p-028-110-us-fail은-cpu가-아니라-db-연결-대기와-응답-없음이다) | 원인 확인 중 | 첫 FAIL 90 → 110 u/s, 사용자당 CPU 16~17 → 11~13.6ms, 110 u/s CPU 최대 0.66·Hikari 대기 77·기술 실패 2.1% |
+| P-028 | 운영 03-3 110 u/s 응답 없음은 nginx 작업 프로세스의 FD 상한(1,024)이었다 | nginx | [11-10](2026-11-10-prod-03-3-cpu-per-user.md#p-028-110-us-응답-없음은-nginx-작업-프로세스의-fd-상한1024이었다) | 해결(서버 nginx.conf) | `worker_rlimit_nofile 65535`·`worker_connections 8192` 뒤 110 u/s 기술 실패 3.3~8.4% → 0%, 08-04와 같은 원인 |
+| P-029 | 100 u/s 위에서 2 vCPU 호스트 CPU가 꽉 찬다(Core 0.95코어 + nginx 0.48코어) | Core·nginx | [11-10](2026-11-10-prod-03-3-cpu-per-user.md#p-029-100-us-위에서는-호스트-cpu가-꽉-찬다-core만-보면-여유가-있어-보인다) | 열림 | 110 u/s는 응답 시간 FAIL, Core 프로세스 CPU만 보면 여유가 있어 보임. 후보: upstream keepalive, TLS를 ALB로 |
 
 ## 성능 변화
 
