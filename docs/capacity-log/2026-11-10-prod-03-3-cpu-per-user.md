@@ -6,6 +6,7 @@
 - **첫 FAIL 90 → 110 u/s.** 100 u/s까지 PASS다. 110 u/s는 기술 실패 2.1%(응답 없음 69건)로 FAIL이다.
 - **사용자당 Core CPU 16~17 → 11~13.6ms**(60~100 u/s). 11-09의 같은 부하보다 약 20% 적다.
 - **110 u/s 응답 없음은 nginx FD 상한(1,024) 때문이었다(P-028).** 상한을 올리자 기술 실패는 0%가 됐고, 남은 FAIL은 응답 시간이다.
+- **최종: 첫 FAIL 90 → 130 u/s(120 PASS).** nginx FD 상한·upstream keepalive와 Datadog `docker` 수집 끄기를 서버에 적용한 뒤 에이전트를 켠 채 쟀다. 130에서도 기술 실패는 0이고 호스트 CPU가 막는다.
 - **Datadog 에이전트를 끄면 첫 FAIL 130 u/s다(P-030).** 15초마다 에이전트 수집이 dockerd·containerd를 1코어 가까이 1~2초 깨워 호스트가 멈췄다. 켠 상태의 100~110 u/s 판정은 이 멈춤에 따라 흔들린다.
 - **100 u/s 위에서는 호스트 CPU가 꽉 찬다(P-029).** Core 프로세스 CPU는 0.4~0.67이지만 nginx가 Core의 절반만큼 CPU를 써 2 vCPU 호스트가 1.00에 붙는다. Hikari 대기는 80 u/s부터 생겼다(24).
 - WebSocket 압축을 꺼도 서버 송신은 30초 평균 최대 약 33Mbps로 여유가 크다(Datadog `system.net.bytes_sent`).
@@ -95,6 +96,19 @@
 | 09:52 | 130 | 213 | FAIL | 10.2ms | 14/29 | 50 | 200 | 좌석 상태 p95 646ms > 500 |
 
 에이전트를 끄면 **첫 FAIL 130 u/s(120 PASS)**다. 130에서도 기술 실패는 0이고, 호스트 CPU가 1.00에 붙는 표본이 절반이라 다음 한계도 호스트 CPU다. 호스트 전체 사용자당 CPU는 약 13ms(0.87 × 2코어 ÷ 130)다. 측정 뒤 사용자가 에이전트를 다시 켠다.
+
+### 에이전트 `docker` 수집을 끈 사다리(10:06~10:12)
+
+무부하 확인(10:00): `agent status`에서 `docker` 수집이 한 번에 평균 779ms(다른 컨테이너 수집 7ms, Core openmetrics 199ms)였다. 사용자가 이 수집만 끄자 1분 `top`에서 dockerd·containerd 튐이 사라졌다. 사용자가 서버 compose의 datadog-agent에 빈 폴더 마운트 `./datadog/docker.d:/etc/datadog-agent/conf.d/docker.d:ro`를 넣고 에이전트만 다시 만들었다(`docker compose up -d --no-deps datadog-agent`, DOCKER_IMAGE·FRONTEND_DOCKER_IMAGE는 실행 중 컨테이너 값). `docker.*` 지표는 빠지고 `container.*`는 그대로다.
+
+| 시각 | 부하 | 회차 | 판정 | 사용자당 CPU | 호스트 1.00 표본 | Hikari 대기 | Tomcat 최대 | 실패 이유 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10:06 | 110 | 214 | INVALID | 10.3ms | 6/32 | 5 | 179 | 입장 109~132/s(부하 발생기 흔들림) |
+| 10:07 | 110 | 215 | PASS | 9.6ms | 3/33 | 0 | 25 | |
+| 10:09 | 120 | 216 | PASS | 9.7ms | 9/30 | 2 | 30 | |
+| 10:11 | 130 | 217 | FAIL | 10.3ms | 19/31 | 101 | 200 | 좌석 상태 p95 781ms, 주문 p95 1,056ms |
+
+에이전트를 켠 운영 그대로의 조건에서 **첫 FAIL 130 u/s(120 PASS)**로, 에이전트를 끈 결과와 같다. 판정은 이 사다리로 한다.
 
 ## 직접 보려면
 
