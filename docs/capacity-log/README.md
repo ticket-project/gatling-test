@@ -43,6 +43,7 @@ ticket-core [Core 수용량](https://github.com/ticket-project/ticket-core/blob/
 | P-027 | 사용자당 CPU 줄이기 변경 뒤 로컬 주문·취소 응답이 약 3ms 늘었다 | Core | [11-09 로컬](2026-11-09-local-03-3-cpu-per-user.md#p-027-변경-후-주문취소-응답이-약-3ms-늘었다원인-미확인) | 원인 미확인 | 주문 평균 7.2~7.6 → 10.1~10.6ms, 저장소 시간은 줄어듦 |
 | P-028 | 운영 03-3 110 u/s 응답 없음은 nginx 작업 프로세스의 FD 상한(1,024)이었다 | nginx | [11-10](2026-11-10-prod-03-3-cpu-per-user.md#p-028-110-us-응답-없음은-nginx-작업-프로세스의-fd-상한1024이었다) | 해결(서버 nginx.conf) | `worker_rlimit_nofile 65535`·`worker_connections 8192` 뒤 110 u/s 기술 실패 3.3~8.4% → 0%, 08-04와 같은 원인 |
 | P-029 | 100 u/s 위에서 2 vCPU 호스트 CPU가 꽉 찬다(Core 0.95코어 + nginx 0.48코어) | Core·nginx | [11-10](2026-11-10-prod-03-3-cpu-per-user.md#p-029-100-us-위에서는-호스트-cpu가-꽉-찬다-core만-보면-여유가-있어-보인다) | 열림 | 110 u/s는 응답 시간 FAIL, Core 프로세스 CPU만 보면 여유가 있어 보임. 후보: upstream keepalive, TLS를 ALB로 |
+| P-030 | 15초마다 Datadog 에이전트 수집이 dockerd·containerd를 약 1코어 깨워 호스트가 1~5초 멈춘다 | 운영 호스트 | [11-10](2026-11-10-prod-03-3-cpu-per-user.md#p-030-15초마다-datadog-에이전트-수집이-호스트를-15초-멈춘다) | 원인 확인, 설정 미정 | 에이전트 끈 100 u/s 호스트 1.00 표본 14→0, 주문 p99 1,400→110ms, 끈 사다리 첫 FAIL 130 u/s |
 
 ## 성능 변화
 
