@@ -35,7 +35,7 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
   `-Compose` 없이(`java -jar`) 쓰면 운영과 같은 버전의 dd-java-agent를 `~/.datadog`에 받아 붙인다. compose의 Agent는
   8126을 호스트에 열지 않으므로 Agent는 직접 띄워야 하고, `localhost:8126`에서 기다리지 않으면 멈춘다.
 - `-Datadog`이면 Gatling이 보내는 `X-Load-Test-Run-Id`를 span 태그 `load_test.run_id`로 남긴다. Datadog에서
-  `@load_test.run_id:<runId>`로 한 실행만 찾는다. `java -jar`면 Agent가 읽을 JSON 로그를 `distributed-results-join/capacity/core-logs`에 따로 쓴다.
+  `@load_test.run_id:<runId>`로 한 실행만 찾는다(runId는 `summary.json`의 `runId`). 운영 Core도 같은 태그를 남긴다(ticket `ops/datadog/next-start-runbook.md`). `java -jar`면 Agent가 읽을 JSON 로그를 `distributed-results-join/capacity/core-logs`에 따로 쓴다.
 - 로컬 compose면 실행 전후 PostgreSQL WAL 통계를 `postgres-wal.txt`에 남기고 `summary.json`의 `server.postgresWal`에 차이를 적는다.
   fsync 시간은 PostgreSQL `track_wal_io_timing`이 켜져 있어야 쌓인다(capacity-log P-016).
 - 부하는 여전히 Windows의 Gatling이 `http://localhost:8083`으로 보내므로 HTTP 요청은 포트 중계를 지난다. 판정은 Core 쪽 숫자로 한다.
@@ -91,6 +91,7 @@ Gatling이 잰 응답 시간만으로는 Core의 한계인지 부하 발생기�
   실행마다 이 작업 트리를 EC2의 `-RemoteProjectDir`(기본 `~/gatling-test`)에 풀고, 토큰·피더를 `/tmp/capacity-<결과 폴더 이름>`에 올린다.
   끝나면 결과를 받아 오고 EC2의 그 폴더(토큰 포함)를 지운다. EC2에는 JWT secret이 가지 않는다. `-KeyPath`를 비우면 `ticket-test-key-01.pem`을 찾는다.
   EC2에 Java 21이 없으면 설치한다(부하 발생기는 측정할 때만 켜므로 새 인스턴스일 수 있다).
+  이 EC2의 Datadog 호스트 이름은 `loadgen-1`이다. 부하 발생기 CPU·네트워크는 대시보드 `[loadtest] 부하 테스트 한 화면`에서 Core와 나란히 본다.
 - `-CoreCommit`: `reset-local.ps1`이 기록하지 않는 대상의 Core commit이다. `steps.md`의 commit 칸과 `summary.json`에 쓴다.
 
 순서는 이렇다.

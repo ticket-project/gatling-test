@@ -306,4 +306,10 @@ X-Load-Test-Scenario
 X-Load-Test-User-Id
 ```
 
-같은 runId로 Gatling 결과와 Datadog 로그를 찾을 수 있다. JWT secret, Admission secret, DB 비밀번호와 실제 token 값은 명령 로그나 요약 결과에 기록하지 않는다.
+`scripts/capacity/run-step.ps1`도 실행마다 runId를 만들어 결과 폴더 `summary.json`의 `runId`에 남긴다. Core는 `X-Load-Test-Run-Id`를
+span 태그 `load_test.run_id`로 남긴다(운영은 compose의 `DD_TRACE_HEADER_TAGS`, 로컬은 `reset-local.ps1 -Datadog`). Datadog APM에서
+`service:ticket-be env:<prod|local> @load_test.run_id:<runId>`로 한 실행의 span만 찾고, 로그는 그 span의 trace에서 연다.
+운영 한 화면은 대시보드 `[loadtest] 부하 테스트 한 화면`이다. 호스트 이름은 Core `ticket-core-prod`, 부하 발생기 `loadgen-1`이다.
+운영 Agent 설정과 RDS 관측은 ticket `ops/datadog/next-start-runbook.md`가 원본이다.
+
+JWT secret, Admission secret, DB 비밀번호와 실제 token 값은 명령 로그나 요약 결과에 기록하지 않는다.

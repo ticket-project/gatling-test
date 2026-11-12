@@ -333,8 +333,8 @@ DATADOG_SITE=us5.datadoghq.com
 현재 Datadog에서 확인된 자동 프로필은 다음과 같습니다.
 
 ```text
-Queue: env=prod, service=ticket-queue, metric prefix=ticket_queue, container=ticket-queue
-Core:  env=prod, service=ticket-be,    metric prefix=ticket,       container=ticket-be
+Queue: env=prod, service=ticket-queue-api, metric prefix=ticket_queue_api, container=ticket-queue-api
+Core:  env=prod, service=ticket-be,        metric prefix=ticket,           container=ticket-be
 ```
 
 호스트 식별에는 모든 대상 애플리케이션에 공통으로 존재하는 `<prefix>.jvm_info`를 사용합니다. 조회 범위는 최근 30분이지만, 캡처 시각에서 5분 이내이고 가장 최신 호스트와의 관측 시각 차이가 90초 이내인 호스트만 활성 대상으로 판정합니다. 이 기준 때문에 롤링 배포나 scale-in 직후의 종료된 호스트는 결과에서 빠지고, 동시에 살아 있는 scale-out 호스트는 모두 `targets[].instances[]`에 보존됩니다. 일시적인 네트워크 오류, 429/5xx, 잘못된 응답, 빈 identity 응답은 최대 3번 재시도합니다.

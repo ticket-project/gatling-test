@@ -38,7 +38,7 @@ record DatadogTargetInput(
 ) {
     static DatadogTargetInput queue(final String baseUrl) {
         return new DatadogTargetInput(
-                "queue", baseUrl, "prod", "ticket-queue", "ticket_queue", "ticket-queue"
+                "queue", baseUrl, "prod", "ticket-queue-api", "ticket_queue_api", "ticket-queue-api"
         );
     }
 

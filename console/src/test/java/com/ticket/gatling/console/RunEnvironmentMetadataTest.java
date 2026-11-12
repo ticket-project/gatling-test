@@ -29,7 +29,7 @@ class RunEnvironmentMetadataTest {
                   "status": "ok",
                   "series": [
                     {
-                      "scope": "env:prod,host:i-queue,service:ticket-queue,version:25.0.3_9-lts,version:latest",
+                      "scope": "env:prod,host:i-queue,service:ticket-queue-api,version:25.0.3_9-lts,version:latest",
                       "pointlist": [[1785195000000.0, 9.0], [1.785195015E12, 10.0]]
                     }
                   ]
@@ -75,7 +75,7 @@ class RunEnvironmentMetadataTest {
         final AtomicInteger identityRequests = new AtomicInteger();
         final HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/v1/query", exchange -> {
-            final boolean identityQuery = exchange.getRequestURI().getRawQuery().contains("ticket_queue.jvm_info");
+            final boolean identityQuery = exchange.getRequestURI().getRawQuery().contains("ticket_queue_api.jvm_info");
             final int identityAttempt = identityQuery ? identityRequests.incrementAndGet() : 0;
             final int statusCode = identityQuery && identityAttempt == 1 ? 500 : 200;
             final String response;
@@ -84,7 +84,7 @@ class RunEnvironmentMetadataTest {
             } else {
                 response = """
                         {"status":"ok","series":[{
-                          "scope":"env:prod,service:ticket-queue,host:i-queue,version:25.0.3_9-lts",
+                          "scope":"env:prod,service:ticket-queue-api,host:i-queue,version:25.0.3_9-lts",
                           "pointlist":[[%d.0,1.0]]
                         }]}
                         """.formatted(Instant.now().toEpochMilli());
@@ -127,9 +127,9 @@ class RunEnvironmentMetadataTest {
 
         assertEquals(1, request.environment().targets().size());
         assertEquals("queue", target.role());
-        assertEquals("ticket-queue", target.datadogService());
-        assertEquals("ticket_queue", target.datadogMetricPrefix());
-        assertEquals("ticket-queue", target.datadogContainerName());
+        assertEquals("ticket-queue-api", target.datadogService());
+        assertEquals("ticket_queue_api", target.datadogMetricPrefix());
+        assertEquals("ticket-queue-api", target.datadogContainerName());
     }
 
     @Test
@@ -208,7 +208,7 @@ class RunEnvironmentMetadataTest {
         assertEquals("captured", metadata.captureStatus());
         assertEquals("queue", target.target().role());
         assertEquals("captured", target.captureStatus());
-        assertEquals("ticket-queue", target.target().datadogService());
+        assertEquals("ticket-queue-api", target.target().datadogService());
         assertEquals(observedAt, instance.observedAt());
         assertEquals(4, instance.vcpu());
         assertNull(instance.hikariMaximumPoolSize());
@@ -217,7 +217,7 @@ class RunEnvironmentMetadataTest {
         assertTrue(json.contains("\"replicaCountObserved\": 1"));
         assertTrue(json.contains("\"id\": \"container-i-queue\""));
         assertTrue(json.contains("\"granularity\": \"host\""));
-        assertTrue(json.contains("\"service\": \"ticket-queue\""));
+        assertTrue(json.contains("\"service\": \"ticket-queue-api\""));
         assertTrue(json.contains("\"jvm.xmxBytes\": \"observed\""));
         assertFalse(json.contains("xmsBytes"));
         assertTrue(description.contains("runId=f8290000"));
